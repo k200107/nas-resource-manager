@@ -162,8 +162,10 @@ function validateTransition(task, target, details) {
   }
   if (target === "STAGED") {
     const evidence = details.verification;
-    if (!evidence || evidence.passed !== true || Number(evidence.stableChecks) < 2) {
-      throw new Error("只有验证通过且至少两次稳定性检查一致，才能进入 STAGED。");
+    if (!evidence || evidence.passed !== true || evidence.transferCompleted !== true ||
+        String(evidence.openListTaskId || "") !== String(task.openListTaskId || "") ||
+        Number(evidence.stableChecks) < 2) {
+      throw new Error("必须确认关联的 OpenList 任务已成功完成，并通过至少两次稳定性检查，才能进入 STAGED。");
     }
     if (task.state !== "VERIFYING") throw new Error("只能从 VERIFYING 进入 STAGED。");
   }
