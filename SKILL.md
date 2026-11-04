@@ -528,3 +528,16 @@ Notes:
 11. If the user asks about current OpenList transfer progress, run `npm run openlist-tasks -- list copy undone --format json` or the matching task group; report task ids, names, progress, and errors. If they ask to cancel, preview first and require confirmation before adding `--yes`.
 12. If the user asks to back up into a NAS/SMB OpenList storage, state the source path, exact object name, target backup directory, and final naming before execution; then use `npm run openlist-copy -- "$SRC_DIR" "$DST_DIR" "$NAME" --yes --format json` after confirmation. Use `OPENLIST_DEFAULT_COPY_DST_PATH` when the user does not specify a target.
 13. If the user asks to download into NAS/server storage and copy is not suitable, do not click browser download. Use OpenList offline download into a NAS-backed OpenList storage path, or run a server-side download script using a fresh `raw_url` from `POST /api/fs/get`.
+
+
+## Read-only media archive planning
+
+When the user asks to organize media already saved into the OpenList staging/download directory, first run the read-only planner:
+
+```bash
+npm run media-plan -- --format json
+```
+
+It reads only the configured OPENLIST_STAGING_PATH using OpenList fs/list and proposes destinations under MEDIA_MOVIES_PATH or MEDIA_TVSHOWS_PATH. These three values are OpenList virtual paths and must be verified in the OpenList UI; never substitute host paths such as /vol1/1000/media. OPENLIST_DEFAULT_COPY_DST_PATH remains the separate existing SMB/NAS copy destination.
+
+The planner is not an executor. Do not move, rename, overwrite, copy, or delete media based on its output. Keep low-confidence and ambiguous resources in staging. Never infer a season from an unqualified number in a title. A later archive executor must check transfer task completion, source stability, destination conflicts, shared locks, idempotency, audit logging, and require explicit user approval for the exact source-to-target plan. Use OpenList APIs for all NAS file operations; do not use local filesystem operations to bypass OpenList.
