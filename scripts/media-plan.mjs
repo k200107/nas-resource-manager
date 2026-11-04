@@ -238,7 +238,10 @@ function parseChineseNumber(value) {
   const digits = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 零: 0 };
   if (text === "十") return 10;
   if (text.startsWith("十")) return 10 + (digits[text[1]] || 0);
-  if (text.includes("十")) {\n    const [tens, ones] = text.split("十");\n    return (digits[tens] || 0) * 10 + (ones ? digits[ones] || 0 : 0);\n  }
+  if (text.includes("十")) {
+    const [tens, ones] = text.split("十");
+    return (tens ? digits[tens] || 0 : 1) * 10 + (ones ? digits[ones] || 0 : 0);
+  }
   return digits[text] ?? null;
 }
 
