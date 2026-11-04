@@ -170,7 +170,8 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
       continue;
     }
     const resourceName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
-    const classification = classifyMedia({ resourceName, files: videoFiles });
+    const relativeVideoFiles = videoFiles.map((file) => ({ ...file, name: file.path.slice(entry.path.length).replace(/^\//, "") }));
+    const classification = classifyMedia({ resourceName, files: relativeVideoFiles });
     if (classification.type === "movie" && entry.isDir && videoFiles.some((file) => stripExtension(file.name) === resourceName)) {
       classification.confidence = "medium";
       classification.reason = "目录名与主视频文件名一致，符合单片电影目录结构；仍建议人工复核。";
@@ -190,7 +191,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
     }
     for (const file of videoFiles) {
       const relative = file.path.slice(entry.path.length).replace(/^\//, "");
-      const season = classification.type === "series" ? detectSeason(file.name) : null;
+      const season = classification.type === "series" ? detectSeason(file.path.slice(entry.path.length).replace(/^\//, "")) : null;
       const targetDir = classification.type === "movie"
         ? joinOpenListPath(joinOpenListPath(base, resourceName), path.posix.dirname(relative) === "." ? "" : path.posix.dirname(relative))
         : season
@@ -215,7 +216,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
 function classifyMedia({ resourceName, files }) {
   const haystack = [resourceName, ...files.map((file) => file.name)].join(" ");
   const episodePattern = /(?:S\d{1,2}E\d{1,3}|\bE\d{1,3}\b|EP\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+集|全\d{1,4}集)/i;
-  const seriesWords = /(电视剧|剧集|番剧|动漫|连续剧|美剧|英剧|韩剧|日剧|第[一二三四五六七八九十\d]+季)/i;
+  const seriesWords = /(电视剧|剧集|番剧|动漫|连续剧|美剧|英剧|韩剧|日剧|Season\s*\d{1,2}|第[一二三四五六七八九十\d]+季)/i;
   if (episodePattern.test(haystack) || seriesWords.test(haystack)) {
     return { type: "series", confidence: episodePattern.test(haystack) ? "high" : "medium", reason: "检测到明确集数或剧集关键词。" };
   }
@@ -227,10 +228,12 @@ function classifyMedia({ resourceName, files }) {
 
 function detectSeason(value) {
   const text = String(value || "");
-  const match = text.match(/S(\d{1,2})E\d{1,3}|第([一二三四五六七八九十百\d]+)季/i);
-  if (!match) return null;
-  if (match[1]) return Number(match[1]);
-  return parseChineseNumber(match[2]);
+  const episode = text.match(/S(\d{1,2})E\d{1,3}/i);
+  if (episode) return Number(episode[1]);
+  const englishSeason = text.match(/Season\s*(\d{1,2})/i);
+  if (englishSeason) return Number(englishSeason[1]);
+  const chineseSeason = text.match(/第([一二三四五六七八九十百\d]+)季/);
+  return chineseSeason ? parseChineseNumber(chineseSeason[1]) : null;
 }
 
 function parseChineseNumber(value) {
