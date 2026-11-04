@@ -192,7 +192,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
     }
     for (const file of videoFiles) {
       const relative = file.path.slice(entry.path.length).replace(/^\//, "");
-      const season = classification.type === "series" ? detectSeason(file.path.slice(entry.path.length).replace(/^\//, "")) : null;
+      const season = classification.type === "series" ? detectSeason(`${relative} ${file.name}`) : null;
       const targetDir = classification.type === "movie"
         ? joinOpenListPath(joinOpenListPath(base, resourceName), path.posix.dirname(relative) === "." ? "" : path.posix.dirname(relative))
         : season
