@@ -59,10 +59,13 @@ test("enforces transfer and verification gates before STAGED", async () => {
   const verifying = await transitionTask(task.id, "VERIFYING", {}, options);
   assert.equal(verifying.state, "VERIFYING");
   await assert.rejects(() => transitionTask(task.id, "STAGED", {
-    verification: { passed: true, stableChecks: 1 }
-  }, options), /至少两次/);
+    verification: { passed: true, transferCompleted: false, openListTaskId: "openlist-77", stableChecks: 2 }
+  }, options), /OpenList 任务已成功完成/);
+  await assert.rejects(() => transitionTask(task.id, "STAGED", {
+    verification: { passed: true, transferCompleted: true, openListTaskId: "openlist-77", stableChecks: 1 }
+  }, options), /OpenList 任务已成功完成/);
   const staged = await transitionTask(task.id, "STAGED", {
-    verification: { passed: true, stableChecks: 2, size: 1024, hash: null }
+    verification: { passed: true, transferCompleted: true, openListTaskId: "openlist-77", stableChecks: 2, size: 1024, hash: null }
   }, options);
   assert.equal(canArchive(staged), true);
 });
@@ -76,7 +79,7 @@ test("requires explicit approval and successful archive result", async () => {
   await transitionTask(task.id, "TRANSFERRING", { openListTaskId: "task-1" }, options);
   await transitionTask(task.id, "VERIFYING", {}, options);
   await transitionTask(task.id, "STAGED", {
-    verification: { passed: true, stableChecks: 2 }
+    verification: { passed: true, transferCompleted: true, openListTaskId: "task-1", stableChecks: 2 }
   }, options);
   await assert.rejects(() => transitionTask(task.id, "ARCHIVE_PENDING", {}, options), /明确确认/);
   await transitionTask(task.id, "ARCHIVE_PENDING", {
