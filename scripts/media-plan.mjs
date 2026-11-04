@@ -100,6 +100,7 @@ async function scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath }) {
       return;
     }
     const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath });
+    if (rows.length >= 200) truncated = true;
     for (const row of rows) {
       if (items.length >= MAX_SCAN_ITEMS) {
         truncated = true;
