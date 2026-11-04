@@ -13,6 +13,7 @@ Codex skill for the whole media-to-NAS path. Users can enter from different stag
 - Let the Agent classify resources as movie, series, or collection before saving.
 - Verify saved resources through OpenList and copy them to an SMB/NAS-backed OpenList path.
 - List OpenList copy/offline-download task progress and cancel matched stuck tasks after confirmation.
+- Preview a read-only media archive plan from an OpenList staging directory; no media files are moved or renamed.
 
 ## Requirements
 
@@ -45,7 +46,10 @@ Never commit `.env`. It contains full account credentials.
 | `BAIDU_COOKIE` | Baidu Netdisk web Cookie used to save Baidu share links. |
 | `OPENLIST_TOKEN` | Fixed OpenList API token for list, get, copy, and task APIs. |
 | `OPENLIST_BASE_URL` | OpenList base URL, for example `http://127.0.0.1:5244`. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList path backed by SMB/NAS storage. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList path backed by SMB/NAS storage; existing meaning unchanged. |
+| `OPENLIST_STAGING_PATH` | Optional OpenList staging/download path; configure only after verifying the mount. |
+| `MEDIA_MOVIES_PATH` | Optional OpenList Movies library path. |
+| `MEDIA_TVSHOWS_PATH` | Optional OpenList TVShows library path. |
 | `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | Quark provider config. `QUARK_DEFAULT_SAVE_URL` can be `/备份资源` or a full Quark folder URL. |
 | `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | Baidu provider config. `BAIDU_DEFAULT_SAVE_PATH` can be `/NAS资源下载` or a Baidu folder URL. |
 
@@ -82,6 +86,14 @@ Preview a Baidu share:
 ```bash
 npm run baidu-save -- "$BAIDU_SHARE_URL" "$BAIDU_DEFAULT_SAVE_PATH" --dry-run
 ```
+
+Preview the staging directory and proposed media destinations (read-only):
+
+```bash
+npm run media-plan -- --format text
+```
+
+See `docs/media-plan.md` for classification and safety details. This command only reads OpenList listings; it does not move, rename, copy, or delete files.
 
 List current OpenList copy tasks:
 
@@ -122,7 +134,7 @@ npm test
 
 ```text
 agents/              Agent metadata
-scripts/             CLI helpers for search, env/Cookie checks, cloud saves, OpenList tasks, and OpenList copy
+scripts/             CLI helpers for search, env/Cookie checks, cloud saves, OpenList tasks/copy, and read-only media planning
 tests/               Node test suite
 SKILL.md             Main skill instructions
 SUBAGENT.md          Sub-agent runbook for OpenClaw, Hermes, and similar agents
