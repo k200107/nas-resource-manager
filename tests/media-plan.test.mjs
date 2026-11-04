@@ -30,6 +30,7 @@ test("classifies explicit episode naming as a series", () => {
 test("does not guess a season from an ordinary number", () => {
   assert.equal(detectSeason("狐妖小红娘3_01_4K.mp4"), null);
   assert.equal(detectSeason("S03E01.mkv"), 3);
+  assert.equal(detectSeason("Season 02/01_4K.mkv"), 2);
   assert.equal(detectSeason("狐妖小红娘 第三季.mkv"), 3);
   assert.equal(parseChineseNumber("十二"), 12);
 });
