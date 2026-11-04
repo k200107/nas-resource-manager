@@ -229,8 +229,8 @@ function classifyMedia({ resourceName, files }) {
 
 function normalizeSeriesName(value) {
   return sanitizeName(String(value || "")
-    .replace(/\\s*(?:S\\d{1,2}E\\d{1,3}|EP?\\.?\\s*\\d{1,3}|第[一二三四五六七八九十百\\d]+集|全\\d{1,4}集).*$/i, "")
-    .replace(/\\s*(?:Season\\s*\\d{1,2}|第[一二三四五六七八九十百\\d]+季).*$/i, ""));
+    .replace(/\s*(?:S\d{1,2}E\d{1,3}|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+集|全\d{1,4}集).*$/i, "")
+    .replace(/\s*(?:Season\s*\d{1,2}|第[一二三四五六七八九十百\d]+季).*$/i, ""));
 }
 
 function detectSeason(value) {
