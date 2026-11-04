@@ -13,6 +13,7 @@
     "quark-save": "node scripts/quark-save.mjs",
     "search": "node scripts/search-rrdynb.mjs",
     "test": "node --test tests/*.test.mjs",
-    "media-plan": "node scripts/media-plan.mjs"
+    "media-plan": "node scripts/media-plan.mjs",
+    "media-task": "node scripts/media-task.mjs"
   }
 }
