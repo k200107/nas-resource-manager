@@ -87,6 +87,16 @@ Preview a Baidu share:
 npm run baidu-save -- "$BAIDU_SHARE_URL" "$BAIDU_DEFAULT_SAVE_PATH" --dry-run
 ```
 
+Create and inspect shared media-ingest task records (local metadata only):
+
+```bash
+npm run media-task -- create --key "quark:share-id:file-id" --provider quark --source "/Downloads/资源目录" --name "资源名称" --type series
+npm run media-task -- list
+npm run media-task -- get TASK_ID
+```
+
+Both OpenClaw and Hermes must use the same `MEDIA_TASK_STORE_PATH` and `MEDIA_TASK_LOCK_DIR` on a shared persistent volume. Do not put these paths inside the media library. Task transitions are guarded; see `docs/media-task-state.md`.
+
 Preview the staging directory and proposed media destinations (read-only):
 
 ```bash
