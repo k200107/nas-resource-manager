@@ -530,6 +530,10 @@ Notes:
 13. If the user asks to download into NAS/server storage and copy is not suitable, do not click browser download. Use OpenList offline download into a NAS-backed OpenList storage path, or run a server-side download script using a fresh `raw_url` from `POST /api/fs/get`.
 
 
+## Shared media task state
+
+OpenClaw and Hermes must use the same persistent `MEDIA_TASK_STORE_PATH` and `MEDIA_TASK_LOCK_DIR`. Use `npm run media-task -- create/list/get` for task metadata. For programmatic resource processing, acquire the shared `acquireResourceLock(resourceKey)` and release it in a `finally` block. Never auto-delete an old lock without checking whether its owner process is still active. Task state transitions are enforced by `scripts/media-task-store.mjs`; a transfer is not complete merely because a task record is missing. `STAGED` requires a successful verification record with at least two stable checks, `ARCHIVE_PENDING` requires explicit user approval, and `ARCHIVED` requires a successful execution result. This state layer does not perform OpenList transfers or file moves.
+
 ## Read-only media archive planning
 
 When the user asks to organize media already saved into the OpenList staging/download directory, first run the read-only planner:
