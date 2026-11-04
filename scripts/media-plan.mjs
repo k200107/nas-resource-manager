@@ -169,9 +169,10 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
       });
       continue;
     }
-    const resourceName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
+    let resourceName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
     const relativeVideoFiles = videoFiles.map((file) => ({ ...file, name: file.path.slice(entry.path.length).replace(/^\//, "") }));
     const classification = classifyMedia({ resourceName, files: relativeVideoFiles });
+    if (classification.type === "series") resourceName = normalizeSeriesName(resourceName);
     if (classification.type === "movie" && entry.isDir && videoFiles.some((file) => stripExtension(file.name) === resourceName)) {
       classification.confidence = "medium";
       classification.reason = "目录名与主视频文件名一致，符合单片电影目录结构；仍建议人工复核。";
@@ -224,6 +225,12 @@ function classifyMedia({ resourceName, files }) {
     return { type: "movie", confidence: "low", reason: "仅能确认包含视频文件，未发现明确剧集标记；缺少电影目录结构证据，不能自动归档。" };
   }
   return { type: "unknown", confidence: "low", reason: "资源类型无法可靠判断。" };
+}
+
+function normalizeSeriesName(value) {
+  return sanitizeName(String(value || "")
+    .replace(/\\s*(?:S\\d{1,2}E\\d{1,3}|EP?\\.?\\s*\\d{1,3}|第[一二三四五六七八九十百\\d]+集|全\\d{1,4}集).*$/i, "")
+    .replace(/\\s*(?:Season\\s*\\d{1,2}|第[一二三四五六七八九十百\\d]+季).*$/i, ""));
 }
 
 function detectSeason(value) {
@@ -297,6 +304,7 @@ export {
   buildMediaPlan,
   classifyMedia,
   detectSeason,
+  normalizeSeriesName,
   parseArgs,
   parseChineseNumber,
   scanTree
