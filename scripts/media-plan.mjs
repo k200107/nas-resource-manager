@@ -185,13 +185,17 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
     }
     const resourceName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
     const classification = classifyMedia({ resourceName, files: videoFiles });
+    if (classification.type === "movie" && entry.isDir && videoFiles.some((file) => stripExtension(file.name) === resourceName)) {
+      classification.confidence = "medium";
+      classification.reason = "目录名与主视频文件名一致，符合单片电影目录结构；仍建议人工复核。";
+    }
     const base = classification.type === "movie" ? moviesPath : classification.type === "series" ? tvShowsPath : "";
-    if (!base) {
+    if (!base || classification.confidence === "low") {
       plan.push({
         source: entry.path,
         target: null,
         resourceName,
-        resourceType: classification.type,
+        resourceType: classification.type === "movie" && classification.confidence === "low" ? "unknown" : classification.type,
         confidence: classification.confidence,
         status: "review_required",
         reason: classification.reason
@@ -230,7 +234,7 @@ function classifyMedia({ resourceName, files }) {
     return { type: "series", confidence: episodePattern.test(haystack) ? "high" : "medium", reason: "检测到明确集数或剧集关键词。" };
   }
   if (files.some((file) => VIDEO_EXTENSIONS.has(path.extname(file.name).toLowerCase()))) {
-    return { type: "movie", confidence: "low", reason: "仅能确认包含视频文件，未发现明确剧集标记；电影归类仍需人工复核。" };
+    return { type: "movie", confidence: "low", reason: "仅能确认包含视频文件，未发现明确剧集标记；缺少电影目录结构证据，不能自动归档。" };
   }
   return { type: "unknown", confidence: "low", reason: "资源类型无法可靠判断。" };
 }
