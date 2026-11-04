@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
 
@@ -86,25 +87,9 @@ function parseArgs(argv) {
 }
 
 function loadEnv(envFile) {
-  return envFile ? parseDotEnv(readEnvFile(envFile)) : {};
+  if (!envFile || !fs.existsSync(envFile)) return {};
+  return parseDotEnv(fs.readFileSync(envFile, "utf8"));
 }
-
-function readEnvFile(envFile) {
-  // Avoid a dependency on dotenv; the CLI only needs the existing shared parser.
-  try {
-    return requireFileText(envFile);
-  } catch (error) {
-    if (error?.code === "ENOENT") return "";
-    throw error;
-  }
-}
-
-function requireFileText(envFile) {
-  // Node's built-in fs is loaded lazily to keep this module's pure helpers easy to test.
-  return fsReadFileSync(envFile, "utf8");
-}
-
-import { readFileSync as fsReadFileSync } from "node:fs";
 
 async function scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath }) {
   const items = [];
