@@ -14,3 +14,6 @@ yarn-error.log*
 .cache/
 .tmp/
 tmp/
+
+# Local shared task state and process locks
+.state/
