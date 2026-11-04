@@ -15,7 +15,7 @@ DISCOVERED -> CLOUD_SAVE_PENDING -> CLOUD_SAVED -> TRANSFER_PENDING -> TRANSFERR
 
 Exceptional states: FAILED, PAUSED, UNKNOWN, CONFLICT.
 
-The module rejects unsupported transitions. An OpenList task ID is required before entering TRANSFERRING or VERIFYING. STAGED requires verification.passed=true and at least two stable checks. A hash may be recorded when the source exposes a reliable hash; absence of a hash does not turn size stability into cryptographic proof.
+The module rejects unsupported transitions. An OpenList task ID is required before entering TRANSFERRING or VERIFYING. STAGED requires verification.passed=true, transferCompleted=true from the OpenList reconciliation adapter, the same OpenList task ID already attached to the task, and at least two stable checks. This prevents a merely stable partial download from being marked ready. A hash may be recorded when the source exposes a reliable hash; absence of a hash does not turn size stability into cryptographic proof.
 
 ARCHIVE_PENDING requires an explicit approval record with confirmed=true, approvedBy, and approvedAt. ARCHIVED requires an explicit successful archive result. The state module itself does not call OpenList and does not move files.
 
