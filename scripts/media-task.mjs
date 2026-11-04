@@ -38,7 +38,8 @@ async function main() {
   } else if (args.action === "transition") {
     const details = { actor: args.actor, note: args.note, openListTaskId: args.openListTaskId };
     if (args.to === "STAGED") details.verification = {
-      passed: args.verified, stableChecks: args.stableChecks, size: args.size, hash: args.hash || null
+      passed: args.verified, transferCompleted: args.transferCompleted,
+      openListTaskId: args.openListTaskId, stableChecks: args.stableChecks, size: args.size, hash: args.hash || null
     };
     if (args.to === "ARCHIVE_PENDING") details.approval = {
       confirmed: args.confirmed, approvedBy: args.approvedBy, approvedAt: args.approvedAt
@@ -58,8 +59,9 @@ function parseArgs(argv) {
     const value = argv[i];
     if (!value.startsWith("--")) { positionals.push(value); continue; }
     const key = value.slice(2);
-    if (["verified", "confirmed", "archive-success"].includes(key)) {
-      args[key === "archive-success" ? "archiveSuccess" : key] = true;
+    if (["verified", "confirmed", "archive-success", "transfer-completed"].includes(key)) {
+      const boolKey = key === "archive-success" ? "archiveSuccess" : key === "transfer-completed" ? "transferCompleted" : key;
+      args[boolKey] = true;
       continue;
     }
     const next = argv[++i];
