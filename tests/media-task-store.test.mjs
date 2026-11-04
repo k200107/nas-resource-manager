@@ -56,8 +56,8 @@ test("enforces transfer and verification gates before STAGED", async () => {
   await transitionTask(task.id, "TRANSFER_PENDING", {}, options);
   await assert.rejects(() => transitionTask(task.id, "TRANSFERRING", {}, options), /task ID/);
   await transitionTask(task.id, "TRANSFERRING", { openListTaskId: "openlist-77" }, options);
-  await assert.rejects(() => transitionTask(task.id, "VERIFYING", {}, options), /task ID/);
-  await transitionTask(task.id, "VERIFYING", {}, options);
+  const verifying = await transitionTask(task.id, "VERIFYING", {}, options);
+  assert.equal(verifying.state, "VERIFYING");
   await assert.rejects(() => transitionTask(task.id, "STAGED", {
     verification: { passed: true, stableChecks: 1 }
   }, options), /至少两次/);
