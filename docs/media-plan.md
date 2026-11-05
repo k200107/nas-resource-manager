@@ -24,7 +24,7 @@ The planner combines directory/file names, explicit year and season/episode mark
 
 ## Resolution and naming
 
-Resolution tags are extracted from filenames: 2160p/4K, 2048p/2K, 1440p, 1080p, 720p, and 480p. The identity helper can accept real width/height metadata, but the current OpenList planner does not probe remote video streams; it does not claim to know actual resolution when the filename has no tag.
+Resolution tags are extracted from filenames: 2160p/4K, 2048p/2K (including a standalone `2048` marker), 1440p, 1080p, 720p, and 480p. The identity helper can accept real width/height metadata, but the current OpenList planner does not probe remote video streams; it does not claim to know actual resolution when the filename has no tag.
 
 Movie examples:
 
