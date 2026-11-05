@@ -138,15 +138,15 @@ export function extractYear(value) {
 }
 
 export function buildMovieFileName(title, year, resolution, extension) {
-  const stem = year ? \`\${title} (\${year})\` : title;
-  return \`\${stem}\${resolution ? \` - \${resolution}\` : ""}\${extension}\`;
+  const stem = year ? `${title} (${year})` : title;
+  return `${stem}${resolution ? ` - ${resolution}` : ""}${extension}`;
 }
 
 export function buildSeriesFileName(title, season, episode, resolution, extension) {
   const episodeTag = season == null
-    ? \`E\${String(episode).padStart(2, "0")}\`
-    : \`S\${String(season).padStart(2, "0")}E\${String(episode).padStart(2, "0")}\`;
-  return \`\${title} - \${episodeTag}\${resolution ? \` - \${resolution}\` : ""}\${extension}\`;
+    ? `E${String(episode).padStart(2, "0")}`
+    : `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
+  return `${title} - ${episodeTag}${resolution ? ` - ${resolution}` : ""}${extension}`;
 }
 
 export { DEFAULT_TITLE_ALIASES };
