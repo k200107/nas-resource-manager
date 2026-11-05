@@ -2,7 +2,6 @@
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { fileURLToPath } from "node:url";
 
 function classifyResource({ resourceType = "auto", contextName = "", shareTitle = "", items = [] } = {}) {
   const explicitType = normalizeResourceType(resourceType);
@@ -182,9 +181,6 @@ function askUserSelection(items, defaultSelection) {
   }
 }
 
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
 
 function formatTimestamp(value, { unixSeconds = false } = {}) {
   if (!value) return "-";
@@ -199,7 +195,7 @@ function formatTimestamp(value, { unixSeconds = false } = {}) {
 export {
   askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText,
   extractEpisodeLabel, formatBytes, formatTimestamp, getExtension,
-  isCliEntryPoint, normalizeContextName, normalizeResourceType, parseJson,
+  normalizeContextName, normalizeResourceType, parseJson,
   parseSelection, resolveCookie, sanitizeFileName, stripExtension,
   suggestSavedName
 };
