@@ -9,6 +9,7 @@ import {
   parseChineseNumber,
   scanTree,
   scanTargetConflicts,
+  ensureTargetDirectories,
   resolveMediaTitle
 } from "../scripts/media-plan.mjs";
 import { extractEpisode, extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
@@ -312,4 +313,56 @@ test("plans multiple seasons into separate Season directories", () => {
     "/TVShows/Series/Season 01/Series - S01E01.mkv",
     "/TVShows/Series/Season 02/Series - S02E01.mkv"
   ]);
+});
+
+test("creates missing Movies and TVShows root directories through OpenList mkdir and verifies them", async () => {
+  const dirs = new Set(["/"]);
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push({ endpoint: String(url).split("/api")[1], body });
+    if (String(url).endsWith("/api/fs/list")) {
+      const names = [...dirs]
+        .filter((dir) => dir !== "/" && dir.slice(0, dir.lastIndexOf("/")) === body.path)
+        .map((dir) => ({ name: dir.split("/").at(-1), is_dir: true }));
+      return { ok: true, status: 200, async text() { return JSON.stringify({ code: 200, message: "success", data: { content: names } }); } };
+    }
+    if (String(url).endsWith("/api/fs/mkdir")) {
+      dirs.add(body.path);
+      return { ok: true, status: 200, async text() { return JSON.stringify({ code: 200, message: "success" }); } };
+    }
+    throw new Error("Unexpected endpoint");
+  };
+  await ensureTargetDirectories({
+    baseUrl: "http://openlist.test", token: "token", timeoutMs: 100, fetchImpl,
+    paths: ["/media/Movies", "/media/TVShows"]
+  });
+  assert.ok(dirs.has("/media"));
+  assert.ok(dirs.has("/media/Movies"));
+  assert.ok(dirs.has("/media/TVShows"));
+  assert.deepEqual(calls.filter((call) => call.endpoint === "/fs/mkdir").map((call) => call.body.path), [
+    "/media", "/media/Movies", "/media/TVShows"
+  ]);
+});
+
+test("does not treat a file occupying a target root path as a directory", async () => {
+  await assert.rejects(
+    ensureTargetDirectories({
+      baseUrl: "http://openlist.test", token: "token", timeoutMs: 100,
+      paths: ["/media/Movies"],
+      fetchImpl: async (url, options) => {
+        const body = JSON.parse(options.body);
+        return {
+          ok: true, status: 200,
+          async text() {
+            return JSON.stringify({
+              code: 200, message: "success",
+              data: { content: body.path === "/" ? [{ name: "media", is_dir: false }] : [] }
+            });
+          }
+        };
+      }
+    }),
+    /同名文件/
+  );
 });
