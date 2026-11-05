@@ -14,7 +14,7 @@ Preferred flow:
 6. Track the OpenList task until it is explicitly complete.
 7. Verify the resulting files through OpenList. Check that file size and metadata are stable across repeated reads; use hashes when the provider exposes reliable hashes.
 8. Generate a dry-run archive plan for the media library. Keep related subtitles, NFO files, artwork, and other sidecars together.
-9. Only after the user approves the archive plan, execute the move/rename/copy through OpenList APIs and record the result.
+9. Only after the user approves the archive plan, execute the move/rename through the OpenList archive executor and record the verified result. OpenList Copy remains a separate backup workflow, not the archive operation.
 
 ## Path roles
 
@@ -74,4 +74,4 @@ Both agents call the same CLI/service layer and the same task-state store. They 
 
 ## Initial safety boundary
 
-The first implementation is read-only against existing media-library content. It may inspect paths and produce reports. Any actual transfer into Downloads, cloud-drive save, archive move, rename, overwrite, or deletion must use the existing preview/confirmation protocol. No NAS operation is performed by this repository initialization itself.
+The current implementation supports read-only planning and explicit, isolated archive execution through OpenList Move/Rename. Existing library files are not modified unless the operator supplies a reviewed plan and explicitly passes --yes. The archive executor has source/destination rechecks, conflict blocking, resource locks, and an idempotency ledger. It does not yet enforce the internal task-state machine's transfer-completion gate; unattended automatic archiving remains out of scope until that integration is complete. Cloud saves, OpenList Copy, and any deletion remain separate operations requiring their own preview/confirmation protocol.
