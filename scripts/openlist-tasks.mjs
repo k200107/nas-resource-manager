@@ -14,11 +14,10 @@
  * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
  */
 
-import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -29,7 +28,7 @@ const TASK_GROUPS = new Set(["copy", "offline_download", "offline_download_trans
 const TASK_STATES = new Set(["undone", "done"]);
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
-  if (isCliEntryPoint()) {
+  if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -40,7 +39,7 @@ const TASK_STATES = new Set(["undone", "done"]);
 /** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const env = loadEnv(args.envFile);
+  const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const result = await runOpenListTasks({
     env,
     args,
@@ -332,10 +331,6 @@ function formatTaskResult(result) {
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
 /** 读取 .env 并合并进程环境变量；进程环境变量优先，不覆盖运行环境注入的配置。 */
-function loadEnv(envFile) {
-  const fileEnv = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
-  return { ...fileEnv, ...process.env };
-}
 
 /** 把逗号分隔的参数转换为去空格、去空项的数组。 */
 /** 解析输入并返回规范化结果；不合法的输入应明确报错。 */
@@ -375,9 +370,6 @@ function isOpenListSuccess(json) {
 
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
 /** 判断当前模块是否作为命令行入口直接运行。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
 
 export {
   filterTasks,
