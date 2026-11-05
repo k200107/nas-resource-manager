@@ -283,7 +283,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }
 
     const rawName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
-    const year = extractYear(rawName);
+    const year = extractExplicitYear(rawName);
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
       .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
@@ -305,7 +305,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       const extension = path.extname(file.name).toLowerCase();
       const resolution = extractResolution(file.name);
       const episode = extractEpisode(file.name);
-      const fileYear = extractYear(file.name) || year;
+      const fileYear = extractExplicitYear(file.name) || year;
       let targetDir = "";
       let targetName = "";
       let reviewReasons = [];
@@ -381,7 +381,7 @@ function classifyMedia({ resourceName, files, isDirectory = false }) {
       reason: hasSeasonEpisode ? "文件名包含明确的季集编号。" : "检测到剧集或集数线索，但季集信息仍需核实。"
     };
   }
-  const year = extractYear(resourceName) || files.some((file) => extractYear(file.name));
+  const year = Boolean(extractExplicitYear(resourceName) || files.some((file) => extractExplicitYear(file.name)));
   const directoryMatchesVideo = isDirectory && files.some((file) =>
     normalizeComparableName(stripExtension(file.name)) === normalizeComparableName(resourceName)
   );
@@ -484,6 +484,11 @@ function joinOpenListPath(dir, name) {
 
 /** 处理sanitizeName相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
 /** 处理 sanitizeName 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
+function extractExplicitYear(value) {
+  const match = String(value || "").match(/(?:^|[^0-9])((?:19|20)[0-9]{2})(?:[^0-9]|$)/);
+  return match ? Number(match[1]) : null;
+}
+
 function sanitizeName(value) {
   return String(value || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim() || "Unsorted";
 }
