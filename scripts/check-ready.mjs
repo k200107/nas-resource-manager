@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { loadEnvFile } from "./env-config.mjs";
+import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 /**
  * 组合检查环境变量、网盘 Cookie、OpenList 目标目录和网盘保存目录的只读连通性。
@@ -7,9 +9,6 @@
  * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { parseBaiduSavePath } from "./baidu-save.mjs";
 import { parseDotEnv, validateSkillEnv } from "./check-env.mjs";
@@ -22,7 +21,7 @@ const DEFAULT_BAIDU_APP_ID = "250528";
 const QUARK_API_BASE = "https://drive-pc.quark.cn";
 const BAIDU_API_BASE = "https://pan.baidu.com";
 
-if (isCliEntryPoint()) {
+if (isCli(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -51,33 +50,7 @@ async function main() {
 }
 
 /** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
-function parseArgs(argv) {
-  const parsed = {
-    envFile: DEFAULT_ENV_FILE,
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-    format: "json"
-  };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--env-file" || arg === "--dotenv" || arg === "--config") {
-      parsed.envFile = argv[++index] || DEFAULT_ENV_FILE;
-    } else if (arg === "--timeout-ms") {
-      parsed.timeoutMs = Number(argv[++index] || DEFAULT_TIMEOUT_MS);
-    } else if (arg === "--json") {
-      parsed.format = "json";
-    } else if (arg === "--format") {
-      parsed.format = argv[++index] || "json";
-    } else if (arg.startsWith("--")) {
-      throw new Error(`Unknown option: ${arg}`);
-    } else {
-      parsed.envFile = arg;
-    }
-  }
-
-  return parsed;
-}
-
+function parseArgs(argv) { return parseEnvCliArgs(argv, { defaultEnvFile: DEFAULT_ENV_FILE, defaultFormat: "json", defaultTimeoutMs: DEFAULT_TIMEOUT_MS, allowTimeout: true }); }
 /** 组合环境变量、Cookie、OpenList 和网盘目标检查，生成整体就绪状态。 */
 async function validateReadyConfig(env = {}, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -418,14 +391,6 @@ function formatReadyResult(result) {
 }
 
 /** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
-function loadEnvFile(envFile) {
-  if (!envFile || !fs.existsSync(envFile)) return { exists: false, values: {} };
-  return {
-    exists: true,
-    values: parseDotEnv(fs.readFileSync(envFile, "utf8"))
-  };
-}
-
 /** 规范化输入或接口数据，统一字段和格式。 */
 function normalizeBaseUrl(value) {
   return String(value || "").replace(/\/+$/g, "");
@@ -447,10 +412,6 @@ function joinCloudPath(basePath, name) {
 }
 
 /** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
-
 export {
   parseArgs,
   validateReadyConfig
