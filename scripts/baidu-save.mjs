@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
+import { loadEnvFile } from "./env-config.mjs";
+import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
 
 /**
  * 解析百度分享资源、展示候选项并按明确选择转存到用户网盘；转存和重命名属于远端写操作。
@@ -14,18 +17,9 @@
  * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { fileURLToPath } from "node:url";
 
-import {
-  classifyResource,
-  normalizeContextName,
-  parseSelection
-} from "./quark-save.mjs";
-import { parseDotEnv } from "./check-env.mjs";
+
 
 const DEFAULT_API_BASE = "https://pan.baidu.com";
 const DEFAULT_APP_ID = "250528";
@@ -189,7 +183,7 @@ function parseArgs(argv) {
 /** 执行applyEnvDefaults相关的远端变更；调用前必须确保用户已明确选择目标并确认写入范围。 */
 /** 处理 applyEnvDefaults 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function applyEnvDefaults(args, injectedEnv = null) {
-  const fileEnv = injectedEnv || loadEnvFile(args.envFile);
+  const fileEnv = injectedEnv || loadEnvFile(args.envFile).values;
   const env = { ...fileEnv, ...process.env };
   const rawSavePath = args.savePath || env.BAIDU_DEFAULT_SAVE_PATH || "";
   return {
@@ -899,17 +893,7 @@ function summarizeBaiduTransferResponse(response) {
 
 /** 展示候选资源并收集明确选择；未获得选择时不应擅自保存全部资源。 */
 /** 展示候选资源并收集明确选择；未获得用户选择时不得擅自保存全部候选。 */
-async function askUserSelection(items, defaultSelection) {
-  const rl = readline.createInterface({ input, output });
-  try {
-    const answer = await rl.question(`请选择要转存的序号（默认 ${defaultSelection}，支持 all、1,3、2-5）：`);
-    return parseSelection(answer.trim() || defaultSelection, items);
-  } finally {
-    rl.close();
-  }
-}
-
-/** 读取百度分享页面/接口信息，确认分享资源及访问上下文。 */
+async /** 读取百度分享页面/接口信息，确认分享资源及访问上下文。 */
 /** 读取并核验百度分享上下文及可访问性。 */
 async function verifyBaiduShare({ apiBase, timeoutMs, cookie, bdstoken, verifySurl, passcode, referer }) {
   const url = new URL("/share/verify", normalizeApiBase(apiBase));
@@ -1213,10 +1197,6 @@ function mergeCookieString(cookie, setCookies = []) {
 
 /** 从参数或环境变量中解析网盘 Cookie；避免在输出中回显完整凭证。 */
 /** 从参数或环境变量中解析 Cookie；不得在日志中回显完整凭证。 */
-function resolveCookie(args) {
-  return (args.env?.[args.cookieEnv] || process.env[args.cookieEnv] || "").trim();
-}
-
 /** 规范化 API 根地址，清理多余斜杠或补齐所需路径。 */
 /** 规范化 API 根地址，清理末尾斜杠或补齐所需路径。 */
 function normalizeApiBase(value) {
@@ -1256,58 +1236,14 @@ function parseBaiduSavePath(value) {
 
 /** 根据资源类型和文件名信息生成建议保存名称，不直接修改原文件。 */
 /** 根据已有资源信息生成建议值，不直接修改原始资源。 */
-function suggestSavedName({ baseName, item, selectedCount, isSeries }) {
-  const extension = item.isDir ? "" : getExtension(item.name);
-  if (item.isDir) {
-    if (selectedCount === 1) return baseName;
-    return sanitizeFileName(`${baseName} - ${item.name}`);
-  }
-  if (isSeries) {
-    const episode = extractEpisodeLabel(item.name);
-    if (episode) return sanitizeFileName(`${baseName} ${episode}${extension}`);
-  }
-  if (selectedCount === 1) return sanitizeFileName(`${baseName}${extension}`);
-  return sanitizeFileName(`${baseName} - ${stripExtension(item.name)}${extension}`);
-}
-
 /** 从资源名中提取集数标签，供命名建议使用。 */
 /** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
-function extractEpisodeLabel(value) {
-  const text = String(value || "");
-  const seasonEpisode = text.match(/S(\d{1,2})E(\d{1,3})/i);
-  if (seasonEpisode) {
-    return `S${seasonEpisode[1].padStart(2, "0")}E${seasonEpisode[2].padStart(2, "0")}`;
-  }
-  const cnEpisode = text.match(/第([一二三四五六七八九十百\d]+)集/);
-  if (cnEpisode) return `第${cnEpisode[1]}集`;
-  const ep = text.match(/\bEP?\.?(\d{1,3})\b/i);
-  if (ep) return `E${ep[1].padStart(2, "0")}`;
-  return "";
-}
-
 /** 提取文件扩展名。 */
 /** 处理 getExtension 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-function getExtension(value) {
-  const ext = path.extname(String(value || ""));
-  return ext.length <= 12 ? ext : "";
-}
-
 /** 移除文件名末尾扩展名。 */
 /** 处理 stripExtension 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-function stripExtension(value) {
-  const ext = getExtension(value);
-  return ext ? String(value).slice(0, -ext.length) : String(value || "");
-}
-
 /** 清理文件名中不适合用于文件系统/网盘路径的字符。 */
 /** 处理 sanitizeFileName 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-function sanitizeFileName(value) {
-  return String(value || "")
-    .replace(/[\\/:*?"<>|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 /** 处理joinCloudPath相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
 /** 处理 joinCloudPath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function joinCloudPath(basePath, name) {
@@ -1318,14 +1254,6 @@ function joinCloudPath(basePath, name) {
 
 /** 解析 JSON 参数字符串，遇到格式错误时给出带参数名的提示。 */
 /** 解析 JSON 字符串；格式错误时明确抛出异常。 */
-function parseJson(value, label) {
-  try {
-    return JSON.parse(value || "[]");
-  } catch (error) {
-    throw new Error(`${label} must be valid JSON: ${error.message}`);
-  }
-}
-
 /** 处理stringOrEmpty相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
 /** 处理 stringOrEmpty 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function stringOrEmpty(value) {
@@ -1340,50 +1268,15 @@ function escapeRegExp(value) {
 
 /** 把字节数转换为易读的容量单位。 */
 /** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
-function formatBytes(bytes) {
-  if (!bytes) return "-";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const rounded = value >= 10 || Number.isInteger(value) ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${rounded} ${units[unitIndex]}`;
-}
-
 /** 把时间戳或日期值转换为可读时间文本。 */
 /** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
-function formatTimestamp(value) {
-  if (!value) return "-";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "-";
-  const ms = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toISOString().slice(0, 10);
-}
-
 /** 转义 Markdown 表格单元格中的特殊字符。 */
 /** 处理 escapeMarkdownCell 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-function escapeMarkdownCell(value) {
-  return escapeMarkdownText(value).replace(/\|/g, "\\|");
-}
-
 /** 清理文本中的换行和多余空白，避免破坏 Markdown 输出。 */
 /** 处理 escapeMarkdownText 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-function escapeMarkdownText(value) {
-  return String(value ?? "")
-    .replace(/\r?\n+/g, " ")
-    .trim();
-}
-
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
 /** 判断模块是否由 Node.js 直接执行；被其他模块导入时不自动启动 CLI。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
+function formatTimestamp(value) { return formatTimestampCommon(value, { unixSeconds: true }); }
 
 export {
   applyEnvDefaults,
