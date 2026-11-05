@@ -420,6 +420,6 @@ test("associates episode subtitles using season directory and episode number", (
   ];
   const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
   assert.equal(plan[0].target, "/TVShows/Show/Season 01/Show - S01E01.mkv");
-  assert.equal(plan[1].target, "/TVShows/Show/Season 01/Show - S01E01.zh.CN.srt");
+  assert.equal(plan[1].target, "/TVShows/Show/Season 01/Show - S01E01.zh-CN.srt");
   assert.equal(plan[1].status, "auto_archive_candidate");
 });
