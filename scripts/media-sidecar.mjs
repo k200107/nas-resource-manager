@@ -24,7 +24,7 @@ export function classifySidecar(name) {
   const stem = path.basename(String(name || ""), extension);
   let episode = extractEpisode(String(name || ""));
   if (episode.episode != null && episode.season == null) {
-    const seasonMatch = String(name || "").match(/Season\\s*(\\d{1,2})|第([零〇一二两三四五六七八九十\\d]+)季/i);
+    const seasonMatch = String(name || "").match(/Season\s*(\d{1,2})|第([零〇一二两三四五六七八九十\d]+)季/i);
     if (seasonMatch) episode = { ...episode, season: Number(seasonMatch[1]) || chineseSeasonNumber(seasonMatch[2]) };
   }
   if ([".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup"].includes(extension)) {
@@ -44,7 +44,7 @@ export function classifySidecar(name) {
 function chineseSeasonNumber(value) {
   const digits = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
   const text = String(value || "");
-  if (/^\\d+$/.test(text)) return Number(text);
+  if (/^\d+$/.test(text)) return Number(text);
   if (text === "十") return 10;
   if (text.includes("十")) { const [a, b] = text.split("十"); return (a ? digits[a] || 0 : 1) * 10 + (b ? digits[b] || 0 : 0); }
   return digits[text] ?? null;
