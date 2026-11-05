@@ -58,7 +58,7 @@ function suffixFromSidecar(name, resourceName) {
   }
   stem = stem.replace(/(?:2160p|2048p|1440p|1080p|720p|480p|4k|2k|uhd|fhd)/ig, "");
   stem = stem.replace(/^[ ._-]+|[ ._-]+$/g, "");
-  return stem ? "." + stem.replace(/[ ._-]+/g, ".") + extension : extension;
+  return stem ? "." + stem.replace(/[ ._]+/g, ".") + extension : extension;
 }
 
 function escapeRegExp(value) {
