@@ -244,3 +244,28 @@ test("paginates OpenList directory listings before declaring a destination clear
   assert.equal(result.complete, true);
   assert.equal(result.existingPaths.length, 1);
 });
+
+
+test("does not auto-classify loose videos without movie or series evidence", () => {
+  const items = [
+    { name: "unknown_clip.mkv", path: "/Downloads/unknown_clip.mkv", parentPath: "/Downloads", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows"
+  });
+  assert.equal(plan[0].resourceType, "unknown");
+  assert.equal(plan[0].target, null);
+  assert.equal(plan[0].status, "review_required");
+});
+
+test("holds media items when the staging scan is incomplete", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.mkv", path: "/Downloads/Example (2024)/Example.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows",
+    sourceScanComplete: false
+  });
+  assert.equal(plan[0].status, "review_required");
+});
