@@ -100,6 +100,13 @@ test("recognizes a known homophone alias as a candidate requiring user confirmat
   assert.equal(result.requiresReview, true);
 });
 
+test("does not mistake resolution suffixes or title letters for episode numbers", () => {
+  assert.equal(extractResolution("Example.1080p.mkv").value, "1080p");
+  assert.equal(extractEpisode("Example.1080p.mkv").episode, null);
+  assert.equal(extractEpisode("Show.E03.mkv").episode, 3);
+  assert.equal(extractEpisode("Show.EP03.mkv").episode, 3);
+});
+
 test("extracts resolution and creates Emby-style distinct version filenames", () => {
   assert.equal(extractResolution("Movie.2048p.mkv").value, "2048p");
   assert.equal(extractResolution("Movie_2048.mkv").value, "2048p");
