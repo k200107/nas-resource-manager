@@ -12,14 +12,14 @@ const TIMEOUT_MS = 20_000;
 // These are tiny text placeholders with media extensions. They are NOT playable media.
 const FIXTURES = [
   {
-    directory: "01_Movie_The_Shawshank_Redemption_1994",
+    directory: "The Shawshank Redemption (1994)",
     files: [
       "The Shawshank Redemption (1994).mkv",
       "The Shawshank Redemption (1994).srt"
     ]
   },
   {
-    directory: "02_Series_The_Last_of_Us",
+    directory: "The Last of Us",
     subdirectories: ["Season 01"],
     files: [
       "Season 01/S01E01 - When You're Lost in the Darkness.mkv",
@@ -27,17 +27,17 @@ const FIXTURES = [
     ]
   },
   {
-    directory: "03_Series_Langya_Bang_Season_Three",
+    directory: "琅琊榜 第三季",
     files: [
       "琅琊榜 第三季 第03集.mp4"
     ]
   },
   {
-    directory: "04_Ambiguous_Clip",
+    directory: "Ambiguous Clip",
     files: ["clip.mkv"]
   },
   {
-    directory: "05_Non_Video_Document",
+    directory: "Non Video Document",
     files: ["README.txt"]
   }
 ];
