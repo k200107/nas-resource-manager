@@ -141,6 +141,18 @@ async function runMediaArchive({
       // Create missing directories from the shallowest parent to the deepest.
       for (const dir of check.missingDirectories) await api.mkdir(dir);
 
+      // Last-moment recheck prevents stale preflight data from overwriting a file created meanwhile.
+      const freshSourceRows = await api.list(item.sourceDir);
+      if (!freshSourceRows.some((entry) => sameName(entry.name, item.sourceName) && !entry.isDir)) {
+        throw new Error("执行前源文件已不存在或类型发生变化，已停止。");
+      }
+      const freshTargetRows = await api.list(item.targetDir);
+      if (item.sourceDir !== item.targetDir || item.sourceName !== item.targetName) {
+        if (freshTargetRows.some((entry) => sameName(entry.name, item.targetName))) {
+          throw new Error("执行前目标路径已被占用，已停止且不会覆盖。");
+        }
+      }
+
       let currentPath = item.source;
       if (item.sourceDir !== item.targetDir) {
         await api.move(item.sourceDir, item.targetDir, item.sourceName);
@@ -206,9 +218,22 @@ function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
   }
   return {
     async list(dir) {
-      const json = await request("/api/fs/list", { path: dir, password: "", page: 1, per_page: 200, refresh: true });
-      const rows = Array.isArray(json?.data?.content) ? json.data.content : Array.isArray(json?.data) ? json.data : [];
-      return rows.map((row) => ({ name: String(row.name || ""), isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1) })).filter((row) => row.name);
+      const all = [];
+      const seen = new Set();
+      for (let page = 1; page <= 10; page += 1) {
+        const json = await request("/api/fs/list", { path: dir, password: "", page, per_page: 200, refresh: true });
+        const rows = Array.isArray(json?.data?.content) ? json.data.content : Array.isArray(json?.data) ? json.data : [];
+        for (const row of rows) {
+          const name = String(row.name || "");
+          if (name && !seen.has(name)) {
+            seen.add(name);
+            all.push({ name, isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1) });
+          }
+        }
+        if (rows.length < 200) return all;
+        if (page === 10) throw new Error(`OpenList 目录 ${dir} 超过 2000 项，无法安全排除目标冲突。`);
+      }
+      return all;
     },
     mkdir: (dir) => request("/api/fs/mkdir", { path: dir }),
     move: (srcDir, dstDir, name) => request("/api/fs/move", { src_dir: srcDir, dst_dir: dstDir, names: [name] }),
