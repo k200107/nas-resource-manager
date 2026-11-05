@@ -6,7 +6,6 @@
  * Existing targets are never overwritten; all items are rechecked immediately before execution.
  */
 import fs from "node:fs";
-import path from "node:path";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
 import { acquireResourceLock, getArchiveOperation, recordArchiveOperation } from "./media-task-store.mjs";
