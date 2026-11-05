@@ -96,6 +96,8 @@ test("extracts resolution and creates Emby-style distinct version filenames", ()
   assert.equal(extractResolution("Movie.2048p.mkv").value, "2048p");
   assert.equal(extractResolution("Movie.1080p.mkv").value, "1080p");
   assert.equal(extractResolution("anything.mkv", { width: 3840, height: 2160 }).value, "2160p");
+  assert.equal(extractResolution("anything.mkv", { width: 2048, height: 1080 }).value, "2048p");
+  assert.equal(extractResolution("anything.mkv", { width: 2560, height: 1440 }).value, "1440p");
   assert.equal(buildMovieFileName("Example", 2024, "1080p", ".mkv"), "Example (2024) - 1080p.mkv");
   assert.equal(buildMovieFileName("Example", 2024, "2048p", ".mkv"), "Example (2024) - 2048p.mkv");
   assert.equal(buildSeriesFileName("Example", 1, 2, "1080p", ".mkv"), "Example - S01E02 - 1080p.mkv");
@@ -130,4 +132,29 @@ test("pauses exact destination collisions and incomplete destination scans", () 
     destinationScanComplete: false
   });
   assert.equal(incomplete[0].status, "review_required");
+});
+
+
+test("holds homophone title candidates for confirmation instead of silently renaming", () => {
+  const items = [
+    { name: "肖生客的救赎 (1994)", path: "/Downloads/肖生客的救赎 (1994)", parentPath: "/Downloads", isDir: true },
+    { name: "肖生客的救赎.mkv", path: "/Downloads/肖生客的救赎 (1994)/肖生客的救赎.mkv", parentPath: "/Downloads/肖生客的救赎 (1994)", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.equal(plan[0].resourceName, "肖申克的救赎");
+  assert.equal(plan[0].status, "review_required");
+  assert.equal(plan[0].titleMatch.matchType, "alias");
+});
+
+test("different resolution versions do not collide with each other", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.2048p.mkv", path: "/Downloads/Example (2024)/Example.2048p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows",
+    existingPaths: ["/Movies/Example (2024)/Example (2024) - 1080p.mkv"]
+  });
+  assert.equal(plan[0].status, "auto_archive_candidate");
+  assert.equal(plan[0].conflict, false);
 });
