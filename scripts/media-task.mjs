@@ -70,8 +70,8 @@ async function main() {
       passed: args.verified, transferCompleted: args.transferCompleted,
       openListTaskId: args.openListTaskId, stableChecks: args.stableChecks, size: args.size, hash: args.hash || null
     };
-    // 进入待归档阶段必须显式提供人工确认信息，不能由脚本自动批准。
-  if (args.to === "ARCHIVE_PENDING") details.approval = {
+    // 兼容旧的逐项审批记录；新流程可通过 archive-mode 传递自动决策或已确认的识别结果。
+  if (args.to === "ARCHIVE_PENDING" && args.confirmed) details.approval = {
       confirmed: args.confirmed, approvedBy: args.approvedBy, approvedAt: args.approvedAt
     };
     // 只有归档执行结果明确成功，状态库才允许标记为 ARCHIVED。
