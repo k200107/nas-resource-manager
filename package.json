@@ -14,6 +14,7 @@
     "search": "node scripts/search-rrdynb.mjs",
     "test": "node --test",
     "media-plan": "node scripts/media-plan.mjs",
+    "media-archive": "node scripts/media-archive.mjs",
     "media-task": "node scripts/media-task.mjs",
     "openlist-reconcile": "node scripts/openlist-reconcile.mjs",
     "media-test-fixtures": "node scripts/openlist-test-fixtures.mjs"
