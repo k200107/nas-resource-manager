@@ -297,7 +297,13 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       relativeName: file.path.slice(entry.path.length).replace(/^\//, ""),
       name: entry.isDir ? file.path.slice(entry.path.length).replace(/^\//, "") : file.name
     }));
-    const classification = classifyMedia({ resourceName: rawName, files: relativeFiles, isDirectory: entry.isDir });
+    const detectedClassification = classifyMedia({ resourceName: rawName, files: relativeFiles, isDirectory: entry.isDir });
+    // 明确年份是强电影线索；但文件名已有季集证据时，电视剧分类优先，避免把带年份的剧集误判为电影。
+    const classification = detectedClassification.type === "series"
+      ? detectedClassification
+      : year
+        ? { type: "movie", confidence: "high", reason: "资源目录或文件名包含明确年份，按电影候选处理。" }
+        : detectedClassification;
     const aliasNeedsReview = identity.matchType === "alias" || identity.candidates?.length > 0;
     const base = classification.type === "movie" ? moviesPath : classification.type === "series" ? tvShowsPath : "";
 
