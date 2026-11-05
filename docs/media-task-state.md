@@ -49,3 +49,8 @@ The CLI currently exposes create/list/get/transition for task metadata. It is no
 - Verification must inspect files through OpenList, not local filesystem shortcuts.
 - All NAS file operations remain OpenList-only.
 - No operation in this stage changes existing NAS media files.
+
+
+## OpenList task reconciliation
+
+Run `npm run openlist-reconcile -- MEDIA_TASK_ID` to reconcile one `TRANSFERRING` task with OpenList. The adapter looks up the exact recorded OpenList task ID in both `copy/undone` and `copy/done` lists. Only a task in the done bucket with explicit success evidence (progress at least 100 or a recognized success/completed status) advances to `VERIFYING`. A task in undone remains `TRANSFERRING`; a reported error becomes `FAILED`; missing, ambiguous, or incomplete evidence becomes `UNKNOWN`. No files are read, copied, moved, renamed, or deleted by this command.
