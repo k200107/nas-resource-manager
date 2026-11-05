@@ -32,7 +32,7 @@ export function classifySidecar(name) {
     return { role: "subtitle", scope, episode };
   }
   if (extension === ".nfo") {
-    return { role: "metadata", scope: "resource", episode };
+    return { role: "metadata", scope: episode.episode != null ? "episode" : "resource", episode };
   }
   const base = stem.toLowerCase().replace(/[ ._-]+/g, "");
   const knownArtwork = [...ARTWORK_NAMES].some((value) => base === value || base.startsWith(value));
