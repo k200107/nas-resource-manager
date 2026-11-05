@@ -37,7 +37,7 @@ The current task store validates the evidence fields; a future verifier must act
 
 `canAutoArchive(task)` requires a verified `STAGED` task, no unresolved conflict, and either high-confidence classification or an explicit identity review resolution. The `ARCHIVE_PENDING` transition accepts an automatic decision only when the task classification is high confidence and the destination check says `conflict=false`. A manually resolved identity can use `archiveDecision.mode="user-confirmed"`; this confirms identity, not each subsequent file move.
 
-The state module does not call OpenList and does not move files. The actual archive executor is a separate future step and must re-list the exact source and destination, acquire the shared resource lock, and revalidate transfer state and conflicts immediately before moving.
+The state module does not call OpenList and does not move files. A separate OpenList archive executor now exists: it re-lists source and destination, acquires a resource-group lock, records verified source/target pairs in the shared state store, and skips recorded operations on replay. Important limitation: the current executor does not yet resolve a media task ID or call this state machine's transfer-verification gate before moving. Until that integration is implemented, an operator must independently confirm that the exact OpenList transfer task is complete and the staged files are stable before running archive execution. Do not enable unattended automatic archiving yet.
 
 ## Idempotency and locking
 
