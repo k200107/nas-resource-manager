@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
-import { loadEnvFile } from "./env-config.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
 
 /**
@@ -182,8 +182,7 @@ function parseArgs(argv) {
 /** 执行applyEnvDefaults相关的远端变更；调用前必须确保用户已明确选择目标并确认写入范围。 */
 /** 处理 applyEnvDefaults 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function applyEnvDefaults(args, injectedEnv = null) {
-  const fileEnv = injectedEnv || loadEnvFile(args.envFile).values;
-  const env = { ...fileEnv, ...process.env };
+  const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env, injectedEnv);
   const rawSavePath = args.savePath || env.BAIDU_DEFAULT_SAVE_PATH || "";
   return {
     ...args,
