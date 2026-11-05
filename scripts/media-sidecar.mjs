@@ -22,9 +22,14 @@ export function isSidecarFile(name) {
 export function classifySidecar(name) {
   const extension = path.extname(String(name || "")).toLowerCase();
   const stem = path.basename(String(name || ""), extension);
-  const episode = extractEpisode(stem);
+  let episode = extractEpisode(String(name || ""));
+  if (episode.episode != null && episode.season == null) {
+    const seasonMatch = String(name || "").match(/Season\\s*(\\d{1,2})|第([零〇一二两三四五六七八九十\\d]+)季/i);
+    if (seasonMatch) episode = { ...episode, season: Number(seasonMatch[1]) || chineseSeasonNumber(seasonMatch[2]) };
+  }
   if ([".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup"].includes(extension)) {
-    return { role: "subtitle", scope: episode.episode != null ? "episode" : "resource", episode };
+    const scope = episode.episode != null ? "episode" : extractResolution(name).value ? "version" : "resource";
+    return { role: "subtitle", scope, episode };
   }
   if (extension === ".nfo") {
     return { role: "metadata", scope: "resource", episode };
@@ -36,7 +41,7 @@ export function classifySidecar(name) {
   return { role: "unknown-sidecar", scope: "unknown", episode };
 }
 
-function normalizeStem(value) {
+function chineseSeasonNumber(value) {\n  const digits = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };\n  const text = String(value || "");\n  if (/^\\d+$/.test(text)) return Number(text);\n  if (text === "十") return 10;\n  if (text.includes("十")) { const [a, b] = text.split("十"); return (a ? digits[a] || 0 : 1) * 10 + (b ? digits[b] || 0 : 0); }\n  return digits[text] ?? null;\n}\n\nfunction normalizeStem(value) {
   return String(value || "").toLowerCase().normalize("NFKC")
     .replace(/\.(mkv|mp4|avi|mov|m4v|wmv|ts|webm|srt|ass|ssa|sub|idx|vtt|sup|nfo|jpg|jpeg|png|webp|tbn|bmp)$/i, "")
     .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|4k|2k|uhd|fhd)/ig, "")
@@ -67,7 +72,7 @@ function escapeRegExp(value) {
 export function buildSidecarPlans({ sidecarFiles, videoPlans, resourceType, resourceName, year, resourceFolder, seriesFolder }) {
   const result = [];
   for (const file of sidecarFiles) {
-    const info = classifySidecar(file.name);
+    let info = classifySidecar(file.name);\n    const fileExtension = path.extname(file.name).toLowerCase();\n    if (info.role === "unknown-sidecar" && [".jpg", ".jpeg", ".png", ".webp", ".tbn", ".bmp"].includes(fileExtension) && normalizeStem(file.name).includes(normalizeStem(resourceName))) {\n      info = { role: "artwork", scope: "resource", episode: info.episode };\n    }
     const extension = path.extname(file.name).toLowerCase();
     const isKnownArtwork = info.role === "artwork" || info.role === "episode-artwork";
     const matchingEpisode = info.episode?.episode != null
