@@ -17,7 +17,6 @@ import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
  * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
  */
 
-import { stdin as input, stdout as output } from "node:process";
 
 
 
@@ -31,7 +30,7 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
-  if (isCliEntryPoint()) {
+  if (isCli(import.meta.url)) {
   main().catch((error) => {
     const message = error && error.message ? error.message : String(error);
     console.error(JSON.stringify({ ok: false, error: message }, null, 2));
