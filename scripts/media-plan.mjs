@@ -18,7 +18,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
-import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, parseChineseNumber as parseChineseNumberShared, resolveMediaTitle } from "./media-identity.mjs";
+import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, parseChineseNumber as parseChineseNumberShared, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -63,7 +63,8 @@ async function main() {
   ]);
   const existingPaths = [...movieIndex.items, ...seriesIndex.items].map((item) => item.path);
   const destinationScanComplete = !movieIndex.truncated && !seriesIndex.truncated;
-  const plan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, existingPaths, destinationScanComplete });
+  const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
+  const plan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, existingPaths, destinationScanComplete, aliases });
   const result = {
     ok: true,
     tool: "media-plan",
@@ -422,4 +423,16 @@ export {
   parseChineseNumber,
   resolveMediaTitle,
   scanTree
-};
+};/** 读取可选的本地片名别名表；文件不存在时使用内置示例，格式错误时中止而不是静默忽略。 */
+function loadTitleAliases(filePath) {
+  if (!filePath) return DEFAULT_TITLE_ALIASES;
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) return DEFAULT_TITLE_ALIASES;
+  const parsed = JSON.parse(fs.readFileSync(resolved, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("MEDIA_TITLE_ALIASES_FILE 必须是“标准片名: 别名数组”的 JSON 对象。");
+  }
+  return { ...DEFAULT_TITLE_ALIASES, ...parsed };
+}
+
+
