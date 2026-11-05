@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
 /**
+ * 使用媒体任务记录的精确 OpenList task ID 对账，并把远端可确认结果同步到内部任务状态。
+ *
+ * 本文件说明：函数注释解释各步骤职责及重要约束；本次修改仅增加注释，不改变业务执行逻辑。
+ * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
+ */
+
+/**
  * 使用媒体任务中记录的 OpenList task ID 精确查询后台任务，并将可确认的结果同步回内部任务状态。
  *
  * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
@@ -22,6 +29,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 }
 
 /** 读取内部媒体任务并按其记录的 OpenList task ID 对账；只有任务处于 TRANSFERRING 才查询远端状态。 */
+/** 只对处于 TRANSFERRING 的内部任务按精确远端任务 ID 对账，并按确认结果迁移状态。 */
 async function runOpenListReconcile({ env = {}, args = {}, fetchImpl = globalThis.fetch, store = { getTask, transitionTask } }) {
   const id = String(args.id || "").trim();
   if (!id) throw new Error("缺少媒体任务 ID。");
@@ -54,6 +62,7 @@ async function runOpenListReconcile({ env = {}, args = {}, fetchImpl = globalThi
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
+/** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
 function parseArgs(argv) {
   const args = { id: "", envFile: ".env", group: "copy", timeoutMs: 20000 };
   for (let i = 0; i < argv.length; i += 1) {
@@ -73,12 +82,14 @@ function parseArgs(argv) {
 }
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
+/** 读取 .env 并与进程环境变量合并；进程环境变量优先。 */
 function loadEnv(file) {
   const fileEnv = file && fs.existsSync(file) ? parseDotEnv(fs.readFileSync(file, "utf8")) : {};
   return { ...fileEnv, ...process.env };
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
+/** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const result = await runOpenListReconcile({ env: loadEnv(args.envFile), args });
