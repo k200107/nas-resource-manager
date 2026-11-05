@@ -171,7 +171,7 @@ function escapeMarkdownText(value) {
     .trim();
 }
 
-function askUserSelection(items, defaultSelection) {
+async function askUserSelection(items, defaultSelection) {
   const rl = readline.createInterface({ input, output });
   try {
     const answer = await rl.question(`请选择要转存的序号（默认 ${defaultSelection}，支持 all、1,3、2-5）：`);
