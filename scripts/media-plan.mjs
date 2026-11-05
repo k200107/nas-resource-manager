@@ -57,13 +57,14 @@ async function main() {
   // 此处只读取 OpenList 目录树，后续 buildMediaPlan 只生成建议，不执行文件操作。
   const scanned = await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
-  const basePlan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases });
+  const basePlan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases, sourceScanComplete: !scanned.truncated });
   // 只检查计划涉及的目标父目录，不递归扫描整个媒体库；目标目录读取不完整时保守转人工复核。
   const collisionIndex = await scanTargetConflicts({ ...context, plan: basePlan, moviesPath, tvShowsPath });
   const plan = buildMediaPlan({
     sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
     existingPaths: collisionIndex.existingPaths,
-    destinationScanComplete: collisionIndex.complete
+    destinationScanComplete: collisionIndex.complete,
+    sourceScanComplete: !scanned.truncated
   });
   const result = {
     ok: true,
@@ -247,7 +248,7 @@ async function scanTargetConflicts({ baseUrl, token, fetchImpl, timeoutMs, plan,
 
 /** 根据暂存目录的一级资源和视频文件证据生成候选归档计划；模糊项目保留人工复核，不执行文件变更。 */
 /** 构造流程需要的数据结构或预览计划；不应隐式执行远端写入。 */
-function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, existingPaths = [], destinationScanComplete = true, aliases = undefined }) {
+function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, existingPaths = [], destinationScanComplete = true, sourceScanComplete = true, aliases = undefined }) {
   const topLevel = items.filter((item) => item.parentPath === sourcePath);
   const existing = new Set(existingPaths.map((value) => String(value).toLocaleLowerCase("zh-CN")));
   const plan = [];
@@ -292,6 +293,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       let targetDir = "";
       let targetName = "";
       let reviewReasons = [];
+      if (!sourceScanComplete) reviewReasons.push("暂存目录扫描未完成，不能确认资源目录和视频文件清单完整。");
 
       if (!base || classification.confidence === "low") {
         reviewReasons.push(classification.reason);
