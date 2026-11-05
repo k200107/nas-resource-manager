@@ -88,7 +88,10 @@ export function buildSidecarPlans({ sidecarFiles, videoPlans, resourceType, reso
     } else if (resourceType === "series" && info.scope === "episode") {
       let candidates = matchingEpisode;
       if (sidecarResolution) candidates = candidates.filter((video) => video.resolution === sidecarResolution);
-      if (candidates.length === 1) {
+      const candidateSeasons = new Set(candidates.map((video) => video.season));
+      if (candidateSeasons.size > 1) {
+        reason = "附件缺少明确季数，且多个季存在相同集数；无法可靠判断归属。";
+      } else if (candidates.length === 1) {
         const video = candidates[0];
         const suffix = suffixFromSidecar(file.name, path.basename(video.source, path.extname(video.source)));
         target = video.target.replace(/\.[^.]+$/, "") + suffix;
