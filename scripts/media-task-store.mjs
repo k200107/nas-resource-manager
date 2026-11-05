@@ -47,7 +47,8 @@ export function isTransferSafeToArchive(task) {
 /** 判断验证通过的任务是否满足免人工逐项批准的自动归档条件。 */
 export function canAutoArchive(task) {
   if (!canArchive(task) || task.conflict === true) return false;
-  return task.reviewResolution?.confirmed === true || task.classification?.confidence === "high";
+  return task.reviewResolution?.confirmed === true ||
+    (["movie", "series"].includes(task.resourceType) && task.classification?.confidence === "high");
 }
 
 /** 创建媒体任务；通过幂等键防止同一资源被重复创建，并在状态库锁内写入。 */
@@ -230,6 +231,7 @@ function validateTransition(task, target, details) {
     if (!canArchive(task)) throw new Error("任务未通过验证，不允许进入归档待执行状态。");
     const decision = details.archiveDecision;
     const automatic = decision?.mode === "automatic" &&
+      ["movie", "series"].includes(task.resourceType) &&
       task.classification?.confidence === "high" &&
       decision.conflict === false &&
       task.conflict !== true;
