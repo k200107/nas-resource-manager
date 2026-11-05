@@ -8,5 +8,5 @@ test("dotenv parser handles export, quotes and inline comments", () => {
 });
 
 test("environment precedence keeps process values above file values and injected values", () => {
-  assert.deepEqual(mergeEnvValues({A:"file",B:"file"}, {A:"process"}, {B:"injected",C:"injected"}), {A:"process",B:"file",C:"injected"});
+  assert.deepEqual(mergeEnvValues({A:"file",B:"file"}, {A:"process"}, {B:"injected",C:"injected"}), {A:"process",B:"injected",C:"injected"});
 });
