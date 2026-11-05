@@ -94,6 +94,8 @@ test("recognizes a known homophone alias as a candidate requiring user confirmat
 
 test("extracts resolution and creates Emby-style distinct version filenames", () => {
   assert.equal(extractResolution("Movie.2048p.mkv").value, "2048p");
+  assert.equal(extractResolution("Movie_2048.mkv").value, "2048p");
+  assert.equal(extractResolution("Movie.1440p.mkv").value, "1440p");
   assert.equal(extractResolution("Movie.1080p.mkv").value, "1080p");
   assert.equal(extractResolution("anything.mkv", { width: 3840, height: 2160 }).value, "2160p");
   assert.equal(extractResolution("anything.mkv", { width: 2048, height: 1080 }).value, "2048p");
