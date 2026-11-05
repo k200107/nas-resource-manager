@@ -14,14 +14,12 @@
  * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { lookupOpenListTaskById } from "./openlist-tasks.mjs";
 import { getTask, transitionTask } from "./media-task-store.mjs";
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -83,16 +81,12 @@ function parseArgs(argv) {
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
 /** 读取 .env 并与进程环境变量合并；进程环境变量优先。 */
-function loadEnv(file) {
-  const fileEnv = file && fs.existsSync(file) ? parseDotEnv(fs.readFileSync(file, "utf8")) : {};
-  return { ...fileEnv, ...process.env };
-}
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const result = await runOpenListReconcile({ env: loadEnv(args.envFile), args });
+  const result = await runOpenListReconcile({ env: mergeEnvValues(loadEnvFile(args.envFile).values, process.env), args });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exit(1);
 }
