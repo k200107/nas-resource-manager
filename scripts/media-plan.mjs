@@ -19,7 +19,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
-import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
+import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -495,18 +495,6 @@ function detectSeason(value) {
 
 /** 将支持范围内的中文数字转换为整数，供季数识别使用。 */
 /** 解析输入并返回规范化结果；不合法的输入应明确报错。 */
-function parseChineseNumber(value) {
-  const text = String(value || "");
-  if (/^\d+$/.test(text)) return Number(text);
-  const digits = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 零: 0 };
-  if (text === "十") return 10;
-  if (text.startsWith("十")) return 10 + (digits[text[1]] || 0);
-  if (text.includes("十")) {
-    const [tens, ones] = text.split("十");
-    return (tens ? digits[tens] || 0 : 1) * 10 + (ones ? digits[ones] || 0 : 0);
-  }
-  return digits[text] ?? null;
-}
 
 /** 汇总计划条目数、电影/剧集数量、待复核数量和低置信度数量。 */
 /** 处理 summarizePlan 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
