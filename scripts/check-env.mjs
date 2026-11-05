@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { loadEnvFile, parseDotEnv } from "./env-config.mjs";
+import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 /**
  * 读取并检查 .env 配置格式；密钥只显示掩码，不发起网盘或 NAS 写操作。
@@ -7,9 +9,6 @@
  * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const DEFAULT_ENV_FILE = ".env";
 
@@ -82,7 +81,7 @@ const REQUIRED_CONFIG = [
   ...PROVIDER_CONFIG.flatMap((provider) => provider.keys)
 ];
 
-if (isCliEntryPoint()) {
+if (isCli(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -109,75 +108,10 @@ async function main() {
 }
 
 /** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
-function parseArgs(argv) {
-  const parsed = {
-    envFile: DEFAULT_ENV_FILE,
-    format: "text"
-  };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--env-file" || arg === "--dotenv" || arg === "--config") {
-      parsed.envFile = argv[++index] || DEFAULT_ENV_FILE;
-    } else if (arg === "--json") {
-      parsed.format = "json";
-    } else if (arg === "--format") {
-      parsed.format = argv[++index] || "text";
-    } else if (arg.startsWith("--")) {
-      throw new Error(`Unknown option: ${arg}`);
-    } else {
-      parsed.envFile = arg;
-    }
-  }
-
-  return parsed;
-}
-
+function parseArgs(argv) { return parseEnvCliArgs(argv, { defaultEnvFile: DEFAULT_ENV_FILE, defaultFormat: "text" }); }
 /** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
-function loadEnvFile(envFile) {
-  if (!fs.existsSync(envFile)) {
-    return { exists: false, values: {} };
-  }
-  return {
-    exists: true,
-    values: parseDotEnv(fs.readFileSync(envFile, "utf8"))
-  };
-}
-
 /** 解析 dotenv 文本，支持注释、export 前缀、引号和常见转义。 */
-function parseDotEnv(input) {
-  const values = {};
-  for (const rawLine of String(input || "").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
-    const equalIndex = normalized.indexOf("=");
-    if (equalIndex === -1) continue;
-
-    const key = normalized.slice(0, equalIndex).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    values[key] = parseDotEnvValue(normalized.slice(equalIndex + 1).trim());
-  }
-  return values;
-}
-
 /** 解析单个 dotenv 值，处理引号、转义字符和行尾注释。 */
-function parseDotEnvValue(value) {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    const inner = value.slice(1, -1);
-    if (value.startsWith('"')) {
-      return inner
-        .replace(/\\n/g, "\n")
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\");
-    }
-    return inner;
-  }
-
-  const commentIndex = value.search(/\s#/);
-  return (commentIndex === -1 ? value : value.slice(0, commentIndex)).trim();
-}
-
 /** 检查核心配置和至少一个完整网盘配置，返回缺失项、格式错误项和下一步建议。 */
 function validateSkillEnv(env, options = {}) {
   const missing = [];
@@ -384,10 +318,6 @@ function isBaiduSaveTarget(value) {
 }
 
 /** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
-
 export {
   REQUIRED_CONFIG,
   formatEnvCheckResult,
