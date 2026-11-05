@@ -17,6 +17,7 @@
     "media-archive": "node scripts/media-archive.mjs",
     "media-task": "node scripts/media-task.mjs",
     "openlist-reconcile": "node scripts/openlist-reconcile.mjs",
-    "media-test-fixtures": "node scripts/openlist-test-fixtures.mjs"
+    "media-test-fixtures": "node scripts/openlist-test-fixtures.mjs",
+    "media-archive-fixtures": "node scripts/openlist-media-fixtures.mjs"
   }
 }
