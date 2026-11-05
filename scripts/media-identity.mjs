@@ -90,7 +90,7 @@ export function resolveMediaTitle(rawTitle, aliasCatalog = DEFAULT_TITLE_ALIASES
     matched: false,
     canonicalTitle: raw,
     candidates: candidates.slice(0, 5),
-    requiresReview: true
+    requiresReview: candidates.length > 0
   };
 }
 
