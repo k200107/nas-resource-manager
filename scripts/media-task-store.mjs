@@ -122,9 +122,9 @@ export async function transitionTask(taskId, nextState, details = {}, options = 
     task.updatedAt = now;
     if (details.openListTaskId) task.openListTaskId = String(details.openListTaskId);
     if (target === "STAGED") task.verification = structuredClone(details.verification);
-    if (target === "REVIEW_REQUIRED") {
+    if (target === "REVIEW_REQUIRED" || target === "CONFLICT") {
       task.review = structuredClone(details.review || {});
-      task.conflict = details.conflict === true;
+      task.conflict = details.conflict === true || target === "CONFLICT";
     }
     if (target === "STAGED" && details.reviewResolution) {
       task.reviewResolution = structuredClone(details.reviewResolution);
