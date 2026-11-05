@@ -35,7 +35,7 @@ Movie examples:
 Movies/
 └── Example (2024)/
     ├── Example (2024) - 1080p.mkv
-    └── Example (2024) - 2048p.mkv
+    └── Example (2024) - 2160p.mkv
 ```
 
 TV examples:
