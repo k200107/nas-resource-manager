@@ -5,7 +5,6 @@
  * All files are tiny text placeholders with media extensions, never playable media.
  * Preview is the default; --yes creates only under the dedicated test root.
  */
-import fs from "node:fs";
 import path from "node:path";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
