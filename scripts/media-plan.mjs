@@ -213,7 +213,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     const year = extractYear(rawName);
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
-      .replace(/S\d{1,2}E\d{1,3}|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
+      .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
       .replace(/(?:2160p|2048p|1080p|720p|480p|4k|2k|uhd|fhd)/ig, "")
       .replace(/[._-]+/g, " ").trim();
     const identity = resolveMediaTitle(identityInput, aliases);
@@ -294,7 +294,7 @@ function classifyMedia({ resourceName, files, isDirectory = false }) {
   const episodeRecords = files.map((file) => extractEpisode(file.name));
   const hasExplicitEpisode = episodeRecords.some((item) => item.episode != null);
   const hasSeasonEpisode = episodeRecords.some((item) => item.season != null && item.episode != null);
-  const seriesWords = /(电视剧|剧集|番剧|动漫|连续剧|美剧|英剧|韩剧|日剧|Season\s*\d{1,2}|第[一二三四五六七八九十百\d]+季)/i;
+  const seriesWords = /(电视剧|剧集|番剧|动漫|连续剧|美剧|英剧|韩剧|日剧|Season\s*\d{1,2}|S\d{1,2}(?:E\d{1,3})?|第[一二三四五六七八九十百\d]+季)/i;
   if (hasExplicitEpisode || seriesWords.test(haystack)) {
     return {
       type: "series",
