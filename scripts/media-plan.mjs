@@ -217,7 +217,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     const relativeFiles = videoFiles.map((file) => ({
       ...file,
       relativeName: file.path.slice(entry.path.length).replace(/^\//, ""),
-      name: file.path.slice(entry.path.length).replace(/^\//, "")
+      name: entry.isDir ? file.path.slice(entry.path.length).replace(/^\//, "") : file.name
     }));
     const classification = classifyMedia({ resourceName: rawName, files: relativeFiles, isDirectory: entry.isDir });
     const aliasNeedsReview = identity.matchType === "alias" || identity.candidates?.length > 0;
