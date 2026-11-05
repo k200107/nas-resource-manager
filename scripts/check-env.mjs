@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadEnvFile, parseDotEnv } from "./env-config.mjs";
+import { loadEnvFile, mergeEnvValues, parseDotEnv } from "./env-config.mjs";
 import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 /**
@@ -92,7 +92,7 @@ if (isCli(import.meta.url)) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const loaded = loadEnvFile(args.envFile);
-  const env = { ...loaded.values, ...process.env };
+  const env = mergeEnvValues(loaded.values, process.env);
   const result = validateSkillEnv(env, {
     envFile: args.envFile,
     envFileExists: loaded.exists
