@@ -366,3 +366,60 @@ test("does not treat a file occupying a target root path as a directory", async 
     /同名文件/
   );
 });
+
+
+test("associates movie subtitles, artwork and NFO with the movie and matching resolution versions", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.1080p.mkv", path: "/Downloads/Example (2024)/Example.1080p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.2160p.mkv", path: "/Downloads/Example (2024)/Example.2160p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.1080p.zh-CN.srt", path: "/Downloads/Example (2024)/Example.1080p.zh-CN.srt", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.2160p.en.srt", path: "/Downloads/Example (2024)/Example.2160p.en.srt", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.zh-CN.srt", path: "/Downloads/Example (2024)/Example.zh-CN.srt", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "poster.jpg", path: "/Downloads/Example (2024)/poster.jpg", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "fanart.jpg", path: "/Downloads/Example (2024)/fanart.jpg", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "movie.nfo", path: "/Downloads/Example (2024)/movie.nfo", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  const bySource = new Map(plan.map((item) => [item.source, item]));
+  assert.equal(bySource.get("/Downloads/Example (2024)/Example.1080p.zh-CN.srt").target,
+    "/Movies/Example (2024)/Example (2024) - 1080p.zh-CN.srt");
+  assert.equal(bySource.get("/Downloads/Example (2024)/Example.2160p.en.srt").target,
+    "/Movies/Example (2024)/Example (2024) - 2160p.en.srt");
+  assert.equal(bySource.get("/Downloads/Example (2024)/Example.zh-CN.srt").target,
+    "/Movies/Example (2024)/Example (2024).zh-CN.srt");
+  assert.equal(bySource.get("/Downloads/Example (2024)/poster.jpg").target,
+    "/Movies/Example (2024)/poster.jpg");
+  assert.equal(bySource.get("/Downloads/Example (2024)/fanart.jpg").target,
+    "/Movies/Example (2024)/fanart.jpg");
+  assert.equal(bySource.get("/Downloads/Example (2024)/movie.nfo").target,
+    "/Movies/Example (2024)/movie.nfo");
+  assert.ok(plan.filter((item) => item.assetRole !== "video").every((item) => item.status === "auto_archive_candidate"));
+});
+
+test("recognizes a year parent directory without treating the year as the movie title", () => {
+  const items = [
+    { name: "2024", path: "/Downloads/2024", parentPath: "/Downloads", isDir: true },
+    { name: "Example", path: "/Downloads/2024/Example", parentPath: "/Downloads/2024", isDir: true },
+    { name: "Example.mkv", path: "/Downloads/2024/Example/Example.mkv", parentPath: "/Downloads/2024/Example", isDir: false },
+    { name: "poster.jpg", path: "/Downloads/2024/Example/poster.jpg", parentPath: "/Downloads/2024/Example", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.equal(plan.length, 2);
+  assert.equal(plan[0].target, "/Movies/Example (2024)/Example (2024).mkv");
+  assert.equal(plan[1].target, "/Movies/Example (2024)/poster.jpg");
+  assert.ok(plan.every((item) => item.status === "auto_archive_candidate"));
+});
+
+test("associates episode subtitles using season directory and episode number", () => {
+  const items = [
+    { name: "Show", path: "/Downloads/Show", parentPath: "/Downloads", isDir: true },
+    { name: "Season 01", path: "/Downloads/Show/Season 01", parentPath: "/Downloads/Show", isDir: true },
+    { name: "E01.mkv", path: "/Downloads/Show/Season 01/E01.mkv", parentPath: "/Downloads/Show/Season 01", isDir: false },
+    { name: "E01.zh-CN.srt", path: "/Downloads/Show/Season 01/E01.zh-CN.srt", parentPath: "/Downloads/Show/Season 01", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.equal(plan[0].target, "/TVShows/Show/Season 01/Show - S01E01.mkv");
+  assert.equal(plan[1].target, "/TVShows/Show/Season 01/Show - S01E01.zh.CN.srt");
+  assert.equal(plan[1].status, "auto_archive_candidate");
+});
