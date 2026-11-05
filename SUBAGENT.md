@@ -184,7 +184,7 @@ Cancellation rules:
 
 ## Media identity and archive planning
 
-When asked to organize files already in the OpenList staging directory, run `npm run media-plan -- --format json`. The planner is read-only and indexes the staging directory plus Movies/TVShows destination trees.
+When asked to organize files already in the OpenList staging directory, run `npm run media-plan -- --format json`. The planner is read-only; it scans the staging directory and checks only the relevant Movies/TVShows destination parent directories.
 
 - Use high-confidence `auto_archive_candidate` items as candidates for the automatic archive path; do not ask the user to approve each clear file.
 - Route title aliases, likely homophones/typos, uncertain movie-vs-series classification, incomplete season/episode markers, or incomplete destination scans to `review_required`.
