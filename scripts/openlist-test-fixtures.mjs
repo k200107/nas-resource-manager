@@ -27,9 +27,10 @@ const FIXTURES = [
     ]
   },
   {
-    directory: "琅琊榜 第三季",
+    directory: "琅琊榜",
+    subdirectories: ["第三季"],
     files: [
-      "琅琊榜 第三季 第03集.mp4"
+      "第三季/第03集.mp4"
     ]
   },
   {
