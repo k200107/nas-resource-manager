@@ -51,7 +51,7 @@ This follows Emby-style title/year, season folder, and multi-version naming. Res
 
 - Exact target-path collisions are marked `conflict`; existing files are never overwritten.
 - Different resolution suffixes generate distinct target paths and are not treated as same-name conflicts.
-- Destination trees are indexed with bounded scanning. If a destination scan is truncated, the planner cannot prove the target is clear and sends the item to `review_required`.
+- The planner checks only each proposed target's parent-directory chain, paginating each OpenList listing up to ten pages. If a relevant listing reaches that limit, the planner cannot prove the target is clear and sends the item to `review_required`. A truncated staging scan also holds affected items for review.
 - `auto_archive_candidate` means the identity and target are clear and the read-only destination scan found no exact collision. It is a plan only, not permission to execute.
 - Ambiguous titles, uncertain season/episode data, and conflicts remain in staging for review.
 
