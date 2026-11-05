@@ -174,7 +174,7 @@ Preview the staging directory and proposed media destinations (read-only):
 npm run media-plan -- --format text
 ```
 
-The planner reads the staging directory and configured Movies/TVShows trees through OpenList. It proposes Emby-style names, resolution variants, and exact-path collision results. It does not move, rename, copy, or delete files. If the title is an alias/possible homophone, season/episode data is incomplete, a destination collision exists, or destination scanning is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
+The planner reads the staging directory and checks only the relevant destination parent directories in Movies/TVShows through OpenList. It proposes Emby-style names, resolution variants, and exact-path collision results. It does not move, rename, copy, or delete files. If the title is an alias/possible homophone, season/episode data is incomplete, a destination collision exists, or destination scanning is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
 
 To maintain confirmed title aliases, copy `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, add aliases only after confirming the canonical title, and set `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local alias file is git-ignored. Offline recognition cannot guarantee all Chinese homophones without a comprehensive catalog or external metadata provider.
 
