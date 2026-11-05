@@ -8,6 +8,7 @@ import {
   parseArgs,
   parseChineseNumber,
   scanTree,
+  scanTargetConflicts,
   resolveMediaTitle
 } from "../scripts/media-plan.mjs";
 import { extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
@@ -159,4 +160,54 @@ test("different resolution versions do not collide with each other", () => {
   });
   assert.equal(plan[0].status, "auto_archive_candidate");
   assert.equal(plan[0].conflict, false);
+});
+
+
+test("checks only target parent paths through read-only OpenList fs/list", async () => {
+  const calls = [];
+  const result = await scanTargetConflicts({
+    baseUrl: "http://openlist.test",
+    token: "token",
+    timeoutMs: 100,
+    moviesPath: "/Movies",
+    tvShowsPath: "/TVShows",
+    plan: [{
+      target: "/Movies/Example (2024)/Example (2024) - 1080p.mkv",
+      resourceType: "movie"
+    }],
+    fetchImpl: async (url, options) => {
+      const dir = JSON.parse(options.body).path;
+      calls.push(dir);
+      const content = dir === "/Movies"
+        ? [{ name: "Example (2024)", is_dir: true }]
+        : [{ name: "Example (2024) - 1080p.mkv", is_dir: false }];
+      return {
+        ok: true,
+        status: 200,
+        async text() { return JSON.stringify({ code: 200, message: "success", data: { content } }); }
+      };
+    }
+  });
+  assert.deepEqual(calls, ["/Movies", "/Movies/Example (2024)"]);
+  assert.deepEqual(result.existingPaths, ["/Movies/Example (2024)/Example (2024) - 1080p.mkv"]);
+  assert.equal(result.complete, true);
+});
+
+test("treats a missing title folder as a clear target without recursively scanning the library", async () => {
+  const calls = [];
+  const result = await scanTargetConflicts({
+    baseUrl: "http://openlist.test", token: "token", timeoutMs: 100,
+    moviesPath: "/Movies", tvShowsPath: "/TVShows",
+    plan: [{ target: "/Movies/New Film (2025)/New Film (2025).mkv", resourceType: "movie" }],
+    fetchImpl: async (url, options) => {
+      calls.push(JSON.parse(options.body).path);
+      return {
+        ok: true, status: 200,
+        async text() { return JSON.stringify({ code: 200, message: "success", data: { content: [] } }); }
+      };
+    }
+  });
+  assert.deepEqual(calls, ["/Movies"]);
+  assert.deepEqual(result.existingPaths, []);
+  assert.equal(result.complete, true);
 });
