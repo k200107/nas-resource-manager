@@ -36,7 +36,7 @@ const ALLOWED = {
 
 /** 判断任务是否满足归档前置条件；必须处于 STAGED 且验证结果明确通过。 */
 export function canArchive(task) {
-  return Boolean(task && task.state === "STAGED" && task.verification && task.verification.passed === true);
+  return Boolean(task && task.state === "STAGED" && task.conflict !== true && task.verification && task.verification.passed === true);
 }
 
 /** 对外提供归档安全性判断入口，复用 canArchive 的统一规则。 */
