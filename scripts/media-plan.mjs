@@ -166,7 +166,7 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_TIMEOUT_MS);
     try {
-      const response = await fetchImpl(\`\${String(baseUrl).replace(/\/+$/g, "")}/api/fs/list\`, {
+      const response = await fetchImpl(`${String(baseUrl).replace(/\/+$/g, "")}/api/fs/list`, {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -179,9 +179,9 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
       const raw = await response.text();
       let json;
       try { json = raw ? JSON.parse(raw) : {}; }
-      catch { throw new Error(\`OpenList 返回非 JSON 内容：\${raw.slice(0, 120)}\`); }
+      catch { throw new Error(`OpenList 返回非 JSON 内容：${raw.slice(0, 120)}`); }
       if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) {
-        throw new Error(\`OpenList 读取失败（\${dirPath}，第 \${page} 页）：\${json.message || response.status || "unknown"}\`);
+        throw new Error(`OpenList 读取失败（${dirPath}，第 ${page} 页）：${json.message || response.status || "unknown"}`);
       }
       const rows = Array.isArray(json?.data?.content) ? json.data.content : Array.isArray(json?.data) ? json.data : [];
       for (const row of rows) {
