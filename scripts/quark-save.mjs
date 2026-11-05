@@ -181,10 +181,6 @@ function applyEnvDefaults(args, injectedEnv = null) {
 
 /** 读取指定 .env 文件并解析键值；不会改写文件。 */
 /** 读取并解析 .env 文件；不会创建或修改配置文件。 */
-function loadEnvFile(envFile = DEFAULT_ENV_FILE) {
-  if (!envFile || !fs.existsSync(envFile)) return {};
-  return parseDotEnv(fs.readFileSync(envFile, "utf8"));
-}
 
 /** 处理printUsage相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
 /** 处理 printUsage 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
