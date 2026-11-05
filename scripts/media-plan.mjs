@@ -56,15 +56,15 @@ async function main() {
   };
   // 此处只读取 OpenList 目录树，后续 buildMediaPlan 只生成建议，不执行文件操作。
   const scanned = await scanTree({ ...context, rootPath: sourcePath });
-  // 只读建立目标库索引，用于检查精确目标文件是否已存在；扫描不完整时保守转人工复核。
-  const [movieIndex, seriesIndex] = await Promise.all([
-    scanTree({ ...context, rootPath: moviesPath }),
-    scanTree({ ...context, rootPath: tvShowsPath })
-  ]);
-  const existingPaths = [...movieIndex.items, ...seriesIndex.items].map((item) => item.path);
-  const destinationScanComplete = !movieIndex.truncated && !seriesIndex.truncated;
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
-  const plan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, existingPaths, destinationScanComplete, aliases });
+  const basePlan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases });
+  // 只检查计划涉及的目标父目录，不递归扫描整个媒体库；目标目录读取不完整时保守转人工复核。
+  const collisionIndex = await scanTargetConflicts({ ...context, plan: basePlan, moviesPath, tvShowsPath });
+  const plan = buildMediaPlan({
+    sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
+    existingPaths: collisionIndex.existingPaths,
+    destinationScanComplete: collisionIndex.complete
+  });
   const result = {
     ok: true,
     tool: "media-plan",
@@ -187,6 +187,62 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * 仅沿着计划目标的目录链检查目标文件是否存在。
+ * 不遍历整个 Movies/TVShows 库；所有读取均通过 OpenList fs/list。
+ * 如果目录列表达到 API 分页上限，则不能证明目标不存在，必须交由人工复核。
+ */
+async function scanTargetConflicts({ baseUrl, token, fetchImpl, timeoutMs, plan, moviesPath, tvShowsPath }) {
+  const cache = new Map();
+  const existingPaths = new Set();
+  let complete = true;
+
+  async function listCached(dirPath) {
+    if (!cache.has(dirPath)) {
+      const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath });
+      cache.set(dirPath, rows);
+      if (rows.length >= 200) complete = false;
+    }
+    return cache.get(dirPath);
+  }
+
+  for (const item of plan) {
+    if (!item.target) continue;
+    const root = item.resourceType === "movie" ? moviesPath : item.resourceType === "series" ? tvShowsPath : "";
+    if (!root || !item.target.startsWith(root + "/")) continue;
+    const relative = item.target.slice(root.length + 1);
+    const segments = relative.split("/");
+    if (segments.length < 2) continue;
+
+    let current = root;
+    let parentExists = true;
+    for (const segment of segments.slice(0, -1)) {
+      const rows = await listCached(current);
+      const row = rows.find((candidate) => candidate.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
+      if (!row) {
+        parentExists = false;
+        break;
+      }
+      if (!row.isDir) {
+        existingPaths.add(item.target);
+        parentExists = false;
+        break;
+      }
+      current = joinOpenListPath(current, segment);
+    }
+
+    if (parentExists) {
+      const rows = await listCached(current);
+      const targetName = segments.at(-1);
+      if (rows.some((candidate) => candidate.name.toLocaleLowerCase("zh-CN") === targetName.toLocaleLowerCase("zh-CN"))) {
+        existingPaths.add(item.target);
+      }
+    }
+  }
+
+  return { existingPaths: [...existingPaths], complete };
 }
 
 /** 根据暂存目录的一级资源和视频文件证据生成候选归档计划；模糊项目保留人工复核，不执行文件变更。 */
@@ -434,6 +490,7 @@ export {
   parseArgs,
   parseChineseNumber,
   resolveMediaTitle,
+  scanTargetConflicts,
   scanTree
 };/** 读取可选的本地片名别名表；文件不存在时使用内置示例，格式错误时中止而不是静默忽略。 */
 function loadTitleAliases(filePath) {
