@@ -87,6 +87,14 @@ Preview a Baidu share:
 npm run baidu-save -- "$BAIDU_SHARE_URL" "$BAIDU_DEFAULT_SAVE_PATH" --dry-run
 ```
 
+Reconcile a transfer against its exact OpenList task ID (read-only task API):
+
+```bash
+npm run openlist-reconcile -- MEDIA_TASK_ID
+```
+
+This only advances a task to `VERIFYING` when OpenList supplies explicit completion evidence. It does not inspect or change media files.
+
 Create and inspect shared media-ingest task records (local metadata only):
 
 ```bash
