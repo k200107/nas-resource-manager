@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { runMediaArchive, parseArgs, validatePlanItem } from "../scripts/media-archive.mjs";
 
 const roots = { moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" };
@@ -105,3 +108,38 @@ function fakeOpenList(calls, listings, { verifyTarget = false } = {}) {
     return { ok: true, status: 200, async text() { return JSON.stringify({ code: 200, message: "success", data }); } };
   };
 }
+
+
+test("verified archive operations are idempotent on a repeated plan", async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "nas-resource-manager-archive-"));
+  const storePath = path.join(temp, "media-tasks.json");
+  const lockDir = path.join(temp, "locks");
+  const calls = [];
+  const groupedPlan = [{ ...plan[0], resourceGroupId: "/Downloads/Example" }];
+  try {
+    const first = await runMediaArchive({
+      plan: groupedPlan, ...roots, yes: true,
+      baseUrl: "http://openlist.test", token: "token", storePath, lockDir,
+      fetchImpl: fakeOpenList(calls, {
+        "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+        "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+        "/media": [{ name: "Movies", is_dir: true }],
+        "/media/Movies": []
+      }, { verifyTarget: true })
+    });
+    assert.equal(first.ok, true);
+    assert.equal(first.executed[0].verified, true);
+
+    const second = await runMediaArchive({
+      plan: groupedPlan, ...roots, yes: true,
+      baseUrl: "http://openlist.test", token: "token", storePath, lockDir,
+      fetchImpl: async () => { throw new Error("idempotent replay must not call OpenList"); }
+    });
+    assert.equal(second.ok, true);
+    assert.equal(second.mode, "idempotent-noop");
+    assert.equal(second.mutated, false);
+    assert.equal(second.alreadyArchived.length, 1);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
