@@ -11,7 +11,7 @@ import {
   scanTargetConflicts,
   resolveMediaTitle
 } from "../scripts/media-plan.mjs";
-import { extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
+import { extractEpisode, extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
 
 test("parseArgs reads OpenList source and media target paths", () => {
   const args = parseArgs(["--source-dir", "/Downloads", "--movies-dir", "/media/Movies", "--tvshows-dir", "/media/TVShows", "--format", "text"]);
