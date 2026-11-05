@@ -556,7 +556,7 @@ When organizing media in the OpenList staging/download directory, run:
 npm run media-plan -- --format json
 ```
 
-The planner reads the staging directory and configured Movies/TVShows trees using OpenList `fs/list`. It never uses local filesystem paths to access NAS files and does not copy, move, rename, overwrite, or delete anything.
+The planner reads the staging directory and checks only the planned destination parent-directory chains in Movies/TVShows using OpenList `fs/list`. It never recursively scans the entire media library, uses local filesystem paths to access NAS files, or copies, moves, renames, overwrites, or deletes anything.
 
 Identity and naming rules:
 
