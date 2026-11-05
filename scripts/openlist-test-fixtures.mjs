@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+/**
+ * 在明确指定的 OpenList 测试目录创建媒体规划器样例目录和文本占位文件；仅在显式确认后写入，拒绝覆盖已有测试目录。
+ *
+ * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
+ * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,13 +50,15 @@ const FIXTURES = [
   }
 ];
 
-if (isCliEntryPoint()) {
+// 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
+  if (isCliEntryPoint()) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
   });
 }
 
+/** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const env = loadEnv(args.envFile);
@@ -69,6 +78,7 @@ async function main() {
     throw new Error(`测试目录已存在，拒绝覆盖：${fixtureRoot}。请先在 OpenList 界面人工检查。`);
   }
 
+  // 没有 --yes 时保持预览模式，避免误把测试数据写入真实目录。
   if (!args.yes) {
     console.log(JSON.stringify({
       ok: true,
@@ -142,6 +152,7 @@ async function main() {
   }, null, 2));
 }
 
+/** 构建测试样例的目录/文件清单和执行预览；预览阶段不向 OpenList 写入。 */
 function buildFixturePreview(root) {
   const directories = [root];
   const files = [];
@@ -154,6 +165,7 @@ function buildFixturePreview(root) {
   return { directories, files };
 }
 
+/** 调用 OpenList fs/list 读取一个目录；只返回名称、类型、大小和修改时间等规划所需信息。 */
 async function listDirectory({ baseUrl, token, dirPath }) {
   const response = await requestJson({
     baseUrl, token, apiPath: "/api/fs/list", method: "POST",
@@ -168,6 +180,7 @@ async function listDirectory({ baseUrl, token, dirPath }) {
   return rows.map((row) => ({ name: String(row.name || ""), isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1) }));
 }
 
+/** 向 OpenList API 发送 JSON 请求并返回解析后的响应。 */
 async function postJson({ baseUrl, token, apiPath, body }) {
   const response = await requestJson({
     baseUrl, token, apiPath, method: "POST", body
@@ -178,6 +191,7 @@ async function postJson({ baseUrl, token, apiPath, body }) {
   return response.json;
 }
 
+/** 通过 OpenList 文件上传接口创建文本占位文件；仅用于测试数据，不上传真实媒体内容。 */
 async function putTextFile({ baseUrl, token, targetPath, content }) {
   const bytes = new TextEncoder().encode(content);
   const response = await fetchWithTimeout(`${normalizeBaseUrl(baseUrl)}/api/fs/put`, {
@@ -201,6 +215,7 @@ async function putTextFile({ baseUrl, token, targetPath, content }) {
   }
 }
 
+/** 统一执行带超时的 HTTP 请求、解析 JSON 并检查接口返回。 */
 async function requestJson({ baseUrl, token, apiPath, method, body }) {
   const response = await fetchWithTimeout(`${normalizeBaseUrl(baseUrl)}${apiPath}`, {
     method,
@@ -218,8 +233,11 @@ async function requestJson({ baseUrl, token, apiPath, method, body }) {
   return { ok: response.ok, status: response.status, json };
 }
 
+/** 执行带超时控制的网络请求；超时后通过 AbortController 中止。 */
 async function fetchWithTimeout(url, options) {
+  // 为本次请求设置可中止控制器，避免网络无响应时脚本无限等待。
   const controller = new AbortController();
+  // 请求超时后主动中止底层 fetch；finally 中会清理定时器。
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
@@ -228,6 +246,7 @@ async function fetchWithTimeout(url, options) {
   }
 }
 
+/** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
 function parseArgs(argv) {
   const args = { envFile: DEFAULT_ENV_FILE, stagingDir: "", baseUrl: "", token: "", yes: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -242,17 +261,20 @@ function parseArgs(argv) {
   return args;
 }
 
+/** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
 function loadEnv(envFile) {
   const fileEnv = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
   return { ...fileEnv, ...process.env };
 }
 
+/** 验证并规范化测试目录路径。 */
 function normalizePath(value) {
   const text = String(value || "").trim();
   if (!text || !text.startsWith("/") || text.includes("..")) return "";
   return text.replace(/\\/g, "/").replace(/\/+$/g, "") || "/";
 }
 
+/** 拼接 OpenList 测试目录路径。 */
 function joinPath(parent, child) {
   const base = String(parent || "").replace(/\/+$/g, "");
   const name = String(child || "").replace(/^\/+|\/+$/g, "");
@@ -262,14 +284,17 @@ function joinPath(parent, child) {
   return `${base}/${name}`;
 }
 
+/** 规范化服务 URL，移除尾部斜杠。 */
 function normalizeBaseUrl(value) {
   return String(value || "").replace(/\/+$/g, "");
 }
 
+/** 根据接口响应判断创建/上传操作是否成功。 */
 function isSuccess(json) {
   return json?.code === 200 || json?.code === 0 || json?.message === "success";
 }
 
+/** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
 function isCliEntryPoint() {
   return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
