@@ -491,7 +491,7 @@ function joinOpenListPath(dir, name) {
 /** 处理sanitizeName相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
 /** 处理 sanitizeName 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function extractExplicitYear(value) {
-  const match = String(value || "").match(/(?:^|[^0-9])((?:19|20)[0-9]{2})(?:[^0-9]|$)/);
+  const match = String(value || "").match(/(?:^|[^A-Za-z0-9])((?:19|20)[0-9]{2})(?=$|[^A-Za-z0-9])/);
   return match ? Number(match[1]) : null;
 }
 
