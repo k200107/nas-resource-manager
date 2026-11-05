@@ -79,7 +79,7 @@ async function main() {
     plan,
     safety: {
       executed: false,
-      note: "本命令只调用 OpenList fs/list 读取暂存目录，不执行复制、移动、重命名或删除。"
+      note: "本命令只通过 OpenList fs/list 读取暂存目录及计划目标的父目录，不执行复制、移动、重命名或删除。"
     },
     nextAction: "review_plan"
   };
@@ -320,7 +320,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
         const movieFolder = fileYear ? `${resourceName} (${fileYear})` : resourceName;
         targetDir = joinOpenListPath(base, movieFolder);
         targetName = buildMovieFileName(resourceName, fileYear, resolution.value, extension);
-      } else {
+      } else if (base && classification.type === "series") {
         const season = episode.season || detectSeason(`${file.relativeName} ${rawName}`);
         if (!season || !episode.episode) {
           reviewReasons.push("已识别为剧集，但季数或集数不完整；不能安全生成 Season 目录和集名。");
