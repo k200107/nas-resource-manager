@@ -7,12 +7,6 @@
  * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
  */
 
-/**
- * 媒体任务 JSON 状态库，负责状态约束、幂等、互斥锁和安全持久化；不直接操作 NAS 文件。
- *
- * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
- * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
- */
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -38,14 +32,17 @@ const ALLOWED = {
   ARCHIVED: []
 };
 
+/** 判断任务是否满足归档前置条件；必须处于 STAGED 且验证结果明确通过。 */
 export function canArchive(task) {
   return Boolean(task && task.state === "STAGED" && task.verification && task.verification.passed === true);
 }
 
+/** 对外提供归档安全性判断入口，复用 canArchive 的统一规则。 */
 export function isTransferSafeToArchive(task) {
   return canArchive(task);
 }
 
+/** 创建媒体任务；通过幂等键防止同一资源被重复创建，并在状态库锁内写入。 */
 export async function createTask(input, options = {}) {
   validateCreateInput(input);
   const storePath = resolveStorePath(options.storePath);
@@ -81,17 +78,20 @@ export async function createTask(input, options = {}) {
   });
 }
 
+/** 按任务 ID 读取单个任务，不改变任务状态。 */
 export async function getTask(taskId, options = {}) {
   const db = await readStore(resolveStorePath(options.storePath));
   return db.tasks[String(taskId)] || null;
 }
 
+/** 读取并按创建时间排序返回任务列表，不改变任务状态。 */
 export async function listTasks(options = {}) {
   const db = await readStore(resolveStorePath(options.storePath));
   const tasks = Object.values(db.tasks);
   return tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+/** 在锁保护下校验状态机并迁移任务；STAGED、ARCHIVE_PENDING、ARCHIVED 等状态必须提供对应证据。 */
 export async function transitionTask(taskId, nextState, details = {}, options = {}) {
   const target = String(nextState || "").toUpperCase();
   if (!Object.hasOwn(ALLOWED, target)) throw new Error("未知任务状态：" + target);
@@ -124,6 +124,7 @@ export async function transitionTask(taskId, nextState, details = {}, options = 
   });
 }
 
+/** 为资源申请独立互斥锁；锁所有权必须匹配才允许释放，损坏或不确定的锁不会自动清理。 */
 export async function acquireResourceLock(resourceKey, options = {}) {
   if (!String(resourceKey || "").trim()) throw new Error("resourceKey 不能为空。");
   const lockDir = path.resolve(options.lockDir || process.env.MEDIA_TASK_LOCK_DIR || DEFAULT_LOCK_DIR);
@@ -161,7 +162,6 @@ export async function acquireResourceLock(resourceKey, options = {}) {
 }
 
 /** 校验新任务必需字段和幂等键，拒绝不完整或无法安全追踪的任务。 */
-/** 校验新任务的必需字段和幂等键。 */
 function validateCreateInput(input) {
   if (!input || typeof input !== "object") throw new Error("创建任务需要对象参数。");
   for (const key of ["idempotencyKey", "provider", "source"]) {
@@ -170,7 +170,6 @@ function validateCreateInput(input) {
 }
 
 /** 校验目标状态是否允许，以及该状态要求的验证、审批或执行结果证据是否齐全。 */
-/** 校验状态迁移规则及目标状态要求的验证、审批或执行证据。 */
 function validateTransition(task, target, details) {
   if (target === "TRANSFERRING" && !String(details.openListTaskId || task.openListTaskId || "").trim()) {
     throw new Error("进入 TRANSFERRING 前必须记录 OpenList task ID。");
@@ -200,7 +199,6 @@ function validateTransition(task, target, details) {
 }
 
 /** 从任务输入中筛选可安全持久化的证据字段，避免把不必要的敏感数据写入状态库。 */
-/** 筛选可安全持久化的任务证据字段，避免存入不必要的敏感数据。 */
 function safeEvidence(details) {
   const result = {};
   for (const key of ["openListTaskId", "verification", "approval", "archiveResult"]) {
@@ -210,13 +208,11 @@ function safeEvidence(details) {
 }
 
 /** 解析任务状态文件路径，并应用调用参数或环境变量提供的配置。 */
-/** 解析状态文件路径，并应用显式参数或环境变量配置。 */
 function resolveStorePath(value) {
   return path.resolve(value || process.env.MEDIA_TASK_STORE_PATH || DEFAULT_STORE);
 }
 
 /** 在文件锁保护下执行状态库读写，避免并发更新相互覆盖。 */
-/** 在文件锁保护下执行状态库操作，避免并发写入互相覆盖。 */
 async function withStoreLock(storePath, operation) {
   const lockPath = storePath + ".lock";
   await fs.mkdir(path.dirname(storePath), { recursive: true });
@@ -240,7 +236,6 @@ async function withStoreLock(storePath, operation) {
 }
 
 /** 读取并解析 JSON 状态库；文件不存在时按空状态库处理。 */
-/** 读取并解析 JSON 状态库；不存在时返回空状态结构。 */
 async function readStore(storePath) {
   try {
     const parsed = JSON.parse(await fs.readFile(storePath, "utf8"));
@@ -255,7 +250,6 @@ async function readStore(storePath) {
 }
 
 /** 将更新后的状态库持久化；该函数只写本地状态文件，不触碰 NAS 媒体文件。 */
-/** 安全持久化状态库文件，降低写入中断造成 JSON 损坏的风险。 */
 async function writeStore(storePath, db) {
   const tempPath = storePath + "." + randomUUID() + ".tmp";
   await fs.writeFile(tempPath, JSON.stringify(db, null, 2) + "\n", { flag: "wx", mode: 0o600 });
