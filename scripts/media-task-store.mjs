@@ -91,6 +91,46 @@ export async function createTask(input, options = {}) {
   });
 }
 
+/**
+ * 查询已验证完成的归档操作。记录以精确 source+target 哈希为键，不能仅凭目标存在推断已完成。
+ */
+export async function getArchiveOperation(source, target, options = {}) {
+  const key = archiveOperationKey(source, target);
+  const db = await readStore(resolveStorePath(options.storePath));
+  return db.archiveRecords?.[key] || null;
+}
+
+/**
+ * 仅在 OpenList 目标回读验证成功后记录归档完成；复用现有媒体任务状态库和文件锁。
+ */
+export async function recordArchiveOperation(record, options = {}) {
+  if (!record || !String(record.source || "").trim() || !String(record.target || "").trim() || record.verified !== true) {
+    throw new Error("归档记录必须包含 source、target，并且 verified=true。");
+  }
+  const storePath = resolveStorePath(options.storePath);
+  return withStoreLock(storePath, async () => {
+    const db = await readStore(storePath);
+    db.archiveRecords ||= {};
+    const key = archiveOperationKey(record.source, record.target);
+    const existing = db.archiveRecords[key];
+    if (existing) return existing;
+    const saved = {
+      source: String(record.source),
+      target: String(record.target),
+      resourceGroupId: String(record.resourceGroupId || ""),
+      verified: true,
+      verifiedAt: new Date().toISOString()
+    };
+    db.archiveRecords[key] = saved;
+    await writeStore(storePath, db);
+    return saved;
+  });
+}
+
+function archiveOperationKey(source, target) {
+  return createHash("sha256").update(String(source) + "\\n" + String(target)).digest("hex");
+}
+
 /** 按任务 ID 读取单个任务，不改变任务状态。 */
 export async function getTask(taskId, options = {}) {
   const db = await readStore(resolveStorePath(options.storePath));
@@ -294,9 +334,9 @@ async function readStore(storePath) {
     if (parsed.version !== SCHEMA_VERSION || !parsed.tasks || typeof parsed.tasks !== "object") {
       throw new Error("任务状态库版本或结构不兼容，拒绝覆盖。");
     }
-    return parsed;
+    parsed.archiveRecords ||= {};\n    return parsed;
   } catch (error) {
-    if (error.code === "ENOENT") return { version: SCHEMA_VERSION, tasks: {} };
+    if (error.code === "ENOENT") return { version: SCHEMA_VERSION, tasks: {}, archiveRecords: {} };
     throw error;
   }
 }
