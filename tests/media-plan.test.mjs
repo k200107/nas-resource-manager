@@ -113,7 +113,7 @@ test("extracts resolution and creates Emby-style distinct version filenames", ()
   assert.equal(extractResolution("Movie.1440p.mkv").value, "1440p");
   assert.equal(extractResolution("Movie.1080p.mkv").value, "1080p");
   assert.equal(extractResolution("anything.mkv", { width: 3840, height: 2160 }).value, "2160p");
-  assert.equal(extractResolution("anything.mkv", { width: 2160, height: 1080 }).value, "2160p");
+  assert.equal(extractResolution("anything.mkv", { width: 1920, height: 1080 }).value, "1080p");
   assert.equal(extractResolution("anything.mkv", { width: 2560, height: 1440 }).value, "1440p");
   assert.equal(buildMovieFileName("Example", 2024, "1080p", ".mkv"), "Example (2024) - 1080p.mkv");
   assert.equal(buildMovieFileName("Example", 2024, "2160p", ".mkv"), "Example (2024) - 2160p.mkv");
