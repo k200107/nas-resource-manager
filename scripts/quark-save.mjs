@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
 /**
+ * 解析夸克分享资源、展示候选项并按明确选择保存到用户网盘；保存和重命名属于远端写操作。
+ *
+ * 本文件说明：函数注释描述职责和关键边界；除注释外不改变既有执行逻辑。
+ * 安全约束：任何网盘/NAS 写操作都必须以明确目标和用户授权为前提；预览和查询流程保持只读。
+ */
+
+/**
  * 处理夸克分享链接解析、资源选择、保存到用户网盘以及必要的命名整理；其中保存和重命名属于会改变云盘内容的操作。
  *
  * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
@@ -33,6 +40,7 @@ const USER_AGENT =
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
+/** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
   const args = applyEnvDefaults(parseArgs(process.argv.slice(2)));
   if (!args.shareUrl || !args.toUrl) {
@@ -95,6 +103,7 @@ async function main() {
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
+/** 解析命令行参数并生成统一参数对象；未知参数会报错，避免拼写错误被静默忽略。 */
 function parseArgs(argv) {
   const parsed = {
     shareUrl: "",
@@ -162,6 +171,7 @@ function parseArgs(argv) {
 }
 
 /** 执行applyEnvDefaults相关的远端变更；调用前必须确保用户已明确选择目标并确认写入范围。 */
+/** 处理 applyEnvDefaults 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function applyEnvDefaults(args, injectedEnv = null) {
   const fileEnv = injectedEnv || loadEnvFile(args.envFile);
   const env = { ...fileEnv, ...process.env };
@@ -173,12 +183,14 @@ function applyEnvDefaults(args, injectedEnv = null) {
 }
 
 /** 读取指定 .env 文件并解析键值；不会改写文件。 */
+/** 读取并解析 .env 文件；不会创建或修改配置文件。 */
 function loadEnvFile(envFile = DEFAULT_ENV_FILE) {
   if (!envFile || !fs.existsSync(envFile)) return {};
   return parseDotEnv(fs.readFileSync(envFile, "utf8"));
 }
 
 /** 处理printUsage相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 printUsage 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function printUsage() {
   console.error("Usage: node scripts/quark-save.mjs <share-url> <destination-folder-url> [options]");
   console.error("Options:");
@@ -194,6 +206,7 @@ function printUsage() {
 }
 
 /** 解析夸克分享资源并生成可供人工选择的预览；此阶段以读取和准备为主。 */
+/** 解析夸克分享链接、读取分享条目并生成待用户审阅的资源预览。 */
 async function prepareQuarkSave(args) {
   const share = parseQuarkShareUrl(args.shareUrl);
   const destination = await resolveQuarkDestination({
@@ -263,6 +276,7 @@ async function prepareQuarkSave(args) {
 }
 
 /** 根据用户明确选择的资源执行网盘保存；这是会修改个人网盘内容的操作。 */
+/** 仅对用户明确选中的资源执行网盘保存/转存；此流程会改变用户网盘内容。 */
 async function saveSelectedItems(args) {
   const payload = buildSavePayload({
     pwdId: args.pwdId,
@@ -324,6 +338,7 @@ async function saveSelectedItems(args) {
 }
 
 /** 解析夸克分享链接中的分享标识和访问参数。 */
+/** 解析输入并返回规范化结果；无法识别的输入应明确报错。 */
 function parseQuarkShareUrl(value) {
   let parsed;
   try {
@@ -342,6 +357,7 @@ function parseQuarkShareUrl(value) {
 }
 
 /** 解析夸克文件夹 URL 或路径中的目标目录信息。 */
+/** 解析输入并返回规范化结果；无法识别的输入应明确报错。 */
 function parseQuarkFolderUrl(value) {
   const text = String(value || "").trim();
   if (isCloudDrivePath(text)) {
@@ -366,6 +382,7 @@ function parseQuarkFolderUrl(value) {
 }
 
 /** 解析用户配置的夸克保存目标，确认可用于后续保存操作。 */
+/** 解析并确认路径、配置或计划，供后续步骤使用。 */
 async function resolveQuarkDestination({ apiBase, timeoutMs, cookie, value }) {
   const parsed = parseQuarkFolderUrl(value);
   if (!parsed.needsResolution) return parsed;
@@ -384,6 +401,7 @@ async function resolveQuarkDestination({ apiBase, timeoutMs, cookie, value }) {
 }
 
 /** 逐层读取夸克目录并解析目标路径对应的文件夹 ID。 */
+/** 解析并确认路径、配置或计划，供后续步骤使用。 */
 async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath }) {
   const normalizedPath = normalizeCloudDrivePath(targetPath);
   const segments = splitCloudDrivePath(normalizedPath);
@@ -406,6 +424,7 @@ async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath }
 }
 
 /** 读取夸克网盘指定文件夹的项目列表。 */
+/** 通过对应服务接口读取列表数据，不修改远端内容。 */
 async function listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid }) {
   const response = await fetchQuarkJson(`${normalizeApiBase(apiBase)}/1/clouddrive/file/sort`, {
     method: "GET",
@@ -427,17 +446,20 @@ async function listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid }) {
 }
 
 /** 检查网盘路径是否为以斜杠开头且不含路径穿越片段的路径。 */
+/** 检查输入是否符合模块要求，返回布尔值供调用方分支处理。 */
 function isCloudDrivePath(value) {
   return String(value || "").startsWith("/") && !String(value).includes("..");
 }
 
 /** 规范化CloudDrivePath数据，统一字段、格式和默认值，降低上游接口差异对后续流程的影响。 */
+/** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizeCloudDrivePath(value) {
   const parts = splitCloudDrivePath(value);
   return `/${parts.join("/")}`;
 }
 
 /** 将网盘路径拆分为有效目录层级。 */
+/** 处理 splitCloudDrivePath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function splitCloudDrivePath(value) {
   return String(value || "")
     .split("/")
@@ -446,12 +468,14 @@ function splitCloudDrivePath(value) {
 }
 
 /** 从网盘路径中提取最后一级目录/文件名。 */
+/** 处理 getCloudPathBasename 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function getCloudPathBasename(value) {
   const parts = splitCloudDrivePath(value);
   return parts.at(-1) || "/";
 }
 
 /** 处理joinCloudPath相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 joinCloudPath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function joinCloudPath(basePath, name) {
   const base = normalizeCloudDrivePath(basePath || "/");
   const cleanName = String(name || "").replace(/^\/+/g, "");
@@ -459,6 +483,7 @@ function joinCloudPath(basePath, name) {
 }
 
 /** 从夸克文件夹 URL 的 hash 中提取文件夹 ID。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractFidFromHash(hash, scope) {
   const decoded = safeDecode(hash || "");
   const match = decoded.match(new RegExp(`/list/${scope}/([a-zA-Z0-9]{16,64})(?:-|/|$)`));
@@ -466,6 +491,7 @@ function extractFidFromHash(hash, scope) {
 }
 
 /** 从夸克文件夹 URL 的 hash 中提取文件夹名称。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractNameFromHash(hash, fid) {
   const decoded = safeDecode(hash || "");
   const marker = `${fid}-`;
@@ -475,6 +501,7 @@ function extractNameFromHash(hash, fid) {
 }
 
 /** 安全解码 URL 编码文本；遇到非法编码时避免整个解析流程崩溃。 */
+/** 处理 safeDecode 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function safeDecode(value) {
   try {
     return decodeURIComponent(value);
@@ -484,6 +511,7 @@ function safeDecode(value) {
 }
 
 /** 规范化ShareItems数据，统一字段、格式和默认值，降低上游接口差异对后续流程的影响。 */
+/** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizeShareItems(rows) {
   return (rows || []).map((row, index) => {
     const isDir = Boolean(row.dir);
@@ -505,6 +533,7 @@ function normalizeShareItems(rows) {
 }
 
 /** 检查或分类classifyResource相关输入，返回明确状态供主流程决定下一步动作。 */
+/** 处理 classifyResource 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function classifyResource({ resourceType = "auto", contextName = "", shareTitle = "", items = [] } = {}) {
   const explicitType = normalizeResourceType(resourceType);
   if (explicitType === "series") {
@@ -552,6 +581,7 @@ function classifyResource({ resourceType = "auto", contextName = "", shareTitle 
 }
 
 /** 为候选资源生成建议名称和重命名计划。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildRenamePlan({ resourceType = "auto", contextName = "", shareTitle = "", selectedItems = [], savedFids = [] } = {}) {
   const baseName = sanitizeFileName(contextName || shareTitle || "");
   if (!baseName) return [];
@@ -578,6 +608,7 @@ function buildRenamePlan({ resourceType = "auto", contextName = "", shareTitle =
 }
 
 /** 根据资源信息和用户选择解析夸克网盘重命名计划，不在此处执行修改。 */
+/** 解析并确认路径、配置或计划，供后续步骤使用。 */
 function resolveRenamePlan({ selectedItems = [], savedFids = [], agentRenamePlan = [] } = {}) {
   if (!Array.isArray(agentRenamePlan)) {
     throw new Error("Agent rename plan must be a JSON array");
@@ -613,6 +644,7 @@ function resolveRenamePlan({ selectedItems = [], savedFids = [], agentRenamePlan
 }
 
 /** 根据资源类型和文件名信息生成建议保存名称，不直接修改原文件。 */
+/** 根据已有资源信息生成建议值，不直接修改原始资源。 */
 function suggestSavedName({ baseName, item, selectedCount, isSeries }) {
   const extension = item.isDir ? "" : getExtension(item.name);
   if (item.isDir) {
@@ -628,6 +660,7 @@ function suggestSavedName({ baseName, item, selectedCount, isSeries }) {
 }
 
 /** 从资源名中提取集数标签，供命名建议使用。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractEpisodeLabel(value) {
   const text = String(value || "");
   const seasonEpisode = text.match(/S(\d{1,2})E(\d{1,3})/i);
@@ -642,18 +675,21 @@ function extractEpisodeLabel(value) {
 }
 
 /** 提取文件扩展名。 */
+/** 处理 getExtension 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function getExtension(value) {
   const ext = path.extname(String(value || ""));
   return ext.length <= 12 ? ext : "";
 }
 
 /** 移除文件名末尾扩展名。 */
+/** 处理 stripExtension 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function stripExtension(value) {
   const ext = getExtension(value);
   return ext ? String(value).slice(0, -ext.length) : String(value || "");
 }
 
 /** 清理文件名中不适合用于文件系统/网盘路径的字符。 */
+/** 处理 sanitizeFileName 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function sanitizeFileName(value) {
   return String(value || "")
     .replace(/[\\/:*?"<>|]/g, " ")
@@ -662,6 +698,7 @@ function sanitizeFileName(value) {
 }
 
 /** 规范化ContextName数据，统一字段、格式和默认值，降低上游接口差异对后续流程的影响。 */
+/** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizeContextName(value) {
   return String(value || "")
     .replace(/[丨｜|]/g, "")
@@ -672,6 +709,7 @@ function normalizeContextName(value) {
 }
 
 /** 规范化资源类型标识，避免不同输入使用不一致的值。 */
+/** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizeResourceType(value) {
   const normalized = String(value || "auto").trim().toLowerCase();
   if (["auto", "series", "movie", "collection"].includes(normalized)) return normalized;
@@ -679,6 +717,7 @@ function normalizeResourceType(value) {
 }
 
 /** 解析 JSON 参数字符串，遇到格式错误时给出带参数名的提示。 */
+/** 解析 JSON 字符串；格式错误时明确抛出异常。 */
 function parseJson(value, label) {
   try {
     return JSON.parse(value || "[]");
@@ -688,6 +727,7 @@ function parseJson(value, label) {
 }
 
 /** 解析用户选择的序号/范围，并转换为可处理的条目集合。 */
+/** 解析输入并返回规范化结果；无法识别的输入应明确报错。 */
 function parseSelection(selection, items) {
   const value = String(selection || "").trim().toLowerCase();
   if (!value || value === "all" || value === "*") return [...items];
@@ -717,6 +757,7 @@ function parseSelection(selection, items) {
 }
 
 /** 构造提交给网盘保存接口的请求数据。 */
+/** 构造提交给网盘保存接口的请求参数。 */
 function buildSavePayload({ pwdId, stoken, destinationFid, selectedItems }) {
   return {
     fid_list: selectedItems.map((item) => item.fid),
@@ -730,6 +771,7 @@ function buildSavePayload({ pwdId, stoken, destinationFid, selectedItems }) {
 }
 
 /** 将renderShareItemsTable相关结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function renderShareItemsTable({
   shareTitle = "",
   contextName = "",
@@ -783,6 +825,7 @@ function renderShareItemsTable({
 }
 
 /** 汇总网盘保存结果，包括成功、失败和待处理项目。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function renderSaveSummary(saveResult) {
   const lines = [
     "",
@@ -802,6 +845,7 @@ function renderSaveSummary(saveResult) {
 }
 
 /** 生成供自动化代理展示的夸克资源预览，不执行保存。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildQuarkSubagentPreview({ args = {}, result }) {
   const selectedItems = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
@@ -850,6 +894,7 @@ function buildQuarkSubagentPreview({ args = {}, result }) {
 }
 
 /** 构造夸克保存动作所需的参数和结果结构。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildQuarkSubagentSave({ args = {}, result, saveResult }) {
   return {
     ok: true,
@@ -884,6 +929,7 @@ function buildQuarkSubagentSave({ args = {}, result, saveResult }) {
 }
 
 /** 将夸克资源对象转换为稳定、可输出的字段集合。 */
+/** 将内部对象转换为稳定的输出结构，避免暴露无关字段。 */
 function serializeQuarkItem(item) {
   return {
     rank: item.rank,
@@ -899,6 +945,7 @@ function serializeQuarkItem(item) {
 }
 
 /** 将重命名计划转换为可展示/传递的结构。 */
+/** 将内部对象转换为稳定的输出结构，避免暴露无关字段。 */
 function serializeRenamePlan(plan) {
   return (plan || []).map((item, index) => ({
     rank: index + 1,
@@ -910,6 +957,7 @@ function serializeRenamePlan(plan) {
 }
 
 /** 将重命名执行结果转换为可展示结构。 */
+/** 将内部对象转换为稳定的输出结构，避免暴露无关字段。 */
 function serializeRenameResults(results) {
   return (results || []).map((item) => ({
     ok: Boolean(item.ok),
@@ -922,6 +970,7 @@ function serializeRenameResults(results) {
 }
 
 /** 展示候选资源并收集明确选择；未获得选择时不应擅自保存全部资源。 */
+/** 展示候选资源并收集明确选择；未获得用户选择时不得擅自保存全部候选。 */
 async function askUserSelection(items, defaultSelection) {
   const rl = readline.createInterface({ input, output });
   try {
@@ -933,6 +982,7 @@ async function askUserSelection(items, defaultSelection) {
 }
 
 /** 获取夸克分享访问所需的 token。 */
+/** 处理 getShareToken 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 async function getShareToken({ apiBase, timeoutMs, pwdId, passcode }) {
   return fetchQuarkJson(`${normalizeApiBase(apiBase)}/1/clouddrive/share/sharepage/token`, {
     method: "POST",
@@ -943,6 +993,7 @@ async function getShareToken({ apiBase, timeoutMs, pwdId, passcode }) {
 }
 
 /** 读取夸克分享文件列表，不执行保存。 */
+/** 读取夸克分享中的文件列表，不执行保存。 */
 async function listShareItems({ apiBase, timeoutMs, pwdId, stoken, pdirFid }) {
   const allItems = [];
   let page = 1;
@@ -984,6 +1035,7 @@ async function listShareItems({ apiBase, timeoutMs, pwdId, stoken, pdirFid }) {
 }
 
 /** 向夸克网盘提交分享资源保存请求；这是会改变用户网盘内容的操作。 */
+/** 向夸克网盘提交保存请求；该操作会改变用户网盘内容。 */
 async function postSave({ apiBase, timeoutMs, cookie, payload }) {
   return fetchQuarkJson(`${normalizeApiBase(apiBase)}/1/clouddrive/share/sharepage/save`, {
     method: "POST",
@@ -995,6 +1047,7 @@ async function postSave({ apiBase, timeoutMs, cookie, payload }) {
 }
 
 /** 查询夸克保存任务的执行状态。 */
+/** 查询网盘保存任务状态，不代表文件已完成后续 NAS 复制。 */
 async function queryTask({ apiBase, timeoutMs, cookie, taskId }) {
   let retryIndex = 0;
   while (retryIndex < 120) {
@@ -1019,6 +1072,7 @@ async function queryTask({ apiBase, timeoutMs, cookie, taskId }) {
 }
 
 /** 按确认后的重命名计划调用网盘接口修改文件或目录名称；执行前应核对计划。 */
+/** 按已确认的重命名计划调用网盘接口修改名称；执行前应核对资源和目标名称。 */
 async function applyRenamePlan({ apiBase, timeoutMs, cookie, renamePlan }) {
   const results = [];
   for (const item of renamePlan) {
@@ -1042,6 +1096,7 @@ async function applyRenamePlan({ apiBase, timeoutMs, cookie, renamePlan }) {
 }
 
 /** 发送夸克 API 请求并解析 JSON 响应；具体读写属性由调用接口决定。 */
+/** 封装网络请求、超时和响应解析；是否改变远端数据由调用的 API 决定。 */
 async function fetchQuarkJson(url, options = {}) {
   const requestUrl = new URL(url);
   for (const [key, value] of Object.entries(options.query || {})) {
@@ -1084,6 +1139,7 @@ async function fetchQuarkJson(url, options = {}) {
 }
 
 /** 构造MutationQuery所需的数据结构或执行计划；除非函数说明明确涉及执行，否则只准备数据、不提交远端变更。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildMutationQuery() {
   return {
     pr: "ucpro",
@@ -1096,16 +1152,19 @@ function buildMutationQuery() {
 }
 
 /** 从参数或环境变量中解析网盘 Cookie；避免在输出中回显完整凭证。 */
+/** 从参数或环境变量中解析 Cookie；不得在日志中回显完整凭证。 */
 function resolveCookie(args) {
   return (args.env?.[args.cookieEnv] || process.env[args.cookieEnv] || "").trim();
 }
 
 /** 规范化 API 根地址，清理多余斜杠或补齐所需路径。 */
+/** 规范化 API 根地址，清理末尾斜杠或补齐所需路径。 */
 function normalizeApiBase(value) {
   return String(value || DEFAULT_API_BASE).replace(/\/+$/g, "");
 }
 
 /** 把字节数转换为易读的容量单位。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function formatBytes(bytes) {
   if (!bytes) return "-";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -1120,6 +1179,7 @@ function formatBytes(bytes) {
 }
 
 /** 把时间戳或日期值转换为可读时间文本。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function formatTimestamp(value) {
   if (!value) return "-";
   const ms = Number(value);
@@ -1130,11 +1190,13 @@ function formatTimestamp(value) {
 }
 
 /** 转义 Markdown 表格单元格中的特殊字符。 */
+/** 处理 escapeMarkdownCell 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function escapeMarkdownCell(value) {
   return escapeMarkdownText(value).replace(/\|/g, "\\|");
 }
 
 /** 清理文本中的换行和多余空白，避免破坏 Markdown 输出。 */
+/** 处理 escapeMarkdownText 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function escapeMarkdownText(value) {
   return String(value ?? "")
     .replace(/\r?\n+/g, " ")
@@ -1142,11 +1204,13 @@ function escapeMarkdownText(value) {
 }
 
 /** 异步等待指定时间，通常用于请求重试间隔。 */
+/** 等待指定时间，通常用于请求重试间隔。 */
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
+/** 判断模块是否由 Node.js 直接执行；被其他模块导入时不自动启动 CLI。 */
 function isCliEntryPoint() {
   return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
