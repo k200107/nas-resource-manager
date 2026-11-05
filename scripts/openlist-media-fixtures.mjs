@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
+import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 
 const ROOT_NAME = "__MEDIA_ARCHIVE_TESTS__";
 const FIXTURES = [
@@ -122,29 +123,29 @@ async function listDirectory({ baseUrl, token, dirPath }) {
 }
 async function postJson(args) { return request(args); }
 async function request({ baseUrl, token, endpoint, body, method = "POST", headers = {} }) {
-  const response = await fetch(`${String(baseUrl).replace(/\/+$/g, "")}${endpoint}`, {
-    method, headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: token, ...headers },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(20_000)
+  const response = await requestOpenListJson({
+    baseUrl, token, endpoint, method, body, headers, errorLabel: "OpenList"
   });
-  const raw = await response.text();
-  let json;
-  try { json = raw ? JSON.parse(raw) : {}; } catch { throw new Error(`OpenList ${endpoint} 返回非 JSON。`); }
-  if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) throw new Error(`OpenList ${endpoint} 失败：${json.message || response.status}`);
-  return json;
-}
-async function putTextFile({ baseUrl, token, targetPath, content }) {
+  if (!response.ok || !isOpenListSuccess(response.json)) {
+    throw new Error(`OpenList ${endpoint} 失败：${response.json?.message || response.status}`);
+  }
+  return response.json;
+}async function putTextFile({ baseUrl, token, targetPath, content }) {
   const bytes = new TextEncoder().encode(content);
-  const response = await fetch(`${String(baseUrl).replace(/\/+$/g, "")}/api/fs/put`, {
-    method: "PUT",
-    headers: { Accept: "application/json", Authorization: token, "File-Path": encodeURI(targetPath), "As-Task": "false", "Content-Type": "application/octet-stream", "Content-Length": String(bytes.byteLength) },
-    body: bytes, signal: AbortSignal.timeout(20_000)
+  const response = await requestOpenListJson({
+    baseUrl, token, endpoint: "/api/fs/put", method: "PUT", body: bytes,
+    headers: {
+      "File-Path": encodeURI(targetPath),
+      "As-Task": "false",
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(bytes.byteLength)
+    },
+    errorLabel: "OpenList upload"
   });
-  const raw = await response.text();
-  let json;
-  try { json = raw ? JSON.parse(raw) : {}; } catch { throw new Error(`OpenList 上传接口返回非 JSON：${raw.slice(0, 120)}`); }
-  if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) throw new Error(`创建测试文件失败：${json.message || response.status}`);
-}
-function normalizePath(value) {
+  if (!response.ok || !isOpenListSuccess(response.json)) {
+    throw new Error(`创建测试文件失败：${response.json?.message || response.status}`);
+  }
+}function normalizePath(value) {
   const text = String(value || "").trim().replace(/\\/g, "/");
   if (!text.startsWith("/") || text.split("/").includes("..")) return "";
   return text.replace(/\/+$/g, "") || "/";
