@@ -320,7 +320,10 @@ function classifyMedia({ resourceName, files, isDirectory = false }) {
 }
 
 function normalizeComparableName(value) {
-  return String(value || "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return String(value || "").normalize("NFKC").toLowerCase()
+    .replace(/(?:2160p|2048p|1080p|720p|480p|4k|2k|uhd|fhd)/ig, "")
+    .replace(/(?:19|20)\d{2}/g, "")
+    .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 /** 移除明确季集标记并规范化剧集名称。 */
