@@ -11,7 +11,7 @@ import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 
 import { parseBaiduSavePath } from "./baidu-save.mjs";
-import { parseDotEnv, validateSkillEnv } from "./check-env.mjs";
+import { validateSkillEnv } from "./check-env.mjs";
 import { validateCookieConfig } from "./check-cookies.mjs";
 import { parseQuarkFolderUrl } from "./quark-save.mjs";
 
