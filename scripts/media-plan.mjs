@@ -56,7 +56,9 @@ async function main() {
     fetchImpl: globalThis.fetch,
     timeoutMs: args.timeoutMs
   };
-  // 此处只读取 OpenList 目录树，后续 buildMediaPlan 只生成建议，不执行文件操作。
+  // 媒体库根目录不存在时自动创建；只创建用户明确配置的 Movies/TVShows 根路径，不触碰其内部现有文件。
+  await ensureTargetDirectories({ ...context, paths: [moviesPath, tvShowsPath] });
+  // 源目录及媒体库内容仍通过 OpenList fs/list 读取；规划阶段不移动、重命名或删除文件。
   const scanned = await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
   const basePlan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases, sourceScanComplete: !scanned.truncated });
@@ -204,6 +206,43 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
 
   allRows.truncated = truncated;
   return allRows;
+}
+
+/**
+ * 确保配置的目标根目录存在。逐级检查路径；缺少目录时通过 OpenList fs/mkdir 创建，
+ * 若同名路径是文件或创建后无法回读，则停止，避免把异常误判为“空目录”。
+ */
+async function ensureTargetDirectories({ baseUrl, token, fetchImpl, timeoutMs, paths }) {
+  for (const targetPath of [...new Set(paths)]) {
+    const segments = String(targetPath).split("/").filter(Boolean);
+    let current = "/";
+    for (const segment of segments) {
+      const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
+      const existing = rows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
+      const next = joinOpenListPath(current, segment);
+      if (existing) {
+        if (!existing.isDir) throw new Error(`目标目录路径中存在同名文件：${next}`);
+      } else {
+        const response = await fetchImpl(`${String(baseUrl).replace(/\\/+$/g, "")}/api/fs/mkdir`, {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: token },
+          body: JSON.stringify({ path: next }),
+          signal: AbortSignal.timeout(timeoutMs || DEFAULT_TIMEOUT_MS)
+        });
+        const raw = await response.text();
+        let json;
+        try { json = raw ? JSON.parse(raw) : {}; }
+        catch { throw new Error(`OpenList 创建目录返回非 JSON：${raw.slice(0, 120)}`); }
+        if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) {
+          throw new Error(`OpenList 创建目标目录失败（${next}）：${json.message || response.status}`);
+        }
+        const verifyRows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
+        const created = verifyRows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
+        if (!created || !created.isDir) throw new Error(`目标目录创建后验证失败：${next}`);
+      }
+      current = next;
+    }
+  }
 }
 
 /**
@@ -520,7 +559,8 @@ export {
   parseChineseNumber,
   resolveMediaTitle,
   scanTargetConflicts,
-  scanTree
+  scanTree,
+  ensureTargetDirectories
 };/** 读取可选的本地片名别名表；文件不存在时使用内置示例，格式错误时中止而不是静默忽略。 */
 function loadTitleAliases(filePath) {
   if (!filePath) return DEFAULT_TITLE_ALIASES;
