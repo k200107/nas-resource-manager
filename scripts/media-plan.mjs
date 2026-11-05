@@ -3,15 +3,15 @@
 /**
  * 只读扫描 OpenList 暂存目录，识别电影/剧集候选并生成归档预览；不复制、移动、重命名或删除文件。
  *
- * 本文件说明：函数注释解释职责和关键边界；本次修改只增加注释，不改变原有执行逻辑。
- * 安全约束：只读预览与真实写入必须严格区分；测试写入必须限制在专用目录并要求显式确认。
+ * 本模块负责只读扫描暂存资源、媒体身份分析、Emby 风格命名规划和目标路径冲突检查。
+ * 安全约束：所有远端读取仅使用 OpenList fs/list；规划阶段绝不执行文件复制、移动、重命名或删除。
  */
 
 /**
  * 只读扫描 OpenList 暂存目录，识别电影/剧集候选并生成归档预览；不复制、移动、重命名或删除任何文件。
  *
- * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
- * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
+ * 维护说明：分类、命名和冲突检查均为纯规划逻辑；任何未来归档执行器都必须独立复核任务状态和目标路径。
+ * 安全边界：不得绕过 OpenList API 直接访问 NAS 文件系统。
  */
 
 import path from "node:path";
@@ -152,7 +152,7 @@ async function scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath }) {
   return { items, truncated };
 }
 
-/** 调用 OpenList fs/list 读取一个目录；只返回名称、类型、大小和修改时间等规划所需信息。 */
+/** 通过 OpenList fs/list 分页读取一个目录，并标记是否达到分页安全上限。 */
 /** 读取 OpenList 指定目录，检查测试目录是否已经存在。 */
 async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) {
   if (!baseUrl || !token) throw new Error("OPENLIST_BASE_URL 或 OPENLIST_TOKEN 缺失。");
