@@ -7,8 +7,10 @@ import {
   detectSeason,
   parseArgs,
   parseChineseNumber,
-  scanTree
+  scanTree,
+  resolveMediaTitle
 } from "../scripts/media-plan.mjs";
+import { extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
 
 test("parseArgs reads OpenList source and media target paths", () => {
   const args = parseArgs(["--source-dir", "/Downloads", "--movies-dir", "/media/Movies", "--tvshows-dir", "/media/TVShows", "--format", "text"]);
@@ -49,7 +51,8 @@ test("plans movie and series destinations without executing mutations", () => {
     tvShowsPath: "/media/TVShows"
   });
   assert.equal(plan[0].target, "/media/Movies/绿皮书/绿皮书.mkv");
-  assert.equal(plan[1].target, "/media/TVShows/某剧/Season 02/某剧 S02E03.mkv");
+  assert.equal(plan[1].target, "/media/TVShows/某剧/Season 02/某剧 - S02E03.mkv");
+  assert.equal(plan[0].status, "auto_archive_candidate");
   assert.equal(plan[2].status, "review_required");
   assert.equal(plan[2].target, null);
 });
@@ -79,3 +82,52 @@ test("scanTree only reads OpenList fs/list and traverses nested directories", as
   assert.ok(calls.every((call) => call.url.endsWith("/api/fs/list")));
 });
 
+
+
+test("recognizes a known homophone alias as a candidate requiring user confirmation", () => {
+  const result = resolveMediaTitle("肖生客的救赎");
+  assert.equal(result.matched, true);
+  assert.equal(result.canonicalTitle, "肖申克的救赎");
+  assert.equal(result.matchType, "alias");
+  assert.equal(result.requiresReview, true);
+});
+
+test("extracts resolution and creates Emby-style distinct version filenames", () => {
+  assert.equal(extractResolution("Movie.2048p.mkv").value, "2048p");
+  assert.equal(extractResolution("Movie.1080p.mkv").value, "1080p");
+  assert.equal(extractResolution("anything.mkv", { width: 3840, height: 2160 }).value, "2160p");
+  assert.equal(buildMovieFileName("Example", 2024, "1080p", ".mkv"), "Example (2024) - 1080p.mkv");
+  assert.equal(buildMovieFileName("Example", 2024, "2048p", ".mkv"), "Example (2024) - 2048p.mkv");
+  assert.equal(buildSeriesFileName("Example", 1, 2, "1080p", ".mkv"), "Example - S01E02 - 1080p.mkv");
+});
+
+test("plans multiple movie resolutions as separate Emby versions", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.1080p.mkv", path: "/Downloads/Example (2024)/Example.1080p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.2048p.mkv", path: "/Downloads/Example (2024)/Example.2048p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" });
+  assert.equal(plan.length, 2);
+  assert.equal(plan[0].target, "/media/Movies/Example (2024)/Example (2024) - 1080p.mkv");
+  assert.equal(plan[1].target, "/media/Movies/Example (2024)/Example (2024) - 2048p.mkv");
+  assert.ok(plan.every((item) => item.status === "auto_archive_candidate"));
+});
+
+test("pauses exact destination collisions and incomplete destination scans", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.mkv", path: "/Downloads/Example (2024)/Example.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const collision = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows",
+    existingPaths: ["/media/Movies/Example (2024)/Example (2024).mkv"]
+  });
+  assert.equal(collision[0].status, "conflict");
+  assert.equal(collision[0].conflict, true);
+  const incomplete = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows",
+    destinationScanComplete: false
+  });
+  assert.equal(incomplete[0].status, "review_required");
+});
