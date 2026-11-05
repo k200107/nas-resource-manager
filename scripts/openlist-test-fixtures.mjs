@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
 /**
+ * 在专用 OpenList 测试目录创建媒体规划器样例目录和文本占位文件；默认预览，显式确认后才写入，并拒绝覆盖已有目录。
+ *
+ * 本文件说明：函数注释解释职责和关键边界；本次修改只增加注释，不改变原有执行逻辑。
+ * 安全约束：只读预览与真实写入必须严格区分；测试写入必须限制在专用目录并要求显式确认。
+ */
+
+/**
  * 在明确指定的 OpenList 测试目录创建媒体规划器样例目录和文本占位文件；仅在显式确认后写入，拒绝覆盖已有测试目录。
  *
  * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
@@ -59,6 +66,7 @@ const FIXTURES = [
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
+/** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const env = loadEnv(args.envFile);
@@ -153,6 +161,7 @@ async function main() {
 }
 
 /** 构建测试样例的目录/文件清单和执行预览；预览阶段不向 OpenList 写入。 */
+/** 生成测试目录、子目录和占位文件的预览清单；预览阶段不写入 OpenList。 */
 function buildFixturePreview(root) {
   const directories = [root];
   const files = [];
@@ -166,6 +175,7 @@ function buildFixturePreview(root) {
 }
 
 /** 调用 OpenList fs/list 读取一个目录；只返回名称、类型、大小和修改时间等规划所需信息。 */
+/** 读取 OpenList 指定目录，检查测试目录是否已经存在。 */
 async function listDirectory({ baseUrl, token, dirPath }) {
   const response = await requestJson({
     baseUrl, token, apiPath: "/api/fs/list", method: "POST",
@@ -181,6 +191,7 @@ async function listDirectory({ baseUrl, token, dirPath }) {
 }
 
 /** 向 OpenList API 发送 JSON 请求并返回解析后的响应。 */
+/** 向 OpenList API 发送 JSON 请求并检查 HTTP/业务响应。 */
 async function postJson({ baseUrl, token, apiPath, body }) {
   const response = await requestJson({
     baseUrl, token, apiPath, method: "POST", body
@@ -192,6 +203,7 @@ async function postJson({ baseUrl, token, apiPath, body }) {
 }
 
 /** 通过 OpenList 文件上传接口创建文本占位文件；仅用于测试数据，不上传真实媒体内容。 */
+/** 通过 OpenList 上传接口创建小型文本占位文件，不上传真实媒体文件。 */
 async function putTextFile({ baseUrl, token, targetPath, content }) {
   const bytes = new TextEncoder().encode(content);
   const response = await fetchWithTimeout(`${normalizeBaseUrl(baseUrl)}/api/fs/put`, {
@@ -216,6 +228,7 @@ async function putTextFile({ baseUrl, token, targetPath, content }) {
 }
 
 /** 统一执行带超时的 HTTP 请求、解析 JSON 并检查接口返回。 */
+/** 统一执行带超时的 HTTP 请求并解析 JSON 响应。 */
 async function requestJson({ baseUrl, token, apiPath, method, body }) {
   const response = await fetchWithTimeout(`${normalizeBaseUrl(baseUrl)}${apiPath}`, {
     method,
@@ -234,6 +247,7 @@ async function requestJson({ baseUrl, token, apiPath, method, body }) {
 }
 
 /** 执行带超时控制的网络请求；超时后通过 AbortController 中止。 */
+/** 执行带超时控制的网络请求，超时后中止底层 fetch。 */
 async function fetchWithTimeout(url, options) {
   // 为本次请求设置可中止控制器，避免网络无响应时脚本无限等待。
   const controller = new AbortController();
@@ -247,6 +261,7 @@ async function fetchWithTimeout(url, options) {
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
+/** 解析命令行参数并生成统一参数对象；遇到未知参数时明确报错。 */
 function parseArgs(argv) {
   const args = { envFile: DEFAULT_ENV_FILE, stagingDir: "", baseUrl: "", token: "", yes: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -262,12 +277,14 @@ function parseArgs(argv) {
 }
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
+/** 读取 .env 并合并进程环境变量；进程环境变量优先，不覆盖运行环境注入的配置。 */
 function loadEnv(envFile) {
   const fileEnv = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
   return { ...fileEnv, ...process.env };
 }
 
 /** 验证并规范化测试目录路径。 */
+/** 规范化 OpenList 测试路径，拒绝空路径和路径穿越片段。 */
 function normalizePath(value) {
   const text = String(value || "").trim();
   if (!text || !text.startsWith("/") || text.includes("..")) return "";
@@ -275,6 +292,7 @@ function normalizePath(value) {
 }
 
 /** 拼接 OpenList 测试目录路径。 */
+/** 拼接测试目录路径，避免重复斜杠。 */
 function joinPath(parent, child) {
   const base = String(parent || "").replace(/\/+$/g, "");
   const name = String(child || "").replace(/^\/+|\/+$/g, "");
@@ -285,16 +303,19 @@ function joinPath(parent, child) {
 }
 
 /** 规范化服务 URL，移除尾部斜杠。 */
+/** 规范化 OpenList 服务地址。 */
 function normalizeBaseUrl(value) {
   return String(value || "").replace(/\/+$/g, "");
 }
 
 /** 根据接口响应判断创建/上传操作是否成功。 */
+/** 依据 OpenList 响应字段判断目录创建或文件上传是否成功。 */
 function isSuccess(json) {
   return json?.code === 200 || json?.code === 0 || json?.message === "success";
 }
 
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
+/** 判断当前模块是否作为命令行入口直接运行。 */
 function isCliEntryPoint() {
   return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
