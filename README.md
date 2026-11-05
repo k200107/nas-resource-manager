@@ -1,59 +1,123 @@
 # Resource 2 NAS Skill
 
-Codex skill for the whole media-to-NAS path. Users can enter from different stages: search a title through PanSou, provide a Quark/Baidu share link directly, verify saved resources through OpenList, inspect/cancel current OpenList transfer tasks, or copy saved resources into NAS/SMB-mounted OpenList storage.
+A Node.js toolkit and Agent skill for the resource-to-NAS workflow. It supports PanSou resource search, Quark/Baidu share preview and saving, OpenList task inspection, and read-only media-library planning.
+
+The repository is being extended with a cautious media-ingest workflow. Existing NAS media files are treated as read-only unless a separate, explicit operation is implemented and approved.
 
 ## Features
 
-- Search PanSou and return the top 50 ranked Baidu/Quark resource links as Markdown or JSON by default.
-- Preserve concrete download links, extraction codes, provider names, source notes, and timestamps.
+- Search PanSou and return ranked Baidu/Quark resource links as Markdown or JSON.
+- Preserve download links, extraction codes, provider names, source notes, and timestamps.
 - Preview Quark and Baidu share contents before saving.
-- Validate Quark and Baidu Cookies with Agent-friendly JSON before real saves.
+- Validate Quark and Baidu Cookies before real saves.
 - Save Quark shares to a configured Quark folder.
-- Save Baidu shares to a configured Baidu path or Baidu folder URL.
-- Let the Agent classify resources as movie, series, or collection before saving.
-- Verify saved resources through OpenList and copy them to an SMB/NAS-backed OpenList path.
-- List OpenList copy/offline-download task progress and cancel matched stuck tasks after confirmation.
-- Preview a read-only media archive plan from an OpenList staging directory; no media files are moved or renamed.
+- Save Baidu shares to a configured Baidu path or folder URL.
+- Inspect and cancel OpenList copy/offline-download tasks.
+- Reconcile an internal media task against its exact OpenList task ID.
+- Create shared media-ingest task records with guarded state transitions, idempotency keys, and resource locks.
+- Preview a read-only media archive plan from an OpenList staging directory. The planner does not move, rename, copy, or delete media files.
 
 ## Requirements
 
-- Node.js 20 or newer.
-- A configured `.env` file for operations that need account or OpenList access.
-- PanSou API access through the default public endpoint or a custom endpoint.
+- Node.js 22 or newer is recommended. The automated test workflow currently checks Node.js 22 and 24.
+- Git, for cloning the repository.
+- OpenList and provider credentials are only needed for operations that connect to those services.
 
-Search-only usage does not require cookies or OpenList credentials.
+You can install the project and run its automated tests without a `.env` file, OpenList, Quark, or Baidu credentials.
 
-## Setup
+## Windows: clone and run local tests
 
-Copy the example environment file and fill in real values:
+Open PowerShell and run:
+
+```powershell
+# Choose a directory for the project
+cd D:\Projects
+
+# Clone the development branch
+git clone -b feat/nas-resource-manager-foundation https://github.com/k200107/nas-resource-manager.git
+
+# Enter the project
+cd nas-resource-manager
+
+# Install dependencies
+npm install
+
+# Run the automated test suite
+npm test
+```
+
+Check your local tools first if needed:
+
+```powershell
+node -v
+npm -v
+git --version
+```
+
+Node.js 22 or 24 is recommended. The test suite uses Node's built-in test runner. It does not require a live NAS connection and should not modify NAS files.
+
+To update an existing clone to the latest version of this development branch:
+
+```powershell
+git switch feat/nas-resource-manager-foundation
+git pull
+npm install
+npm test
+```
+
+## Setup for service-connected operations
+
+Only create a local `.env` file when you are ready to test operations that need provider or OpenList access.
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Linux/macOS:
 
 ```bash
 cp .env.example .env
-npm run check-ready
 ```
+
+Edit `.env` locally and enter your own credentials. Do not paste Cookies, tokens, passwords, or private share links into GitHub issues or commits.
+
+Do not run `npm run check-ready` until you have configured the provider and OpenList settings required for the services you intend to check. A local unit-test run does not need `.env`.
 
 Configuration guide:
 
 https://guantou.site/archives/N2CmhISt
 
-Never commit `.env`. It contains full account credentials.
-
 ## Configuration
 
-| Key | Purpose |
+The paths below belong to different systems and must not be treated as interchangeable.
+
+| Variable | Meaning |
 | --- | --- |
 | `QUARK_COOKIE` | Quark web Cookie used to save Quark share links. |
 | `BAIDU_COOKIE` | Baidu Netdisk web Cookie used to save Baidu share links. |
-| `OPENLIST_TOKEN` | Fixed OpenList API token for list, get, copy, and task APIs. |
-| `OPENLIST_BASE_URL` | OpenList base URL, for example `http://127.0.0.1:5244`. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList path backed by SMB/NAS storage; existing meaning unchanged. |
-| `OPENLIST_STAGING_PATH` | Optional OpenList staging/download path; configure only after verifying the mount. |
-| `MEDIA_MOVIES_PATH` | Optional OpenList Movies library path. |
-| `MEDIA_TVSHOWS_PATH` | Optional OpenList TVShows library path. |
-| `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | Quark provider config. `QUARK_DEFAULT_SAVE_URL` can be `/备份资源` or a full Quark folder URL. |
-| `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | Baidu provider config. `BAIDU_DEFAULT_SAVE_PATH` can be `/NAS资源下载` or a Baidu folder URL. |
+| `QUARK_DEFAULT_SAVE_URL` | Destination folder in the Quark cloud drive; may be a provider folder path or folder URL. |
+| `BAIDU_DEFAULT_SAVE_PATH` | Destination folder in Baidu Netdisk; may be a provider folder path or folder URL. |
+| `OPENLIST_TOKEN` | OpenList API token for the configured OpenList operations. Treat it as a password. |
+| `OPENLIST_BASE_URL` | OpenList service URL reachable from the computer running this project. For example, `http://127.0.0.1:5244` only works when OpenList is running on that same computer. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList destination backed by SMB/NAS storage for the existing copy workflow. Its original purpose is unchanged. |
+| `OPENLIST_STAGING_PATH` | OpenList path used as a temporary staging/download area. Configure only after confirming the actual OpenList mount and path. |
+| `MEDIA_MOVIES_PATH` | OpenList path for the Movies library. |
+| `MEDIA_TVSHOWS_PATH` | OpenList path for the TVShows library. |
+| `MEDIA_TASK_STORE_PATH` | Local application metadata file used by the media-task workflow; not a media directory. |
+| `MEDIA_TASK_LOCK_DIR` | Local directory for application task locks; not an OpenList or NAS media path. |
 
-Quark and Baidu are alternatives. At least one provider must be fully configured; both are not required.
+Important path distinctions:
+
+- Quark/Baidu save paths are folders inside the corresponding cloud-drive account.
+- `OPENLIST_STAGING_PATH` is an OpenList path for temporary files after transfer.
+- `OPENLIST_DEFAULT_COPY_DST_PATH` is the default destination for the existing OpenList copy workflow. It is not automatically the staging path.
+- `MEDIA_MOVIES_PATH` and `MEDIA_TVSHOWS_PATH` are separate OpenList media-library paths.
+- Values such as `/vol1/1000/media` are NAS filesystem paths, not necessarily OpenList paths. Do not enter them as OpenList paths unless the OpenList mount exposes that exact path.
+- The task store and lock directory are local application metadata. OpenClaw and Hermes must use the same persistent location when they share task processing.
+
+At least one provider must be configured for provider save operations. Quark and Baidu are alternatives; both are not required. Search-only and local automated tests do not require provider Cookies.
 
 ## Usage
 
@@ -63,15 +127,10 @@ Search resources:
 npm run search -- "蜘蛛侠"
 ```
 
-Check whether the whole setup is usable:
+Check service configuration and connectivity after configuring the required credentials:
 
 ```bash
 npm run check-ready
-```
-
-This prints JSON by default for Agents and tests ENV, Cookie validity, provider save target connectivity, and OpenList/NAS connectivity. For a human-readable view:
-
-```bash
 npm run check-ready -- --format text
 ```
 
@@ -87,15 +146,7 @@ Preview a Baidu share:
 npm run baidu-save -- "$BAIDU_SHARE_URL" "$BAIDU_DEFAULT_SAVE_PATH" --dry-run
 ```
 
-Reconcile a transfer against its exact OpenList task ID (read-only task API):
-
-```bash
-npm run openlist-reconcile -- MEDIA_TASK_ID
-```
-
-This only advances a task to `VERIFYING` when OpenList supplies explicit completion evidence. It does not inspect or change media files.
-
-Create and inspect shared media-ingest task records (local metadata only):
+Create and inspect media-ingest task records (local metadata only):
 
 ```bash
 npm run media-task -- create --key "quark:share-id:file-id" --provider quark --source "/Downloads/资源目录" --name "资源名称" --type series
@@ -103,7 +154,15 @@ npm run media-task -- list
 npm run media-task -- get TASK_ID
 ```
 
-Both OpenClaw and Hermes must use the same `MEDIA_TASK_STORE_PATH` and `MEDIA_TASK_LOCK_DIR` on a shared persistent volume. Do not put these paths inside the media library. Task transitions are guarded; see `docs/media-task-state.md`.
+Both OpenClaw and Hermes must use the same `MEDIA_TASK_STORE_PATH` and `MEDIA_TASK_LOCK_DIR` on a shared persistent volume. Do not put these paths inside the media library. See `docs/media-task-state.md`.
+
+Reconcile a transfer against its exact OpenList task ID (read-only task API):
+
+```bash
+npm run openlist-reconcile -- MEDIA_TASK_ID
+```
+
+This only reconciles tasks in the appropriate transfer state. It does not inspect or change media files.
 
 Preview the staging directory and proposed media destinations (read-only):
 
@@ -111,7 +170,7 @@ Preview the staging directory and proposed media destinations (read-only):
 npm run media-plan -- --format text
 ```
 
-See `docs/media-plan.md` for classification and safety details. This command only reads OpenList listings; it does not move, rename, copy, or delete files.
+The planner reads OpenList directory listings. It does not move, rename, copy, or delete files. Configure the staging and library paths only after checking the OpenList mount.
 
 List current OpenList copy tasks:
 
@@ -119,22 +178,13 @@ List current OpenList copy tasks:
 npm run openlist-tasks -- list copy undone --format json
 ```
 
-Preview a NAS/OpenList copy:
+Preview an OpenList copy:
 
 ```bash
 npm run openlist-copy -- "/pan/quark/备份资源" "$OPENLIST_DEFAULT_COPY_DST_PATH" "资源名" --format json
 ```
 
-Save after review:
-
-```bash
-npm run baidu-save -- "$BAIDU_SHARE_URL" "$BAIDU_DEFAULT_SAVE_PATH" \
-  --context-name "资源名" \
-  --resource-type collection \
-  --yes
-```
-
-Run tests:
+Run automated tests:
 
 ```bash
 npm test
@@ -142,23 +192,27 @@ npm test
 
 ## Safety Notes
 
-- Treat cookies and OpenList tokens as full credentials.
-- Print only masked secrets.
-- Do not place real cookies, tokens, private links, or private OpenList paths in commits.
-- When a save target is unclear, run the relevant script with `--dry-run` first.
-- For NAS backups, use OpenList paths, not local OS paths.
+- Treat Cookies, OpenList tokens, and private share links as credentials.
+- Never commit `.env`; it is excluded by `.gitignore`.
+- Never print full secrets in logs or diagnostic output.
+- Use OpenList paths for NAS operations; do not substitute local OS paths.
+- Do not move, rename, delete, or overwrite files while a cloud save, transfer, copy, or verification task is active, paused, failed, or in an unknown state.
+- A task is eligible for archive only after the transfer is confirmed complete, verification passes, and an explicit approval is recorded.
+- Ambiguous media classification should remain in staging for manual review.
+- The current media planner is read-only. Review its proposed destinations before any future archive execution feature is enabled.
 
 ## Repository Layout
 
 ```text
 agents/              Agent metadata
-scripts/             CLI helpers for search, env/Cookie checks, cloud saves, OpenList tasks/copy, and read-only media planning
+scripts/             CLI helpers and media workflow modules
 tests/               Node test suite
+docs/                Architecture, media planning, and task-state documentation
 SKILL.md             Main skill instructions
 SUBAGENT.md          Sub-agent runbook for OpenClaw, Hermes, and similar agents
 .env.example         Safe configuration template
 ```
 
-## Open Source Status
+## License and upstream
 
-This repository does not currently include a license file. Choose and add a license before publishing as an open-source project. This is practical engineering guidance, not legal advice.
+This repository is based on the Resource 2 NAS project. The upstream repository did not include a license file when this fork was prepared. Public visibility alone does not grant permission to relicense or redistribute upstream code under a new license. Confirm the applicable permission with the upstream author before adding a license or distributing a derivative release.
