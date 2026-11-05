@@ -373,12 +373,6 @@ function isOpenListSuccess(json) {
   return isOpenListResponseSuccess(json);
 }
 
-/** 规范化服务 URL，移除尾部斜杠。 */
-/** 规范化 OpenList 服务地址。 */
-function normalizeBaseUrl(value) {
-  return String(value || "").replace(/\/+$/g, "");
-}
-
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
 /** 判断当前模块是否作为命令行入口直接运行。 */
 function isCliEntryPoint() {
