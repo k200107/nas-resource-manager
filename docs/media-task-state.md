@@ -2,55 +2,62 @@
 
 ## Purpose
 
-OpenClaw and Hermes must use one shared task store and one resource-lock directory. The store is application metadata, not a media directory and not an OpenList path. Configure both agents to the same persistent host/container-mounted paths.
+OpenClaw and Hermes share one task store and resource-lock directory. The store is application metadata, not a media directory or OpenList path.
 
-- MEDIA_TASK_STORE_PATH: JSON task database, default .state/media-tasks.json.
-- MEDIA_TASK_LOCK_DIR: resource lock directory, default .state/locks.
+- `MEDIA_TASK_STORE_PATH`: JSON task database, default `.state/media-tasks.json`.
+- `MEDIA_TASK_LOCK_DIR`: resource lock directory, default `.state/locks`.
 
-Do not place either path inside /vol1/1000/media, Downloads, Movies, or TVShows. Back up the state store with the application configuration. Never commit the state file or lock contents.
+Do not place either path inside Downloads, Movies, TVShows, or the NAS media root.
 
 ## State progression
 
-DISCOVERED -> CLOUD_SAVE_PENDING -> CLOUD_SAVED -> TRANSFER_PENDING -> TRANSFERRING -> VERIFYING -> STAGED -> ARCHIVE_PENDING -> ARCHIVED
+`DISCOVERED -> CLOUD_SAVE_PENDING -> CLOUD_SAVED -> TRANSFER_PENDING -> TRANSFERRING -> VERIFYING -> STAGED`
 
-Exceptional states: FAILED, PAUSED, UNKNOWN, CONFLICT.
+After verification:
 
-The module rejects unsupported transitions. An OpenList task ID is required before entering TRANSFERRING or VERIFYING. STAGED requires verification.passed=true, transferCompleted=true from the OpenList reconciliation adapter, the same OpenList task ID already attached to the task, and at least two stable checks. This prevents a merely stable partial download from being marked ready. A hash may be recorded when the source exposes a reliable hash; absence of a hash does not turn size stability into cryptographic proof.
+- High-confidence identity + complete transfer verification + no destination conflict: the task may enter `ARCHIVE_PENDING` with `archiveDecision.mode="automatic"`. No per-file user approval is required.
+- Alias, typo/homophone candidate, uncertain media type, incomplete season/episode data, or incomplete destination index: enter `REVIEW_REQUIRED`. The user confirms the standard title and whether it is a movie or series once for that item.
+- Exact target collision: enter `CONFLICT`. Never overwrite. A conflict must be explicitly resolved (for example by selecting a different target/version or confirming the existing file is the intended duplicate) before returning to `STAGED`.
+- Existing explicit approval records remain supported for compatibility, but are not required for every clear item.
 
-ARCHIVE_PENDING requires an explicit approval record with confirmed=true, approvedBy, and approvedAt. ARCHIVED requires an explicit successful archive result. The state module itself does not call OpenList and does not move files.
+Exceptional states: `FAILED`, `PAUSED`, `UNKNOWN`, `CONFLICT`, and `REVIEW_REQUIRED`.
+
+## Verification gates
+
+Entering `STAGED` requires:
+
+- OpenList reports the exact recorded transfer task as completed successfully.
+- Verification reports `passed=true` and `transferCompleted=true`.
+- The OpenList task ID matches the ID already attached to the internal task.
+- At least two stable-size checks have completed.
+
+The current task store validates the evidence fields; a future verifier must actually inspect file size/stability and compare a reliable hash when the source provides one. A status flag supplied by a caller is not itself cryptographic proof.
+
+## Automatic archive gate
+
+`canAutoArchive(task)` requires a verified `STAGED` task, no unresolved conflict, and either high-confidence classification or an explicit identity review resolution. The `ARCHIVE_PENDING` transition accepts an automatic decision only when the task classification is high confidence and the destination check says `conflict=false`. A manually resolved identity can use `archiveDecision.mode="user-confirmed"`; this confirms identity, not each subsequent file move.
+
+The state module does not call OpenList and does not move files. The actual archive executor is a separate future step and must re-list the exact source and destination, acquire the shared resource lock, and revalidate transfer state and conflicts immediately before moving.
 
 ## Idempotency and locking
 
-Every task must have a stable idempotency key derived from provider and resource identity. Repeating the same key for the same provider/source returns the existing task. Reusing it for a different source is rejected.
+Every task uses a stable idempotency key derived from provider/resource identity. Repeating the same key for the same provider/source returns the existing task. Reusing it for another source is rejected.
 
-Before processing a resource, agents should acquire acquireResourceLock(resourceKey) and release it in a finally block. The lock uses atomic directory creation; a second process receives a conflict. Locks are not silently broken based on age because an apparently old lock may still protect an active operation. If a process crashes, an operator must inspect the lock owner and running processes before manual cleanup.
+Agents should acquire `acquireResourceLock(resourceKey)` and release it in a `finally` block. Locks use atomic directory creation. Stale locks are never automatically removed; an operator must inspect the owner and active processes before manual cleanup.
 
-The JSON store uses a separate short-lived write lock and atomic temp-file replacement. If a write lock remains after a crash, the operation times out and asks for manual inspection rather than deleting it automatically.
+## CLI
 
-## CLI examples
-
-Create a record:
-
-npm run media-task -- create --key "quark:share-id:file-id" --provider quark --source "/Downloads/Example" --name "Example" --type series
-
-List and inspect:
-
+```bash
+npm run media-task -- create --key "quark:share-id:file-id" --provider quark --source "/Downloads/Example" --name "Example" --type movie --confidence high
 npm run media-task -- list
-
 npm run media-task -- get TASK_ID
+```
 
-The CLI currently exposes create/list/get/transition for task metadata. It is not a transfer or archive executor.
+The CLI manages local task metadata only. It is not a transfer or archive executor.
 
 ## Safety boundary
 
-- A task missing from the state store is not evidence that an OpenList transfer completed.
-- PAUSED, FAILED, UNKNOWN, CONFLICT, and active transfer states are not archivable.
-- OpenList task completion must be reconciled by a future OpenList adapter before entering verification.
-- Verification must inspect files through OpenList, not local filesystem shortcuts.
-- All NAS file operations remain OpenList-only.
-- No operation in this stage changes existing NAS media files.
-
-
-## OpenList task reconciliation
-
-Run `npm run openlist-reconcile -- MEDIA_TASK_ID` to reconcile one `TRANSFERRING` task with OpenList. The adapter looks up the exact recorded OpenList task ID in both `copy/undone` and `copy/done` lists. Only a task in the done bucket with explicit success evidence (progress at least 100 or a recognized success/completed status) advances to `VERIFYING`. A task in undone remains `TRANSFERRING`; a reported error becomes `FAILED`; missing, ambiguous, or incomplete evidence becomes `UNKNOWN`. No files are read, copied, moved, renamed, or deleted by this command.
+- Existing NAS files remain read-only unless a separate authorized operation is implemented.
+- Never move, rename, delete, or overwrite while a transfer, copy, or verification task is active, paused, failed, or unknown.
+- Conflicts are never auto-overwritten.
+- A plan marked `auto_archive_candidate` is only a proposal; it does not itself execute an archive.
