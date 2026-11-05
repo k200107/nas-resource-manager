@@ -98,7 +98,9 @@ export function extractResolution(value, mediaInfo = {}) {
   const width = Number(mediaInfo.width || mediaInfo.videoWidth || 0);
   const height = Number(mediaInfo.height || mediaInfo.videoHeight || 0);
   if (width > 0 && height > 0) {
-    const dimensionTag = height >= 2000 ? (height >= 2100 ? "2160p" : "2048p")
+    const dimensionTag = width >= 3800 || height >= 2100 ? "2160p"
+      : width >= 2500 ? "1440p"
+      : width >= 2000 ? "2048p"
       : height >= 1000 ? "1080p" : height >= 700 ? "720p" : height >= 400 ? "480p" : null;
     if (dimensionTag) return { value: dimensionTag, source: "media-info", width, height };
   }
@@ -106,6 +108,7 @@ export function extractResolution(value, mediaInfo = {}) {
   const patterns = [
     [/(?:2160p|4k|uhd)/i, "2160p"],
     [/(?:2048p|2k)/i, "2048p"],
+    [/1440p/i, "1440p"],
     [/(?:1080p|fhd)/i, "1080p"],
     [/(?:720p|hd)/i, "720p"],
     [/(?:480p|sd)/i, "480p"]
