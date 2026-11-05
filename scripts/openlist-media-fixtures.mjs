@@ -7,8 +7,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 
 const ROOT_NAME = "__MEDIA_ARCHIVE_TESTS__";
@@ -34,7 +34,7 @@ const FIXTURES = [
   { path: "target/Movies/Collision Film (2024)/Collision Film (2024).mkv", content: "existing target collision fixture" }
 ];
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -44,8 +44,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const envFile = args.envFile || ".env";
-  const fileEnv = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
-  const env = { ...fileEnv, ...process.env };
+  const env = mergeEnvValues(loadEnvFile(envFile).values, process.env);
   const baseUrl = args.baseUrl || env.OPENLIST_BASE_URL;
   const token = args.token || env.OPENLIST_TOKEN;
   const staging = normalizePath(args.stagingDir || env.OPENLIST_STAGING_PATH);
