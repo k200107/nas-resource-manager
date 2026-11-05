@@ -478,12 +478,6 @@ function parseList(value) {
   return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-/** 规范化服务 URL，移除尾部斜杠。 */
-/** 去除服务地址末尾多余斜杠。 */
-function normalizeBaseUrl(value) {
-  return String(value || "").replace(/\/+$/g, "");
-}
-
 /** 根据 OpenList 响应字段判断接口调用是否成功。 */
 /** 依据 OpenList 响应字段判断接口是否成功。 */
 function isOpenListSuccess(json) {
