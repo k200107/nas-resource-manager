@@ -107,7 +107,7 @@ export function extractResolution(value, mediaInfo = {}) {
   const text = String(value || "");
   const patterns = [
     [/(?:2160p|4k|uhd)/i, "2160p"],
-    [/(?:2048p|2k)/i, "2048p"],
+    [/(?:2048p|2k|(?:^|[._\\s-])2048(?:[._\\s-]|$))/i, "2048p"],
     [/1440p/i, "1440p"],
     [/(?:1080p|fhd)/i, "1080p"],
     [/(?:720p|hd)/i, "720p"],
