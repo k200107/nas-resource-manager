@@ -18,7 +18,7 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 - Analyze movie/series identity, title aliases, years, season/episode markers, and resolution tags.
 - Generate Emby-style movie/season folders and multi-resolution filenames.
 - Detect exact destination collisions and route ambiguous identities to one-time user review.
-- Propose automatic archive candidates for high-confidence, verified, conflict-free tasks; the current planner remains read-only and does not move, rename, copy, or delete media files.
+- Generate a read-only media plan, then use a separate OpenList archive executor for explicitly confirmed move/rename operations; destination collisions are blocked and review-required items are skipped.
 
 ## Requirements
 
@@ -178,6 +178,34 @@ The planner reads the staging directory and checks only the relevant destination
 
 To maintain confirmed title aliases, copy `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, add aliases only after confirming the canonical title, and set `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local alias file is git-ignored. Offline recognition cannot guarantee all Chinese homophones without a comprehensive catalog or external metadata provider.
 
+
+Create an isolated media-archive test workspace. It contains only tiny text placeholders with media extensions, not playable video files. The source and target folders are separate, and one pre-existing target is included to test collision blocking:
+
+```bash
+npm run media-archive-fixtures
+npm run media-archive-fixtures -- --yes
+```
+
+Then generate a plan against the isolated workspace (replace the path with the actual OpenList path returned by the fixture command):
+
+```bash
+npm run media-plan -- --source-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/source" --movies-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/Movies" --tvshows-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/TVShows" > media-archive-plan.json
+```
+
+Run the archive preflight. Without `--yes`, it only checks source files and destination paths:
+
+```bash
+npm run media-archive -- --plan-file media-archive-plan.json --movies-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/Movies" --tvshows-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/TVShows"
+```
+
+Only after reviewing the preflight output should you explicitly enable execution, and only against the isolated test workspace:
+
+```bash
+npm run media-archive -- --plan-file media-archive-plan.json --movies-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/Movies" --tvshows-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/TVShows" --yes
+```
+
+The executor uses OpenList `POST /api/fs/mkdir`, `POST /api/fs/move`, and `POST /api/fs/rename`. It never overwrites a target it detects, never deletes the source intentionally, and never uses local filesystem access for NAS files. The OpenList move API does not expose an atomic no-overwrite precondition in its documented request schema; do not run concurrent writers against the same target directories during archive execution.
+
 List current OpenList copy tasks:
 
 ```bash
@@ -205,7 +233,7 @@ npm test
 - Do not move, rename, delete, or overwrite files while a cloud save, transfer, copy, or verification task is active, paused, failed, or in an unknown state.
 - A high-confidence task can enter the automatic archive path only after transfer completion, verification, and a conflict-free destination check. Ambiguous identity requires one user confirmation; exact destination conflicts are paused and never overwritten.
 - Ambiguous media classification should remain in staging for manual review.
-- The current media planner is read-only. Review its proposed destinations before any future archive execution feature is enabled.
+- The media planner is always read-only. The separate media archive executor is also read-only by default; only an explicit `--yes` enables OpenList mkdir/move/rename operations. It does not call copy or delete APIs. It rechecks source and destination immediately before each item, stops at the first uncertain error, and verifies the resulting destination. Do not run it against the real Movies/TVShows libraries until the isolated test workspace has passed.
 
 ## Repository Layout
 
