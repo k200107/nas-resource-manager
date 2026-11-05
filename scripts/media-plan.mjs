@@ -18,7 +18,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
-import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, parseChineseNumber as parseChineseNumberShared, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
+import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -218,7 +218,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       .replace(/[()[\]{}（）【】]/g, " ")
       .replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
     const identity = resolveMediaTitle(identityInput, aliases);
-    const resourceName = identity.canonicalTitle || rawName;
+    const resourceName = sanitizeName(identity.canonicalTitle || rawName);
     const relativeFiles = videoFiles.map((file) => ({
       ...file,
       relativeName: file.path.slice(entry.path.length).replace(/^\//, ""),
