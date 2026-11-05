@@ -226,7 +226,7 @@ async function ensureTargetDirectories({ baseUrl, token, fetchImpl, timeoutMs, p
       if (existing) {
         if (!existing.isDir) throw new Error(`目标目录路径中存在同名文件：${next}`);
       } else {
-        const response = await fetchImpl(`${String(baseUrl).replace(/\\/+$/g, "")}/api/fs/mkdir`, {
+        const response = await fetchImpl(`${String(baseUrl).replace(/\/+$/g, "")}/api/fs/mkdir`, {
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: token },
           body: JSON.stringify({ path: next }),
