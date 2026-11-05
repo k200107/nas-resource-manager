@@ -60,7 +60,7 @@ export function resolveMediaTitle(rawTitle, aliasCatalog = DEFAULT_TITLE_ALIASES
   const normalized = normalizeTitle(raw);
   if (!normalized) return { matched: false, canonicalTitle: raw, candidates: [], requiresReview: true };
 
-  const entries = Object.entries(aliasCatalog || {});
+  const entries = Object.entries(aliasCatalog || {}).filter(([canonicalTitle]) => !canonicalTitle.startsWith("_"));
   for (const [canonicalTitle, aliases] of entries) {
     const names = [canonicalTitle, ...(Array.isArray(aliases) ? aliases : [])];
     const exact = names.find((name) => normalizeTitle(name) === normalized);
