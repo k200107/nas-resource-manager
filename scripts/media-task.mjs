@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+/**
+ * 媒体任务状态管理 CLI，将命令行参数转换为任务创建、查询、列表和状态转换请求。
+ *
+ * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
+ * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +20,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
 }
 
+/** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const envFile = args.envFile || ".env";
@@ -22,6 +30,7 @@ async function main() {
     lockDir: args.lockDir || env.MEDIA_TASK_LOCK_DIR || process.env.MEDIA_TASK_LOCK_DIR
   };
   let result;
+  // CLI 只负责把参数交给状态库；状态合法性和证据校验由 media-task-store 统一执行。
   if (args.action === "create") {
     result = await createTask({
       idempotencyKey: args.key,
@@ -35,16 +44,20 @@ async function main() {
     result = { task: await getTask(args.id, options) };
   } else if (args.action === "list") {
     result = { tasks: await listTasks(options) };
-  } else if (args.action === "transition") {
+  } else // 状态迁移所需的验证/审批证据在此组装，最终是否允许迁移仍由状态库判定。
+  if (args.action === "transition") {
     const details = { actor: args.actor, note: args.note, openListTaskId: args.openListTaskId };
-    if (args.to === "STAGED") details.verification = {
+    // STAGED 必须携带转存完成、任务 ID 一致和稳定性检查证据。
+  if (args.to === "STAGED") details.verification = {
       passed: args.verified, transferCompleted: args.transferCompleted,
       openListTaskId: args.openListTaskId, stableChecks: args.stableChecks, size: args.size, hash: args.hash || null
     };
-    if (args.to === "ARCHIVE_PENDING") details.approval = {
+    // 进入待归档阶段必须显式提供人工确认信息，不能由脚本自动批准。
+  if (args.to === "ARCHIVE_PENDING") details.approval = {
       confirmed: args.confirmed, approvedBy: args.approvedBy, approvedAt: args.approvedAt
     };
-    if (args.to === "ARCHIVED") details.archiveResult = { success: args.archiveSuccess };
+    // 只有归档执行结果明确成功，状态库才允许标记为 ARCHIVED。
+  if (args.to === "ARCHIVED") details.archiveResult = { success: args.archiveSuccess };
     result = { task: await transitionTask(args.id, args.to, details, options) };
   } else {
     throw new Error("action 只支持 create、get、list、transition。");
@@ -52,6 +65,7 @@ async function main() {
   console.log(JSON.stringify({ ok: true, tool: "media-task", action: args.action, ...result }, null, 2));
 }
 
+/** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
 function parseArgs(argv) {
   const args = { action: "list", storePath: "", lockDir: "", envFile: ".env" };
   const positionals = [];
