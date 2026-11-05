@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
+import { acquireResourceLock, getArchiveOperation, recordArchiveOperation } from "./media-task-store.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -36,7 +37,9 @@ async function main() {
     tvShowsPath: normalizePath(args.tvShowsPath || env.MEDIA_TVSHOWS_PATH),
     yes: args.yes,
     fetchImpl: globalThis.fetch,
-    timeoutMs: args.timeoutMs
+    timeoutMs: args.timeoutMs,
+    storePath: env.MEDIA_TASK_STORE_PATH,
+    lockDir: env.MEDIA_TASK_LOCK_DIR
   });
   console.log(JSON.stringify(result, null, 2));
 }
@@ -64,7 +67,8 @@ function parseArgs(argv) {
  */
 async function runMediaArchive({
   plan, baseUrl, token, moviesPath, tvShowsPath, yes = false,
-  fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS
+  fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS,
+  storePath = undefined, lockDir = undefined
 }) {
   if (!Array.isArray(plan)) throw new Error("plan 必须是数组。");
   if (!baseUrl || !token) throw new Error("OPENLIST_BASE_URL 或 OPENLIST_TOKEN 缺失。");
@@ -73,7 +77,22 @@ async function runMediaArchive({
 
   const eligible = plan.filter((item) => item?.status === "auto_archive_candidate" && item.source && item.target);
   const skipped = plan.length - eligible.length;
-  const validated = eligible.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
+  const allValidated = eligible.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
+  const alreadyArchived = [];
+  const validated = [];
+  for (const item of allValidated) {
+    const record = await getArchiveOperation(item.source, item.target, { storePath });
+    if (record?.verified === true) alreadyArchived.push({ source: item.source, target: item.target, verified: true, verifiedAt: record.verifiedAt });
+    else validated.push(item);
+  }
+  if (validated.length === 0) {
+    return {
+      ok: true, tool: "media-archive", mode: "idempotent-noop", mutated: false,
+      eligible: eligible.length, skipped, alreadyArchived, preflight: [], executed: [],
+      safety: { overwrite: false, delete: false, copy: false },
+      nextAction: "archive_already_complete"
+    };
+  }
   const api = createApi({ baseUrl, token, fetchImpl, timeoutMs });
   const cache = new Map();
 
@@ -119,7 +138,7 @@ async function runMediaArchive({
   if (blocked.length) {
     return {
       ok: false, tool: "media-archive", mode: yes ? "execution-blocked" : "read-only-dry-run",
-      mutated: false, eligible: eligible.length, skipped,
+      mutated: false, eligible: eligible.length, skipped, alreadyArchived,
       preflight, executed: [], nextAction: "resolve_conflicts_or_missing_sources"
     };
   }
@@ -127,59 +146,88 @@ async function runMediaArchive({
   if (!yes) {
     return {
       ok: true, tool: "media-archive", mode: "read-only-dry-run", mutated: false,
-      eligible: eligible.length, skipped,
+      eligible: eligible.length, skipped, alreadyArchived,
       preflight, executed: [],
       safety: { overwrite: false, delete: false, copy: false, note: "仅检查源文件和目标路径；未创建目录、移动或重命名文件。" },
       nextAction: "review_and_confirm_with_yes"
     };
   }
 
-  const executed = [];
-  for (const item of validated) {
-    const check = preflight.find((entry) => entry.source === item.source);
-    try {
-      // Create missing directories from the shallowest parent to the deepest.
-      for (const dir of check.missingDirectories) await api.mkdir(dir);
-
-      // Last-moment recheck prevents stale preflight data from overwriting a file created meanwhile.
-      const freshSourceRows = await api.list(item.sourceDir);
-      if (!freshSourceRows.some((entry) => sameName(entry.name, item.sourceName) && !entry.isDir)) {
-        throw new Error("执行前源文件已不存在或类型发生变化，已停止。");
-      }
-      const freshTargetRows = await api.list(item.targetDir);
-      if (item.sourceDir !== item.targetDir || item.sourceName !== item.targetName) {
-        if (freshTargetRows.some((entry) => sameName(entry.name, item.targetName))) {
-          throw new Error("执行前目标路径已被占用，已停止且不会覆盖。");
-        }
-      }
-
-      let currentPath = item.source;
-      if (item.sourceDir !== item.targetDir) {
-        await api.move(item.sourceDir, item.targetDir, item.sourceName);
-        currentPath = join(item.targetDir, item.sourceName);
-      }
-      if (item.sourceName !== item.targetName) {
-        await api.rename(currentPath, item.targetName);
-        currentPath = join(item.targetDir, item.targetName);
-      }
-      const verifyRows = await api.list(item.targetDir);
-      if (!verifyRows.some((entry) => sameName(entry.name, item.targetName))) {
-        throw new Error("OpenList 操作已返回成功，但目标目录回读未发现文件。");
-      }
-      executed.push({ source: item.source, target: item.target, ok: true, verified: true });
-    } catch (error) {
-      executed.push({ source: item.source, target: item.target, ok: false, verified: false, error: error.message || String(error) });
-      // Stop on first uncertain result. Do not retry blindly or remove the source.
-      break;
+  const lockHandles = [];
+  const lockedGroups = new Set();
+  try {
+    for (const item of validated) {
+      const groupKey = item.resourceGroupId || "";
+      if (!groupKey || lockedGroups.has(groupKey)) continue;
+      const handle = await acquireResourceLock(groupKey, { lockDir });
+      lockHandles.push(handle);
+      lockedGroups.add(groupKey);
     }
+  } catch (error) {
+    for (const handle of lockHandles.reverse()) await handle.release().catch(() => {});
+    return {
+      ok: false, tool: "media-archive", mode: "execution-blocked", mutated: false,
+      eligible: eligible.length, skipped, alreadyArchived, preflight, executed: [],
+      error: error.message || String(error), nextAction: "resolve_resource_lock"
+    };
+  }
+
+  const executed = [];
+  try {
+    for (const item of validated) {
+      const check = preflight.find((entry) => entry.source === item.source);
+      try {
+        // Create missing directories from the shallowest parent to the deepest.
+        for (const dir of check.missingDirectories) await api.mkdir(dir);
+
+        // Last-moment recheck prevents stale preflight data from overwriting a file created meanwhile.
+        const freshSourceRows = await api.list(item.sourceDir);
+        if (!freshSourceRows.some((entry) => sameName(entry.name, item.sourceName) && !entry.isDir)) {
+          throw new Error("执行前源文件已不存在或类型发生变化，已停止。");
+        }
+        const freshTargetRows = await api.list(item.targetDir);
+        if (item.sourceDir !== item.targetDir || item.sourceName !== item.targetName) {
+          if (freshTargetRows.some((entry) => sameName(entry.name, item.targetName))) {
+            throw new Error("执行前目标路径已被占用，已停止且不会覆盖。");
+          }
+        }
+
+        let currentPath = item.source;
+        if (item.sourceDir !== item.targetDir) {
+          await api.move(item.sourceDir, item.targetDir, item.sourceName);
+          currentPath = join(item.targetDir, item.sourceName);
+        }
+        if (item.sourceName !== item.targetName) {
+          await api.rename(currentPath, item.targetName);
+          currentPath = join(item.targetDir, item.targetName);
+        }
+        const verifyRows = await api.list(item.targetDir);
+        if (!verifyRows.some((entry) => sameName(entry.name, item.targetName))) {
+          throw new Error("OpenList 操作已返回成功，但目标目录回读未发现文件。");
+        }
+        if (item.resourceGroupId) {
+          await recordArchiveOperation({
+            source: item.source, target: item.target,
+            resourceGroupId: item.resourceGroupId, verified: true
+          }, { storePath });
+        }
+        executed.push({ source: item.source, target: item.target, ok: true, verified: true });
+      } catch (error) {
+        executed.push({ source: item.source, target: item.target, ok: false, verified: false, error: error.message || String(error) });
+        // Stop on first uncertain result. Do not retry blindly or remove the source.
+        break;
+      }
+    }
+  } finally {
+    for (const handle of lockHandles.reverse()) await handle.release().catch(() => {});
   }
 
   const success = executed.length === validated.length && executed.every((entry) => entry.ok);
   return {
     ok: success, tool: "media-archive", mode: "openlist-move-and-rename",
-    mutated: executed.some((entry) => entry.ok), eligible: eligible.length, skipped,
+    mutated: executed.some((entry) => entry.ok), eligible: eligible.length, skipped, alreadyArchived,
     preflight, executed,
-    safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true },
+    safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
     nextAction: success ? "archive_complete" : "inspect_partial_execution_before_retry"
   };
 }
