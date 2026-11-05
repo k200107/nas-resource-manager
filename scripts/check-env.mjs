@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+/**
+ * 读取并检查 .env 配置格式；密钥只显示掩码，不发起网盘或 NAS 写操作。
+ *
+ * 本文件说明：函数注释解释各步骤职责及重要约束；本次修改仅增加注释，不改变业务执行逻辑。
+ * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +89,7 @@ if (isCliEntryPoint()) {
   });
 }
 
+/** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const loaded = loadEnvFile(args.envFile);
@@ -100,6 +108,7 @@ async function main() {
   if (!result.ok) process.exit(1);
 }
 
+/** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
 function parseArgs(argv) {
   const parsed = {
     envFile: DEFAULT_ENV_FILE,
@@ -124,6 +133,7 @@ function parseArgs(argv) {
   return parsed;
 }
 
+/** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
 function loadEnvFile(envFile) {
   if (!fs.existsSync(envFile)) {
     return { exists: false, values: {} };
@@ -134,6 +144,7 @@ function loadEnvFile(envFile) {
   };
 }
 
+/** 解析 dotenv 文本，支持注释、export 前缀、引号和常见转义。 */
 function parseDotEnv(input) {
   const values = {};
   for (const rawLine of String(input || "").split(/\r?\n/)) {
@@ -150,6 +161,7 @@ function parseDotEnv(input) {
   return values;
 }
 
+/** 解析单个 dotenv 值，处理引号、转义字符和行尾注释。 */
 function parseDotEnvValue(value) {
   if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     const inner = value.slice(1, -1);
@@ -166,6 +178,7 @@ function parseDotEnvValue(value) {
   return (commentIndex === -1 ? value : value.slice(0, commentIndex)).trim();
 }
 
+/** 检查核心配置和至少一个完整网盘配置，返回缺失项、格式错误项和下一步建议。 */
 function validateSkillEnv(env, options = {}) {
   const missing = [];
   const invalid = [];
@@ -229,6 +242,7 @@ function validateSkillEnv(env, options = {}) {
   };
 }
 
+/** 检查指定网盘所需环境变量是否齐全且格式有效。 */
 function validateProviderConfig(provider, env) {
   const missing = [];
   const invalid = [];
@@ -251,6 +265,7 @@ function validateProviderConfig(provider, env) {
   };
 }
 
+/** 根据配置文件、核心配置和网盘配置的完整性决定下一步动作。 */
 function decideEnvNextAction({ envFileExists, missing, invalid, providerOk }) {
   if (!envFileExists) return "create_env_file";
   const coreOk = missing.length === 0 && invalid.length === 0;
@@ -260,6 +275,7 @@ function decideEnvNextAction({ envFileExists, missing, invalid, providerOk }) {
   return "ready";
 }
 
+/** 只提取可公开展示的配置说明字段，不返回校验函数或秘密值。 */
 function publicConfigItem(item) {
   return {
     key: item.key,
@@ -269,6 +285,7 @@ function publicConfigItem(item) {
   };
 }
 
+/** 格式化环境变量检查结果；秘密值只展示掩码。 */
 function formatEnvCheckResult(result) {
   const lines = ["### Resource 2 NAS ENV 检查", ""];
   if (!result.envFileExists) {
@@ -312,12 +329,14 @@ function formatEnvCheckResult(result) {
   return lines.join("\n");
 }
 
+/** 遮蔽密钥中间部分，避免检查输出泄露完整凭证。 */
 function maskSecret(value) {
   const text = String(value || "");
   if (text.length < 12) return "***";
   return `${text.slice(0, 8)}...${text.slice(-4)}`;
 }
 
+/** 验证地址是否为 HTTP 或 HTTPS URL。 */
 function isHttpUrl(value) {
   try {
     const parsed = new URL(value);
@@ -327,6 +346,7 @@ function isHttpUrl(value) {
   }
 }
 
+/** 检查夸克保存目标是否为允许的绝对路径或夸克文件夹 URL。 */
 function isQuarkSaveTarget(value) {
   const text = String(value || "").trim();
   if (isCloudDrivePath(text)) return true;
@@ -338,14 +358,17 @@ function isQuarkSaveTarget(value) {
   }
 }
 
+/** 检查配置项是否符合 OpenList 可见路径格式。 */
 function isOpenListPath(value) {
   return isCloudDrivePath(value);
 }
 
+/** 检查云盘路径是否为绝对路径且不含路径穿越片段。 */
 function isCloudDrivePath(value) {
   return String(value || "").startsWith("/") && !String(value).includes("..");
 }
 
+/** 检查百度保存目标是否为允许的绝对路径或百度网盘目录 URL。 */
 function isBaiduSaveTarget(value) {
   const text = String(value || "").trim();
   if (isCloudDrivePath(text)) return true;
@@ -360,6 +383,7 @@ function isBaiduSaveTarget(value) {
   }
 }
 
+/** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
 function isCliEntryPoint() {
   return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
