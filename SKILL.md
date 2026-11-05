@@ -530,6 +530,10 @@ Notes:
 13. If the user asks to download into NAS/server storage and copy is not suitable, do not click browser download. Use OpenList offline download into a NAS-backed OpenList storage path, or run a server-side download script using a fresh `raw_url` from `POST /api/fs/get`.
 
 
+## OpenList transfer reconciliation
+
+Use `npm run openlist-reconcile -- MEDIA_TASK_ID` after a copy task has been recorded. It queries the exact OpenList task ID in both `copy/undone` and `copy/done`. Only explicit success evidence advances the media task to `VERIFYING`; active tasks remain active, errors become `FAILED`, and missing or ambiguous results become `UNKNOWN`. Never infer completion from a missing task or from elapsed time. This command does not touch media files.
+
 ## Shared media task state
 
 OpenClaw and Hermes must use the same persistent `MEDIA_TASK_STORE_PATH` and `MEDIA_TASK_LOCK_DIR`. Use `npm run media-task -- create/list/get` for task metadata. For programmatic resource processing, acquire the shared `acquireResourceLock(resourceKey)` and release it in a `finally` block. Never auto-delete an old lock without checking whether its owner process is still active. Task state transitions are enforced by `scripts/media-task-store.mjs`; a transfer is not complete merely because a task record is missing. `STAGED` requires a successful verification record with at least two stable checks, `ARCHIVE_PENDING` requires explicit user approval, and `ARCHIVED` requires a successful execution result. This state layer does not perform OpenList transfers or file moves.
