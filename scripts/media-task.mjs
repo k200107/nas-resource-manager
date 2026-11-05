@@ -46,6 +46,7 @@ async function main() {
       source: args.source,
       resourceName: args.name,
       resourceType: args.type,
+      classification: args.confidence ? { confidence: args.confidence } : null,
       actor: args.actor
     }, options);
   } else if (args.action === "get") {
@@ -54,7 +55,16 @@ async function main() {
     result = { tasks: await listTasks(options) };
   } else // 状态迁移所需的验证/审批证据在此组装，最终是否允许迁移仍由状态库判定。
   if (args.action === "transition") {
-    const details = { actor: args.actor, note: args.note, openListTaskId: args.openListTaskId };
+    const details = { actor: args.actor, note: args.note, openListTaskId: args.openListTaskId, conflict: args.conflict === true };
+    if (args.to === "REVIEW_REQUIRED") details.review = { reason: args.note || "需要人工确认媒体身份或目标冲突" };
+    if (args.to === "STAGED" && args.reviewConfirmed) details.reviewResolution = {
+      confirmed: true, resourceName: args.name, resourceType: args.type,
+      conflictResolved: args.conflictResolved === true,
+      classification: args.confidence ? { confidence: args.confidence } : undefined
+    };
+    if (args.to === "ARCHIVE_PENDING" && args.archiveMode) details.archiveDecision = {
+      mode: args.archiveMode, conflict: args.conflict === true
+    };
     // STAGED 必须携带转存完成、任务 ID 一致和稳定性检查证据。
   if (args.to === "STAGED") details.verification = {
       passed: args.verified, transferCompleted: args.transferCompleted,
@@ -82,8 +92,8 @@ function parseArgs(argv) {
     const value = argv[i];
     if (!value.startsWith("--")) { positionals.push(value); continue; }
     const key = value.slice(2);
-    if (["verified", "confirmed", "archive-success", "transfer-completed"].includes(key)) {
-      const boolKey = key === "archive-success" ? "archiveSuccess" : key === "transfer-completed" ? "transferCompleted" : key;
+    if (["verified", "confirmed", "archive-success", "transfer-completed", "review-confirmed", "conflict", "conflict-resolved"].includes(key)) {
+      const boolKey = ({ "archive-success": "archiveSuccess", "transfer-completed": "transferCompleted", "review-confirmed": "reviewConfirmed", "conflict-resolved": "conflictResolved" })[key] || key;
       args[boolKey] = true;
       continue;
     }
@@ -92,6 +102,7 @@ function parseArgs(argv) {
       "store": "storePath", "lock-dir": "lockDir", "env-file": "envFile",
       "key": "key", "provider": "provider", "source": "source", "name": "name",
       "type": "type", "actor": "actor", "id": "id", "to": "to", "note": "note",
+      "confidence": "confidence", "archive-mode": "archiveMode",
       "openlist-task-id": "openListTaskId", "stable-checks": "stableChecks",
       "size": "size", "hash": "hash", "approved-by": "approvedBy", "approved-at": "approvedAt"
     };
