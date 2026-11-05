@@ -195,6 +195,30 @@ async function listTasks({ baseUrl, token, fetchImpl, timeoutMs, group, state })
   };
 }
 
+async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS, group = DEFAULT_GROUP, id }) {
+  const taskId = String(id || "").trim();
+  if (!taskId) throw new Error("OpenList task ID 不能为空。");
+  const normalizedGroup = normalizeGroup(group);
+  const snapshots = {};
+  for (const state of ["undone", "done"]) {
+    const response = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: "/api/task/" + normalizedGroup + "/" + state, method: "GET" });
+    if (!response.ok || !isOpenListSuccess(response.json)) throw new Error("OpenList " + state + " task lookup failed: " + (response.json?.message || response.status || "unknown"));
+    const tasks = Array.isArray(response.json?.data) ? response.json.data.map(normalizeTask) : [];
+    snapshots[state] = tasks.find((task) => task.id === taskId) || null;
+  }
+  if (snapshots.undone && snapshots.done) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_appears_in_both_lists", task: snapshots.undone };
+  if (snapshots.undone) return { id: taskId, group: normalizedGroup, status: "ACTIVE", bucket: "undone", task: snapshots.undone };
+  if (!snapshots.done) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found_in_either_list", task: null };
+  const task = snapshots.done;
+  const errorText = String(task.error || "").trim();
+  const statusText = String(task.status || "").trim().toLowerCase();
+  if (errorText || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) return { id: taskId, group: normalizedGroup, status: "FAILED", bucket: "done", reason: errorText || task.status, task };
+  const progress = Number(task.progress);
+  const explicitSuccess = /(^|[^a-z])(success|succeeded|completed|complete|done)([^a-z]|$)/.test(statusText);
+  if ((Number.isFinite(progress) && progress >= 100) || explicitSuccess) return { id: taskId, group: normalizedGroup, status: "SUCCEEDED", bucket: "done", task };
+  return { id: taskId, group: normalizedGroup, status: "UNKNOWN", bucket: "done", reason: "done_bucket_without_success_evidence", task };
+}
+
 async function cancelTasks({ baseUrl, token, fetchImpl, timeoutMs, group, ids }) {
   const response = await fetchOpenListJson({
     baseUrl,
@@ -332,6 +356,7 @@ function isCliEntryPoint() {
 
 export {
   filterTasks,
+  lookupOpenListTaskById,
   parseArgs,
   runOpenListTasks
 };
