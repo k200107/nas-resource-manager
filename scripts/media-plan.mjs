@@ -19,6 +19,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
 import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
+import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -313,10 +314,18 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
   const existing = new Set(existingPaths.map((value) => String(value).toLocaleLowerCase("zh-CN")));
   const plan = [];
 
-  for (const entry of topLevel) {
+  // 年份父目录只作为分类线索，不作为片名；把其下每个资源目录提升为独立识别单元。
+  const entries = topLevel.flatMap((entry) => {
+    if (!entry.isDir || !extractExplicitYear(entry.name)) return [entry];
+    const children = items.filter((item) => item.parentPath === entry.path && item.isDir);
+    return children.length ? children.map((child) => ({ ...child, parentYear: extractExplicitYear(entry.name) })) : [entry];
+  });
+
+  for (const entry of entries) {
     const descendants = items.filter((item) => item.path.startsWith(`${entry.path}/`) && !item.isDir);
     const files = entry.isDir ? descendants : [entry];
     const videoFiles = files.filter((item) => VIDEO_EXTENSIONS.has(path.extname(item.name).toLowerCase()));
+    const sidecarFiles = files.filter((item) => isSidecarFile(item.name));
     if (videoFiles.length === 0) {
       plan.push({
         source: entry.path, target: null, resourceName: stripExtension(entry.name),
@@ -327,7 +336,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }
 
     const rawName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
-    const year = extractExplicitYear(rawName);
+    const year = extractExplicitYear(rawName) || entry.parentYear || null;
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
       .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
@@ -342,14 +351,15 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       name: entry.isDir ? file.path.slice(entry.path.length).replace(/^\//, "") : file.name
     }));
     const detectedClassification = classifyMedia({ resourceName: rawName, files: relativeFiles, isDirectory: entry.isDir });
-    // 明确年份是强电影线索；但文件名已有季集证据时，电视剧分类优先，避免把带年份的剧集误判为电影。
+    // 明确季集优先于年份；年份父目录作为明确年份线索，不把年份本身当成片名。
     const classification = detectedClassification.type === "series"
       ? detectedClassification
       : year
-        ? { type: "movie", confidence: "high", reason: "资源目录或文件名包含明确年份，按电影候选处理。" }
+        ? { type: "movie", confidence: "high", reason: "资源目录或其年份父目录包含明确年份，按电影候选处理。" }
         : detectedClassification;
     const aliasNeedsReview = identity.matchType === "alias" || identity.candidates?.length > 0;
     const base = classification.type === "movie" ? moviesPath : classification.type === "series" ? tvShowsPath : "";
+    const videoPlans = [];
 
     for (const file of relativeFiles) {
       const extension = path.extname(file.name).toLowerCase();
@@ -358,7 +368,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       const fileYear = extractExplicitYear(file.name) || year;
       let targetDir = "";
       let targetName = "";
-      let reviewReasons = [];
+      const reviewReasons = [];
       if (!sourceScanComplete) reviewReasons.push("暂存目录扫描未完成，不能确认资源目录和视频文件清单完整。");
 
       if (!base || classification.confidence === "low") {
@@ -380,34 +390,57 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
         }
       }
 
-      if (aliasNeedsReview) {
-        reviewReasons.push("片名疑似别名、谐音或近似写法；请确认候选影片后再归档。");
-      }
-      if (!destinationScanComplete) {
-        reviewReasons.push("目标媒体库扫描达到安全上限，无法完整排除同名文件冲突。");
-      }
+      if (aliasNeedsReview) reviewReasons.push("片名疑似别名、谐音或近似写法；请确认候选影片后再归档。");
+      if (!destinationScanComplete) reviewReasons.push("目标媒体库扫描达到安全上限，无法完整排除同名文件冲突。");
 
       const target = targetDir && targetName ? joinOpenListPath(targetDir, targetName) : null;
       const conflict = target ? existing.has(target.toLocaleLowerCase("zh-CN")) : false;
       if (conflict) reviewReasons.push("目标路径已存在同名文件；已暂停该文件，不覆盖现有内容。");
-
       const reviewRequired = reviewReasons.length > 0;
-      plan.push({
-        source: file.path,
-        target,
-        resourceName,
-        originalResourceName: rawName,
-        resourceType: classification.type,
-        confidence: aliasNeedsReview ? "medium" : classification.confidence,
+      videoPlans.push({
+        source: file.path, target, resourceName, originalResourceName: rawName,
+        resourceType: classification.type, confidence: aliasNeedsReview ? "medium" : classification.confidence,
         status: conflict ? "conflict" : reviewRequired ? "review_required" : "auto_archive_candidate",
         year: fileYear || null,
         season: episode.season || (classification.type === "series" ? detectSeason(`${file.relativeName} ${rawName}`) : null),
         episode: episode.episode || null,
-        resolution: resolution.value,
-        resolutionSource: resolution.source,
+        resolution: resolution.value, resolutionSource: resolution.source,
+        titleMatch: identity, conflict,
+        resourceGroupId: entry.path,
+        assetRole: "video", assetScope: "video",
+        reason: reviewReasons.length ? reviewReasons.join("；") : classification.reason
+      });
+    }
+    plan.push(...videoPlans);
+
+    const normalizedSidecars = sidecarFiles.map((file) => ({
+      ...file,
+      name: entry.isDir ? file.path.slice(entry.path.length).replace(/^\//, "") : file.name
+    }));
+    const movieFolder = year ? `${resourceName} (${year})` : resourceName;
+    const resourceFolder = joinOpenListPath(moviesPath, movieFolder);
+    const seriesFolder = joinOpenListPath(tvShowsPath, resourceName);
+    const sidecarPlans = buildSidecarPlans({
+      sidecarFiles: normalizedSidecars, videoPlans, resourceType: classification.type,
+      resourceName, year, resourceFolder, seriesFolder
+    });
+    for (const sidecar of sidecarPlans) {
+      const targetKey = sidecar.target?.toLocaleLowerCase("zh-CN");
+      const conflict = Boolean(targetKey && existing.has(targetKey));
+      const reviewReasons = [];
+      if (!sourceScanComplete) reviewReasons.push("暂存目录扫描未完成，无法确认配套文件清单完整。");
+      if (!destinationScanComplete) reviewReasons.push("目标媒体库扫描未完成，无法排除附件冲突。");
+      if (aliasNeedsReview) reviewReasons.push("主媒体身份需要人工确认，附件暂不自动归档。");
+      if (conflict) reviewReasons.push("配套文件目标路径已存在同名文件；禁止覆盖。");
+      const unresolved = !sidecar.target || reviewReasons.length > 0;
+      plan.push({
+        ...sidecar,
+        resourceGroupId: entry.path,
         titleMatch: identity,
         conflict,
-        reason: reviewReasons.length ? reviewReasons.join("；") : classification.reason
+        status: conflict ? "conflict" : unresolved ? "review_required" : "auto_archive_candidate",
+        confidence: unresolved ? "medium" : "high",
+        reason: [...(sidecar.reason ? [sidecar.reason] : []), ...reviewReasons].join("；")
       });
     }
   }
