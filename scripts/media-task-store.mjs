@@ -128,7 +128,7 @@ export async function recordArchiveOperation(record, options = {}) {
 }
 
 function archiveOperationKey(source, target) {
-  return createHash("sha256").update(String(source) + "\\n" + String(target)).digest("hex");
+  return createHash("sha256").update(String(source) + "\n" + String(target)).digest("hex");
 }
 
 /** 按任务 ID 读取单个任务，不改变任务状态。 */
@@ -334,7 +334,8 @@ async function readStore(storePath) {
     if (parsed.version !== SCHEMA_VERSION || !parsed.tasks || typeof parsed.tasks !== "object") {
       throw new Error("任务状态库版本或结构不兼容，拒绝覆盖。");
     }
-    parsed.archiveRecords ||= {};\n    return parsed;
+    parsed.archiveRecords ||= {};
+    return parsed;
   } catch (error) {
     if (error.code === "ENOENT") return { version: SCHEMA_VERSION, tasks: {}, archiveRecords: {} };
     throw error;
