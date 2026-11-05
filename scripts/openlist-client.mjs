@@ -7,7 +7,7 @@
 export const DEFAULT_OPENLIST_TIMEOUT_MS = 20_000;
 
 export function normalizeOpenListBaseUrl(value) {
-  return String(value || "").trim().replace(/\\/+$/g, "");
+  return String(value || "").trim().replace(/\/+$/g, "");
 }
 
 export function isOpenListSuccess(json) {
