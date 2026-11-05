@@ -17,7 +17,6 @@ import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
  * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
  */
 
-import { stdin as input, stdout as output } from "node:process";
 
 
 const DEFAULT_API_BASE = "https://drive-pc.quark.cn";
@@ -29,7 +28,7 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/3.14.2 Chrome/112.0.5615.165 Electron/24.1.3.8 Safari/537.36 Channel/pckk_other_ch";
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
-  if (isCliEntryPoint()) {
+  if (isCli(import.meta.url)) {
   main().catch((error) => {
     const message = error && error.message ? error.message : String(error);
     console.error(JSON.stringify({ ok: false, error: message }, null, 2));
