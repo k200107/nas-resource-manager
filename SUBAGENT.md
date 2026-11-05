@@ -186,10 +186,10 @@ Cancellation rules:
 
 When asked to organize files already in the OpenList staging directory, run `npm run media-plan -- --format json`. The planner is read-only; it scans the staging directory and checks only the relevant Movies/TVShows destination parent directories.
 
-- Use high-confidence `auto_archive_candidate` items as candidates for the automatic archive path; do not ask the user to approve each clear file.
+- Treat high-confidence `auto_archive_candidate` items as candidates for review, not execution permission. The archive CLI is not yet connected to the task-state transfer-completion gate.
 - Route title aliases, likely homophones/typos, uncertain movie-vs-series classification, incomplete season/episode markers, or incomplete destination scans to `review_required`.
 - A title alias is a suggestion, not a final identification. Ask the user to confirm the canonical title and media type once.
-- Exact destination-path matches are `conflict`; never overwrite. Different resolution suffixes (such as 1080p vs 2048p) are distinct versions.
+- Exact destination-path matches are `conflict`; never overwrite. Different resolution suffixes (such as 1080p vs 2160p) are distinct versions.
 - Use Emby-style movie title/year folders, TV `Season NN` folders, and resolution suffixes in filenames.
 - The current planner extracts resolution tags from names. It does not probe the actual remote video stream for dimensions.
-- The current planner and task state machine do not execute archive moves. Do not claim that a plan has moved files. A future executor must revalidate transfer completion, file stability, exact target conflicts, and shared locks before using OpenList file APIs.
+- A separate `media-archive` executor exists. It defaults to read-only preflight; actual Move/Rename requires explicit `--yes` and user/supervisor confirmation. It rechecks sources and targets, blocks conflicts, uses resource locks and an idempotency ledger, and verifies destination entries. However, it does not yet consult the task-state machine or verify the exact OpenList transfer task. The operator must independently confirm transfer completion and file stability. Do not run unattended or against the real library until this gate is integrated.
