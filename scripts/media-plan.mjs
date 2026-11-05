@@ -18,6 +18,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
+import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractYear, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
 
@@ -160,57 +161,41 @@ async function scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath }) {
 /** 通过 OpenList fs/list 分页读取一个目录，并标记是否达到分页安全上限。 */
 /** 读取 OpenList 指定目录，检查测试目录是否已经存在。 */
 async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) {
-  if (!baseUrl || !token) throw new Error("OPENLIST_BASE_URL 或 OPENLIST_TOKEN 缺失。");
-  if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境没有 fetch，请升级到 Node.js 20 或更新版本。");
-
   const allRows = [];
   const seen = new Set();
   let truncated = false;
 
   for (let page = 1; page <= MAX_DIRECTORY_PAGES; page += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_TIMEOUT_MS);
-    try {
-      const response = await fetchImpl(`${String(baseUrl).replace(/\/+$/g, "")}/api/fs/list`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          Authorization: token
-        },
-        body: JSON.stringify({ path: dirPath, password: "", page, per_page: DIRECTORY_PAGE_SIZE, refresh: true }),
-        signal: controller.signal
-      });
-      const raw = await response.text();
-      let json;
-      try { json = raw ? JSON.parse(raw) : {}; }
-      catch { throw new Error(`OpenList 返回非 JSON 内容：${raw.slice(0, 120)}`); }
-      if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) {
-        throw new Error(`OpenList 读取失败（${dirPath}，第 ${page} 页）：${json.message || response.status || "unknown"}`);
-      }
-      const rows = Array.isArray(json?.data?.content) ? json.data.content : Array.isArray(json?.data) ? json.data : [];
-      for (const row of rows) {
-        const name = String(row.name || "");
-        if (!name || name === "." || name === ".." || seen.has(name)) continue;
-        seen.add(name);
-        allRows.push({
-          name,
-          isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1),
-          size: Number(row.size || 0),
-          modified: row.modified || row.updated_at || ""
-        });
-      }
-      if (rows.length < DIRECTORY_PAGE_SIZE) break;
-      if (page === MAX_DIRECTORY_PAGES) truncated = true;
-    } finally {
-      clearTimeout(timeout);
+    const response = await requestOpenListJson({
+      baseUrl, token, fetchImpl, timeoutMs,
+      endpoint: "/api/fs/list",
+      method: "POST",
+      body: { path: dirPath, password: "", page, per_page: DIRECTORY_PAGE_SIZE, refresh: true }
+    });
+    if (!response.ok || !isOpenListSuccess(response.json)) {
+      throw new Error(`OpenList 读取失败（${dirPath}，第 ${page} 页）：${response.json?.message || response.status || "unknown"}`);
     }
+    const rows = Array.isArray(response.json?.data?.content)
+      ? response.json.data.content
+      : Array.isArray(response.json?.data) ? response.json.data : [];
+    for (const row of rows) {
+      const name = String(row.name || "");
+      if (!name || name === "." || name === ".." || seen.has(name)) continue;
+      seen.add(name);
+      allRows.push({
+        name,
+        isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1),
+        size: Number(row.size || 0),
+        modified: row.modified || row.updated_at || ""
+      });
+    }
+    if (rows.length < DIRECTORY_PAGE_SIZE) break;
+    if (page === MAX_DIRECTORY_PAGES) truncated = true;
   }
 
   allRows.truncated = truncated;
   return allRows;
 }
-
 /**
  * 确保配置的目标根目录存在。逐级检查路径；缺少目录时通过 OpenList fs/mkdir 创建，
  * 若同名路径是文件或创建后无法回读，则停止，避免把异常误判为“空目录”。
