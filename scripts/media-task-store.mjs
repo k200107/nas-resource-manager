@@ -25,9 +25,11 @@ const ALLOWED = {
   PAUSED: ["TRANSFER_PENDING", "TRANSFERRING", "VERIFYING", "FAILED", "UNKNOWN"],
   UNKNOWN: ["DISCOVERED", "CLOUD_SAVE_PENDING", "CLOUD_SAVED", "TRANSFER_PENDING", "TRANSFERRING", "VERIFYING", "PAUSED", "FAILED", "CONFLICT"],
   VERIFYING: ["STAGED", "FAILED", "UNKNOWN", "CONFLICT"],
-  STAGED: ["ARCHIVE_PENDING", "CONFLICT"],
-  ARCHIVE_PENDING: ["ARCHIVED", "STAGED", "CONFLICT"],
-  CONFLICT: ["STAGED", "ARCHIVE_PENDING"],
+  STAGED: ["ARCHIVE_PENDING", "REVIEW_REQUIRED", "CONFLICT"],
+  REVIEW_REQUIRED: ["STAGED", "CONFLICT"],
+  ARCHIVE_PENDING: ["ARCHIVING", "ARCHIVED", "STAGED", "CONFLICT"],
+  ARCHIVING: ["ARCHIVED", "CONFLICT", "UNKNOWN"],
+  CONFLICT: ["STAGED", "REVIEW_REQUIRED", "ARCHIVE_PENDING"],
   FAILED: ["DISCOVERED", "CLOUD_SAVE_PENDING", "TRANSFER_PENDING", "UNKNOWN"],
   ARCHIVED: []
 };
@@ -40,6 +42,12 @@ export function canArchive(task) {
 /** 对外提供归档安全性判断入口，复用 canArchive 的统一规则。 */
 export function isTransferSafeToArchive(task) {
   return canArchive(task);
+}
+
+/** 判断验证通过的任务是否满足免人工逐项批准的自动归档条件。 */
+export function canAutoArchive(task) {
+  if (!canArchive(task) || task.conflict === true) return false;
+  return task.reviewResolution?.confirmed === true || task.classification?.confidence === "high";
 }
 
 /** 创建媒体任务；通过幂等键防止同一资源被重复创建，并在状态库锁内写入。 */
@@ -63,6 +71,10 @@ export async function createTask(input, options = {}) {
       source: input.source,
       resourceName: String(input.resourceName || ""),
       resourceType: String(input.resourceType || "unknown"),
+      classification: input.classification ? structuredClone(input.classification) : null,
+      conflict: false,
+      reviewResolution: null,
+      archiveDecision: null,
       state: "DISCOVERED",
       openListTaskId: null,
       verification: null,
@@ -110,7 +122,21 @@ export async function transitionTask(taskId, nextState, details = {}, options = 
     task.updatedAt = now;
     if (details.openListTaskId) task.openListTaskId = String(details.openListTaskId);
     if (target === "STAGED") task.verification = structuredClone(details.verification);
-    if (target === "ARCHIVE_PENDING") task.approval = structuredClone(details.approval);
+    if (target === "REVIEW_REQUIRED") {
+      task.review = structuredClone(details.review || {});
+      task.conflict = details.conflict === true;
+    }
+    if (target === "STAGED" && details.reviewResolution) {
+      task.reviewResolution = structuredClone(details.reviewResolution);
+      task.conflict = false;
+      if (details.reviewResolution.resourceName) task.resourceName = String(details.reviewResolution.resourceName);
+      if (details.reviewResolution.resourceType) task.resourceType = String(details.reviewResolution.resourceType);
+      if (details.reviewResolution.classification) task.classification = structuredClone(details.reviewResolution.classification);
+    }
+    if (target === "ARCHIVE_PENDING") {
+      if (details.approval) task.approval = structuredClone(details.approval);
+      if (details.archiveDecision) task.archiveDecision = structuredClone(details.archiveDecision);
+    }
     if (target === "ARCHIVED") task.archiveResult = structuredClone(details.archiveResult);
     task.history.push({
       state: target,
@@ -184,13 +210,36 @@ function validateTransition(task, target, details) {
         Number(evidence.stableChecks) < 2) {
       throw new Error("必须确认关联的 OpenList 任务已成功完成，并通过至少两次稳定性检查，才能进入 STAGED。");
     }
-    if (task.state !== "VERIFYING") throw new Error("只能从 VERIFYING 进入 STAGED。");
+    if (task.state !== "VERIFYING" && task.state !== "REVIEW_REQUIRED" && task.state !== "CONFLICT") {
+      throw new Error("只能从 VERIFYING 或已解决的复核/冲突状态进入 STAGED。");
+    }
+    if (task.state !== "VERIFYING") {
+      const resolution = details.reviewResolution;
+      if (!resolution || resolution.confirmed !== true ||
+          !String(resolution.resourceName || "").trim() ||
+          !["movie", "series"].includes(String(resolution.resourceType || ""))) {
+        throw new Error("人工复核后必须确认标准片名和电影/剧集类型，才能重新进入 STAGED。");
+      }
+    }
+  }
+  if (target === "REVIEW_REQUIRED") {
+    if (!canArchive(task)) throw new Error("只有转存验证通过的任务才能进入媒体识别复核。");
   }
   if (target === "ARCHIVE_PENDING") {
-    if (!canArchive(task)) throw new Error("任务未通过验证，不允许进入归档待确认状态。");
-    const approval = details.approval;
-    if (!approval || approval.confirmed !== true || !String(approval.approvedBy || "").trim() || !String(approval.approvedAt || "").trim()) {
-      throw new Error("归档前必须记录用户明确确认、确认人和确认时间。");
+    if (!canArchive(task)) throw new Error("任务未通过验证，不允许进入归档待执行状态。");
+    const decision = details.archiveDecision;
+    const automatic = decision?.mode === "automatic" &&
+      task.classification?.confidence === "high" &&
+      decision.conflict === false &&
+      task.conflict !== true;
+    const userConfirmed = decision?.mode === "user-confirmed" &&
+      task.reviewResolution?.confirmed === true &&
+      task.conflict !== true;
+    const legacyApproval = details.approval?.confirmed === true &&
+      String(details.approval.approvedBy || "").trim() &&
+      String(details.approval.approvedAt || "").trim();
+    if (!automatic && !userConfirmed && !legacyApproval) {
+      throw new Error("自动归档必须有高置信度且无冲突证据；模糊资源需先确认识别结果。");
     }
   }
   if (target === "ARCHIVED" && (!details.archiveResult || details.archiveResult.success !== true)) {
@@ -201,7 +250,7 @@ function validateTransition(task, target, details) {
 /** 从任务输入中筛选可安全持久化的证据字段，避免把不必要的敏感数据写入状态库。 */
 function safeEvidence(details) {
   const result = {};
-  for (const key of ["openListTaskId", "verification", "approval", "archiveResult"]) {
+  for (const key of ["openListTaskId", "verification", "approval", "archiveDecision", "reviewResolution", "review", "conflict", "archiveResult"]) {
     if (details[key] !== undefined) result[key] = details[key];
   }
   return result;
