@@ -7,11 +7,10 @@
  * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { maskSecret, parseDotEnv } from "./check-env.mjs";
+import { maskSecret } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -53,7 +52,7 @@ const PROVIDERS = {
   }
 };
 
-if (isCliEntryPoint()) {
+if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -64,7 +63,7 @@ if (isCliEntryPoint()) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const fileEnv = loadEnvFile(args.envFile);
-  const env = { ...fileEnv.values, ...process.env };
+  const env = mergeEnvValues(fileEnv.values, process.env);
   const result = await validateCookieConfig(env, {
     providers: args.providers,
     envFile: args.envFile,
@@ -377,13 +376,6 @@ function buildRecommendations(results) {
 }
 
 /** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
-function loadEnvFile(envFile) {
-  if (!envFile || !fs.existsSync(envFile)) return { exists: false, values: {} };
-  return {
-    exists: true,
-    values: parseDotEnv(fs.readFileSync(envFile, "utf8"))
-  };
-}
 
 /** 解析输入并返回规范化结果；无效输入应明确报错。 */
 function parseProviders(value) {
@@ -408,9 +400,6 @@ function normalizeBaseUrl(value) {
 }
 
 /** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
 
 export {
   classifyCookieCheckError,
