@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+/**
+ * 组合检查环境变量、网盘 Cookie、OpenList 目标目录和网盘保存目录的只读连通性。
+ *
+ * 本文件说明：函数注释解释各步骤职责及重要约束；本次修改仅增加注释，不改变业务执行逻辑。
+ * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +29,7 @@ if (isCliEntryPoint()) {
   });
 }
 
+/** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const loaded = loadEnvFile(args.envFile);
@@ -42,6 +50,7 @@ async function main() {
   if (!result.ok) process.exit(1);
 }
 
+/** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
 function parseArgs(argv) {
   const parsed = {
     envFile: DEFAULT_ENV_FILE,
@@ -69,6 +78,7 @@ function parseArgs(argv) {
   return parsed;
 }
 
+/** 组合环境变量、Cookie、OpenList 和网盘目标检查，生成整体就绪状态。 */
 async function validateReadyConfig(env = {}, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const envCheck = validateSkillEnv(env, {
@@ -144,6 +154,7 @@ async function validateReadyConfig(env = {}, options = {}) {
   };
 }
 
+/** 通过 OpenList fs/list 只读检查目标目录是否可访问，不创建或修改文件。 */
 async function checkOpenListTarget({ baseUrl, token, targetPath, timeoutMs, fetchImpl }) {
   if (!baseUrl || !token || !targetPath) {
     return {
@@ -191,6 +202,7 @@ async function checkOpenListTarget({ baseUrl, token, targetPath, timeoutMs, fetc
   }
 }
 
+/** 通过百度目录列表接口只读检查默认保存目录。 */
 async function checkBaiduSaveTarget({ cookie, target, timeoutMs, fetchImpl }) {
   try {
     const targetPath = parseBaiduSavePath(target);
@@ -229,6 +241,7 @@ async function checkBaiduSaveTarget({ cookie, target, timeoutMs, fetchImpl }) {
   }
 }
 
+/** 通过夸克目录读取接口只读检查默认保存目录。 */
 async function checkQuarkSaveTarget({ cookie, target, timeoutMs, fetchImpl }) {
   try {
     const parsed = parseQuarkFolderUrl(target);
@@ -276,6 +289,7 @@ async function checkQuarkSaveTarget({ cookie, target, timeoutMs, fetchImpl }) {
   }
 }
 
+/** 逐层读取夸克目录，解析配置路径对应的文件夹 ID。 */
 async function resolveQuarkPath({ cookie, targetPath, timeoutMs, fetchImpl }) {
   const segments = splitCloudDrivePath(targetPath);
   let pdirFid = "0";
@@ -294,6 +308,7 @@ async function resolveQuarkPath({ cookie, targetPath, timeoutMs, fetchImpl }) {
   return current;
 }
 
+/** 读取夸克指定目录内容，不执行保存或重命名。 */
 async function listQuarkDirectory({ cookie, pdirFid, timeoutMs, fetchImpl }) {
   const url = new URL(`${QUARK_API_BASE}/1/clouddrive/file/sort`);
   url.searchParams.set("pr", "ucpro");
@@ -324,6 +339,7 @@ async function listQuarkDirectory({ cookie, pdirFid, timeoutMs, fetchImpl }) {
   }));
 }
 
+/** 发送带超时控制的 HTTP 请求，解析响应并在超时后中止。 */
 async function fetchJsonWithTimeout(url, options = {}) {
   if (typeof options.fetchImpl !== "function") {
     throw new Error("当前 Node.js 环境没有 fetch，请升级到 Node.js 20 或更新版本。");
@@ -357,6 +373,7 @@ async function fetchJsonWithTimeout(url, options = {}) {
   }
 }
 
+/** 根据各项检查状态判断整体是否就绪，并返回下一步动作标识。 */
 function decideReadyNextAction({ envCheck, cookieCheck, openList, providerTargets }) {
   if (!envCheck.ok) return envCheck.nextAction;
   if (!cookieCheck.ok) return cookieCheck.nextAction;
@@ -365,6 +382,7 @@ function decideReadyNextAction({ envCheck, cookieCheck, openList, providerTarget
   return "ready";
 }
 
+/** 汇总环境、Cookie 和目录检查中的问题，生成修复建议。 */
 function buildReadyRecommendations({ envCheck, cookieCheck, openList, providerTargets }) {
   const recommendations = [];
   if (!envCheck.ok) {
@@ -382,6 +400,7 @@ function buildReadyRecommendations({ envCheck, cookieCheck, openList, providerTa
   return [...new Set(recommendations)];
 }
 
+/** 格式化综合就绪检查结果，突出未通过的项目和下一步建议。 */
 function formatReadyResult(result) {
   const lines = ["### Resource 2 NAS 全面检查", ""];
   lines.push(`- ENV: ${result.env.ok ? "通过" : "需要处理"} (${result.env.nextAction})`);
@@ -398,6 +417,7 @@ function formatReadyResult(result) {
   return lines.join("\n");
 }
 
+/** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
 function loadEnvFile(envFile) {
   if (!envFile || !fs.existsSync(envFile)) return { exists: false, values: {} };
   return {
@@ -406,10 +426,12 @@ function loadEnvFile(envFile) {
   };
 }
 
+/** 规范化输入或接口数据，统一字段和格式。 */
 function normalizeBaseUrl(value) {
   return String(value || "").replace(/\/+$/g, "");
 }
 
+/** 处理 splitCloudDrivePath 相关逻辑；请结合调用位置核对输入、返回值和异常处理。 */
 function splitCloudDrivePath(value) {
   return String(value || "")
     .split("/")
@@ -417,12 +439,14 @@ function splitCloudDrivePath(value) {
     .filter(Boolean);
 }
 
+/** 处理 joinCloudPath 相关逻辑；请结合调用位置核对输入、返回值和异常处理。 */
 function joinCloudPath(basePath, name) {
   const base = `/${splitCloudDrivePath(basePath).join("/")}`;
   const cleanName = String(name || "").replace(/^\/+/g, "");
   return base === "/" ? `/${cleanName}` : `${base}/${cleanName}`;
 }
 
+/** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
 function isCliEntryPoint() {
   return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
