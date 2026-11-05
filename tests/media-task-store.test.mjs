@@ -126,6 +126,8 @@ test("automatically advances a high-confidence verified task without per-file ap
     archiveDecision: { mode: "automatic", conflict: false }
   }, options);
   assert.equal(pending.state, "ARCHIVE_PENDING");
+  const archiving = await transitionTask(task.id, "ARCHIVING", {}, options);
+  assert.equal(archiving.state, "ARCHIVING");
   const archived = await transitionTask(task.id, "ARCHIVED", { archiveResult: { success: true } }, options);
   assert.equal(archived.state, "ARCHIVED");
 });
