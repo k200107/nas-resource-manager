@@ -323,7 +323,7 @@ test("creates missing Movies and TVShows root directories through OpenList mkdir
     calls.push({ endpoint: String(url).split("/api")[1], body });
     if (String(url).endsWith("/api/fs/list")) {
       const names = [...dirs]
-        .filter((dir) => dir !== "/" && dir.slice(0, dir.lastIndexOf("/")) === body.path)
+        .filter((dir) => dir !== "/" && (dir.slice(0, dir.lastIndexOf("/")) || "/") === body.path)
         .map((dir) => ({ name: dir.split("/").at(-1), is_dir: true }));
       return { ok: true, status: 200, async text() { return JSON.stringify({ code: 200, message: "success", data: { content: names } }); } };
     }
