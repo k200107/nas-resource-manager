@@ -14,11 +14,10 @@
  * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
  */
 
-import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -27,7 +26,7 @@ const DEFAULT_INTERVAL_MS = 2_000;
 const DEFAULT_POLL_TIMEOUT_MS = 120_000;
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
-  if (isCliEntryPoint()) {
+  if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -38,7 +37,7 @@ const DEFAULT_POLL_TIMEOUT_MS = 120_000;
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const env = loadEnv(args.envFile);
+  const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const result = await runOpenListCopy({
     env,
     args,
@@ -446,10 +445,6 @@ function formatCopyResult(result) {
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
 /** 合并 .env 文件与进程环境变量，进程环境变量优先。 */
-function loadEnv(envFile) {
-  const fileEnv = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
-  return { ...fileEnv, ...process.env };
-}
 
 /** 验证并规范化 OpenList 可见路径，拒绝空路径和路径穿越片段。 */
 /** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
@@ -492,9 +487,6 @@ function sleep(ms) {
 
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
 /** 判断模块是否由 Node.js 直接执行；被其他模块导入时不自动启动 CLI。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
 
 export {
   parseArgs,
