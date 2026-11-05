@@ -197,7 +197,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
   const plan = [];
 
   for (const entry of topLevel) {
-    const descendants = items.filter((item) => item.path.startsWith(\`\${entry.path}/\`) && !item.isDir);
+    const descendants = items.filter((item) => item.path.startsWith(`${entry.path}/`) && !item.isDir);
     const files = entry.isDir ? descendants : [entry];
     const videoFiles = files.filter((item) => VIDEO_EXTENSIONS.has(path.extname(item.name).toLowerCase()));
     if (videoFiles.length === 0) {
@@ -243,15 +243,15 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
         reviewReasons.push("识别置信度一般；先展示归档建议，等待用户确认。");
       }
       if (base && classification.type === "movie" && classification.confidence !== "low") {
-        const movieFolder = fileYear ? \`\${resourceName} (\${fileYear})\` : resourceName;
+        const movieFolder = fileYear ? `${resourceName} (${fileYear})` : resourceName;
         targetDir = joinOpenListPath(base, movieFolder);
         targetName = buildMovieFileName(resourceName, fileYear, resolution.value, extension);
       } else {
-        const season = episode.season || detectSeason(\`\${file.relativeName} \${rawName}\`);
+        const season = episode.season || detectSeason(`${file.relativeName} ${rawName}`);
         if (!season || !episode.episode) {
           reviewReasons.push("已识别为剧集，但季数或集数不完整；不能安全生成 Season 目录和集名。");
         } else {
-          targetDir = joinOpenListPath(joinOpenListPath(base, resourceName), \`Season \${String(season).padStart(2, "0")}\`);
+          targetDir = joinOpenListPath(joinOpenListPath(base, resourceName), `Season ${String(season).padStart(2, "0")}`);
           targetName = buildSeriesFileName(resourceName, season, episode.episode, resolution.value, extension);
         }
       }
@@ -277,7 +277,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
         confidence: aliasNeedsReview ? "medium" : classification.confidence,
         status: conflict ? "conflict" : reviewRequired ? "review_required" : "auto_archive_candidate",
         year: fileYear || null,
-        season: episode.season || (classification.type === "series" ? detectSeason(\`\${file.relativeName} \${rawName}\`) : null),
+        season: episode.season || (classification.type === "series" ? detectSeason(`${file.relativeName} ${rawName}`) : null),
         episode: episode.episode || null,
         resolution: resolution.value,
         resolutionSource: resolution.source,
