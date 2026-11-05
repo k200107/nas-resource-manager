@@ -1,6 +1,6 @@
 # Media identity and archive planning
 
-The planner is read-only. It scans the OpenList staging directory and the configured Movies/TVShows destination trees using `/api/fs/list`; it does not call copy, move, rename, delete, or overwrite APIs.
+The planner is read-only. It scans the OpenList staging directory and checks only the relevant Movies/TVShows destination parent-directory chains using `/api/fs/list`; it does not recursively scan the entire media library or call copy, move, rename, delete, or overwrite APIs.
 
 ## Path configuration
 
