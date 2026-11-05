@@ -128,7 +128,7 @@ export async function transitionTask(taskId, nextState, details = {}, options = 
     }
     if (target === "STAGED" && details.reviewResolution) {
       task.reviewResolution = structuredClone(details.reviewResolution);
-      task.conflict = false;
+      if (details.reviewResolution.conflictResolved === true) task.conflict = false;
       if (details.reviewResolution.resourceName) task.resourceName = String(details.reviewResolution.resourceName);
       if (details.reviewResolution.resourceType) task.resourceType = String(details.reviewResolution.resourceType);
       if (details.reviewResolution.classification) task.classification = structuredClone(details.reviewResolution.classification);
@@ -217,7 +217,8 @@ function validateTransition(task, target, details) {
       const resolution = details.reviewResolution;
       if (!resolution || resolution.confirmed !== true ||
           !String(resolution.resourceName || "").trim() ||
-          !["movie", "series"].includes(String(resolution.resourceType || ""))) {
+          !["movie", "series"].includes(String(resolution.resourceType || "")) ||
+          ((task.conflict === true || task.state === "CONFLICT") && resolution.conflictResolved !== true)) {
         throw new Error("人工复核后必须确认标准片名和电影/剧集类型，才能重新进入 STAGED。");
       }
     }
