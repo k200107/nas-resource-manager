@@ -64,4 +64,4 @@ This follows Emby-style title/year, season folder, and multi-version naming. Res
 npm run media-plan -- --format text
 ```
 
-The command only reads OpenList directory listings. The archive executor independently re-checks source existence, exact destination conflicts, and paths immediately before each file operation. Transfer completion and shared task-lock integration remain required before production use.
+The command only reads OpenList directory listings. The archive executor independently re-checks source existence and exact destination conflicts, uses resource-group locks, and records verified operations for idempotent replay. However, it does not yet consult the internal task state machine or verify the exact OpenList transfer task is complete. The operator must verify transfer completion and file stability before execution; unattended automatic archiving must wait for that state-machine gate to be integrated.
