@@ -423,3 +423,20 @@ test("associates episode subtitles using season directory and episode number", (
   assert.equal(plan[1].target, "/TVShows/Show/Season 01/Show - S01E01.zh-CN.srt");
   assert.equal(plan[1].status, "auto_archive_candidate");
 });
+
+
+test("holds an artwork sidecar when its target already exists", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.mkv", path: "/Downloads/Example (2024)/Example.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "poster.jpg", path: "/Downloads/Example (2024)/poster.jpg", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows",
+    existingPaths: ["/Movies/Example (2024)/poster.jpg"]
+  });
+  const poster = plan.find((item) => item.assetRole === "artwork");
+  assert.equal(poster.status, "conflict");
+  assert.equal(poster.conflict, true);
+  assert.match(poster.reason, /禁止覆盖|已存在同名文件/);
+});
