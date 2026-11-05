@@ -540,7 +540,7 @@ OpenClaw and Hermes must use the same persistent `MEDIA_TASK_STORE_PATH` and `ME
 
 The state machine separates clear resources from exceptions:
 
-- A verified high-confidence classification with a complete transfer and no destination conflict can enter `ARCHIVE_PENDING` using `archiveDecision.mode="automatic"`; do not ask for a per-file approval.
+- The state machine can mark a verified high-confidence classification with a complete transfer and no destination conflict as `ARCHIVE_PENDING` using `archiveDecision.mode="automatic"`. This state-machine decision is not yet wired into the archive CLI, so it does not authorize unattended execution.
 - A title alias, likely homophone/typo, unclear movie-vs-series classification, or incomplete season/episode information enters `REVIEW_REQUIRED`. Ask the user to confirm the canonical title and resource type once.
 - An exact destination path collision enters `CONFLICT`. Never overwrite an existing file. Resolve the conflict explicitly before returning to `STAGED`.
 - Existing explicit approval records remain accepted for compatibility, but they are not the default for every item.
@@ -565,7 +565,7 @@ Identity and naming rules:
 - Extend confirmed aliases by copying `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, then setting `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local catalog is git-ignored.
 - Offline alias/fuzzy recognition is limited by the catalog. Do not claim every Chinese homophone can be resolved without a comprehensive title database or external metadata provider.
 - Recognize explicit resolution tags (2160p/4K, 2048p/2K, 1440p, 1080p, 720p, 480p). The current planner reads tags from names; it does not probe the actual remote video stream for dimensions.
-- Movie versions use one title/year folder and resolution-specific filenames, for example `Example (2024) - 1080p.mkv` and `Example (2024) - 2048p.mkv`.
+- Movie versions use one title/year folder and resolution-specific filenames, for example `Example (2024) - 1080p.mkv` and `Example (2024) - 2160p.mkv`.
 - TV episodes use `Series/Season 01/Series - S01E01 - 1080p.mkv`.
 - Do not infer a season from an unrelated number in a title.
 
@@ -574,7 +574,9 @@ Conflict and routing rules:
 - An exact target-path match is a conflict and must pause; never overwrite.
 - Different resolution suffixes produce distinct filenames and are not conflicts with one another.
 - If the destination scan reaches its safety limit, absence of a collision cannot be proven; route the item to review.
-- Only `auto_archive_candidate` items with high confidence and no conflict are eligible for the future automatic archive executor.
+- Only `auto_archive_candidate` items with high confidence and no conflict are eligible for archive review; this label is not itself execution permission.
 - `review_required` and `conflict` items remain in Downloads until their identity/target issue is resolved.
 
-The planner is a read-only proposal, not an executor. A future archive executor must independently confirm transfer completion, inspect source stability, re-check the exact target, acquire the shared lock, and then apply the state-machine decision. All NAS file operations must use OpenList APIs.
+The planner is a proposal, not an executor. A separate `media-archive` command now supports read-only preflight by default and OpenList Move/Rename execution only with explicit `--yes`. It processes planned video and sidecar entries, creates missing target subdirectories, rechecks source and destination, blocks detected conflicts, uses resource-group locks, verifies the destination, and records successful source/target pairs for idempotent replay.
+
+Important production limitation: `media-archive` does not yet consult the media task state machine or independently verify the exact OpenList transfer task is complete. Before execution, the operator must confirm the transfer has completed and files are stable. Do not enable unattended archive execution or run against the real media library until the state-machine transfer-completion gate is integrated. All NAS file operations must use OpenList APIs.
