@@ -174,7 +174,7 @@ Preview the staging directory and proposed media destinations (read-only):
 npm run media-plan -- --format text
 ```
 
-The planner reads the staging directory and checks only the relevant destination parent directories in Movies/TVShows through OpenList. It proposes Emby-style names, resolution variants, and exact-path collision results. It does not move, rename, copy, or delete files. If the title is an alias/possible homophone, season/episode data is incomplete, a destination collision exists, or destination scanning is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
+The planner reads the staging directory and checks only the relevant destination parent directories in Movies/TVShows through OpenList. It proposes Emby-style names, resolution variants, and exact-path collision results. It also associates subtitles, NFO metadata, and conventional artwork with the corresponding movie, series, episode, or resolution version. A year parent folder such as `2024/Example/Example.mkv` is treated as a year hint, not as the movie title. The planner may create missing configured Movies/TVShows roots and their parent directories through OpenList `fs/mkdir`; it does not move, rename, copy, or delete media files. If a sidecar's owner cannot be identified, the title is an alias/possible homophone, season/episode data is incomplete, a destination collision exists, or destination scanning is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
 
 To maintain confirmed title aliases, copy `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, add aliases only after confirming the canonical title, and set `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local alias file is git-ignored. Offline recognition cannot guarantee all Chinese homophones without a comprehensive catalog or external metadata provider.
 
@@ -189,7 +189,7 @@ npm run media-archive-fixtures -- --yes
 Then generate a plan against the isolated workspace (replace the path with the actual OpenList path returned by the fixture command):
 
 ```bash
-npm run media-plan -- --source-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/source" --movies-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/Movies" --tvshows-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/TVShows" > media-archive-plan.json
+npm run --silent media-plan -- --source-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/source" --movies-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/Movies" --tvshows-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/TVShows" > media-archive-plan.json
 ```
 
 Run the archive preflight. Without `--yes`, it only checks source files and destination paths:
@@ -204,7 +204,7 @@ Only after reviewing the preflight output should you explicitly enable execution
 npm run media-archive -- --plan-file media-archive-plan.json --movies-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/Movies" --tvshows-dir "/Downloads/__MEDIA_ARCHIVE_TESTS__/target/TVShows" --yes
 ```
 
-The executor uses OpenList `POST /api/fs/mkdir`, `POST /api/fs/move`, and `POST /api/fs/rename`. It never overwrites a target it detects, never deletes the source intentionally, and never uses local filesystem access for NAS files. The OpenList move API does not expose an atomic no-overwrite precondition in its documented request schema; do not run concurrent writers against the same target directories during archive execution.
+The executor uses OpenList `POST /api/fs/mkdir`, `POST /api/fs/move`, and `POST /api/fs/rename` for videos and their planned sidecars. It never overwrites a target it detects, never deletes the source intentionally, and never uses local filesystem access for NAS files. Verified operations are recorded in the existing `MEDIA_TASK_STORE_PATH` state store; replaying the same plan skips recorded source/target pairs. Resource-group locks use `MEDIA_TASK_LOCK_DIR` to prevent concurrent agents from archiving the same media folder. The OpenList move API does not expose an atomic no-overwrite precondition in its documented request schema; do not run concurrent writers against the same target directories during archive execution.
 
 List current OpenList copy tasks:
 
