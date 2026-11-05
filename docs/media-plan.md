@@ -14,9 +14,12 @@ All paths must be OpenList-visible virtual paths, not host paths such as `/vol1/
 
 ## Identity analysis
 
-The planner combines directory/file names, explicit year and season/episode markers, video extensions, and local title aliases.
+The planner combines directory/file names, explicit year and season/episode markers, video extensions, known media sidecar patterns, and local title aliases.
 
-- Clear movie-folder patterns, explicit movie years, and explicit season/episode identifiers can produce high-confidence archive candidates.
+- Clear movie-folder patterns, explicit movie years, explicit year-parent folders (for example `2024/Example/Example.mkv`), and explicit season/episode identifiers can produce high-confidence archive candidates.
+- Subtitle, NFO, and artwork files are planned as sidecars in the same resource group. Generic movie subtitles and artwork are resource-level; resolution-tagged subtitles follow the matching version; episode subtitles/artwork/NFO follow their season and episode.
+- Recognized artwork names include poster, folder, cover, fanart, backdrop, logo, clearart, banner, landscape, thumb, and related conventional names. An image whose name includes the resource title can also be treated as resource artwork. Unknown attachments remain in review rather than being discarded.
+- Sidecar entries carry `resourceGroupId`, `assetRole`, `assetScope`, and `associatedWith` metadata; the archive executor processes each planned file through the same OpenList Move/Rename safety checks.
 - A title alias or likely typo/homophone is shown as a candidate and requires user confirmation; it is never silently renamed to another film.
 - The alias catalog uses the canonical title as the key and an array of alternate spellings as values. Copy `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, then add only aliases confirmed by a user. The local file is git-ignored.
 - Offline fuzzy matching is limited to the alias catalog. General Chinese homophone recognition is not guaranteed without a metadata provider or a sufficiently complete alias catalog.
@@ -24,7 +27,7 @@ The planner combines directory/file names, explicit year and season/episode mark
 
 ## Resolution and naming
 
-Resolution tags are extracted from filenames: 2160p/4K, 2048p/2K (including a standalone `2048` marker), 1440p, 1080p, 720p, and 480p. The identity helper can accept real width/height metadata, but the current OpenList planner does not probe remote video streams; it does not claim to know actual resolution when the filename has no tag.
+Resolution tags are extracted from filenames: 2160p/4K, legacy 2048p/2K markers, 1440p, 1080p, 720p, and 480p. The preferred UHD naming example is 2160p. The identity helper can accept real width/height metadata, but the current OpenList planner does not probe remote video streams; it does not claim to know actual resolution when the filename has no tag.
 
 Movie examples:
 
@@ -61,4 +64,4 @@ This follows Emby-style title/year, season folder, and multi-version naming. Res
 npm run media-plan -- --format text
 ```
 
-The command only reads OpenList directory listings. A future archive executor must independently re-check source stability, transfer completion, exact destination conflicts, and task locks immediately before any file operation.
+The command only reads OpenList directory listings. The archive executor independently re-checks source existence, exact destination conflicts, and paths immediately before each file operation. Transfer completion and shared task-lock integration remain required before production use.
