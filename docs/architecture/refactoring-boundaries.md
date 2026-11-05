@@ -62,3 +62,4 @@ Do not delete SKILL.md or SUBAGENT.md: they are different runtime instruction su
 
 时间戳格式化保留 provider 差异：夸克按毫秒处理，百度接口时间戳按秒/毫秒自动兼容；公共函数通过显式选项处理，不把两个接口的时间单位强行假设为一致。
 
+共享环境读取与 CLI 入口判断已覆盖 `check-cookies`、`openlist-copy`、`openlist-tasks`、`media-plan`、`media-archive`、`media-task`、`openlist-reconcile` 和 `openlist-media-fixtures`；`search-rrdynb` 也使用统一的直接执行入口判断。各脚本自己的业务参数仍由各自 `parseArgs` 解析，不把不同命令的参数语义硬塞进一个巨型解析器。媒体规划脚本保留“只读取 dotenv 文件”的原有优先级；其他原本合并进程环境变量的脚本继续由进程环境变量覆盖文件值。
