@@ -57,7 +57,7 @@ async function main() {
     timeoutMs: args.timeoutMs
   };
   // 媒体库根目录不存在时自动创建；只创建用户明确配置的 Movies/TVShows 根路径，不触碰其内部现有文件。
-  await ensureTargetDirectories({ ...context, paths: [moviesPath, tvShowsPath] });
+  const createdTargetDirectories = await ensureTargetDirectories({ ...context, paths: [moviesPath, tvShowsPath] });
   // 源目录及媒体库内容仍通过 OpenList fs/list 读取；规划阶段不移动、重命名或删除文件。
   const scanned = await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
@@ -73,15 +73,17 @@ async function main() {
   const result = {
     ok: true,
     tool: "media-plan",
-    mode: "read-only-dry-run",
-    mutated: false,
+    mode: createdTargetDirectories.length ? "prepare-target-roots-and-read-only-plan" : "read-only-dry-run",
+    mutated: createdTargetDirectories.length > 0,
+    createdTargetDirectories,
     source: { path: sourcePath, scannedItems: scanned.items.length, truncated: scanned.truncated },
     targets: { movies: moviesPath, tvShows: tvShowsPath },
     summary: summarizePlan(plan),
     plan,
     safety: {
       executed: false,
-      note: "本命令只通过 OpenList fs/list 读取暂存目录及计划目标的父目录，不执行复制、移动、重命名或删除。"
+      fileOperations: false,
+      note: "仅在配置的 Movies/TVShows 根目录或其上级目录不存在时通过 OpenList mkdir 创建；不复制、移动、重命名或删除任何文件。"
     },
     nextAction: "review_plan"
   };
@@ -213,6 +215,7 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
  * 若同名路径是文件或创建后无法回读，则停止，避免把异常误判为“空目录”。
  */
 async function ensureTargetDirectories({ baseUrl, token, fetchImpl, timeoutMs, paths }) {
+  const createdDirectories = [];
   for (const targetPath of [...new Set(paths)]) {
     const segments = String(targetPath).split("/").filter(Boolean);
     let current = "/";
@@ -239,10 +242,12 @@ async function ensureTargetDirectories({ baseUrl, token, fetchImpl, timeoutMs, p
         const verifyRows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
         const created = verifyRows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
         if (!created || !created.isDir) throw new Error(`目标目录创建后验证失败：${next}`);
+        createdDirectories.push(next);
       }
       current = next;
     }
   }
+  return createdDirectories;
 }
 
 /**
