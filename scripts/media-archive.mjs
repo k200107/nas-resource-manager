@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDotEnv } from "./check-env.mjs";
 import { acquireResourceLock, getArchiveOperation, recordArchiveOperation } from "./media-task-store.mjs";
+import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -246,31 +247,26 @@ function validatePlanItem(item, roots) {
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
   async function request(endpoint, body) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_TIMEOUT_MS);
-    try {
-      const response = await fetchImpl(`${String(baseUrl).replace(/\/+$/g, "")}${endpoint}`, {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: token },
-        body: JSON.stringify(body), signal: controller.signal
-      });
-      const raw = await response.text();
-      let json;
-      try { json = raw ? JSON.parse(raw) : {}; }
-      catch { throw new Error(`OpenList ${endpoint} 返回非 JSON：${raw.slice(0, 160)}`); }
-      if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) {
-        throw new Error(`OpenList ${endpoint} 失败：${json.message || response.status}`);
-      }
-      return json;
-    } finally { clearTimeout(timer); }
+    const response = await requestOpenListJson({
+      baseUrl, token, fetchImpl, timeoutMs, endpoint, method: "POST", body
+    });
+    if (!response.ok || !isOpenListSuccess(response.json)) {
+      throw new Error(`OpenList ${endpoint} 失败：${response.json?.message || response.status}`);
+    }
+    return response.json;
   }
+
   return {
     async list(dir) {
       const all = [];
       const seen = new Set();
       for (let page = 1; page <= 10; page += 1) {
-        const json = await request("/api/fs/list", { path: dir, password: "", page, per_page: 200, refresh: true });
-        const rows = Array.isArray(json?.data?.content) ? json.data.content : Array.isArray(json?.data) ? json.data : [];
+        const json = await request("/api/fs/list", {
+          path: dir, password: "", page, per_page: 200, refresh: true
+        });
+        const rows = Array.isArray(json?.data?.content)
+          ? json.data.content
+          : Array.isArray(json?.data) ? json.data : [];
         for (const row of rows) {
           const name = String(row.name || "");
           if (name && !seen.has(name)) {
@@ -288,7 +284,6 @@ function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
     rename: (sourcePath, name) => request("/api/fs/rename", { path: sourcePath, name })
   };
 }
-
 function normalizePath(value) {
   const text = String(value || "").trim().replace(/\\/g, "/");
   if (!text || !text.startsWith("/") || text.split("/").some((part) => part === "..")) return "";
