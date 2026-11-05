@@ -16,11 +16,11 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { createTask, getTask, listTasks, transitionTask } from "./media-task-store.mjs";
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -32,7 +32,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const envFile = args.envFile || ".env";
-  const env = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
+  const env = loadEnvFile(envFile).values;
   const options = {
     storePath: args.storePath || env.MEDIA_TASK_STORE_PATH || process.env.MEDIA_TASK_STORE_PATH,
     lockDir: args.lockDir || env.MEDIA_TASK_LOCK_DIR || process.env.MEDIA_TASK_LOCK_DIR
