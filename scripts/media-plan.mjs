@@ -16,8 +16,8 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
@@ -31,7 +31,7 @@ const DIRECTORY_PAGE_SIZE = 200;
 const VIDEO_EXTENSIONS = new Set([".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv", ".ts", ".webm"]);
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
-  if (isCliEntryPoint()) {
+  if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -42,7 +42,7 @@ const VIDEO_EXTENSIONS = new Set([".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv"
 /** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const env = loadEnv(args.envFile);
+  const env = loadEnvFile(args.envFile).values;
   const sourcePath = normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
   const moviesPath = normalizeOpenListPath(args.moviesPath || env.MEDIA_MOVIES_PATH);
   const tvShowsPath = normalizeOpenListPath(args.tvShowsPath || env.MEDIA_TVSHOWS_PATH);
@@ -126,10 +126,6 @@ function parseArgs(argv) {
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
 /** 读取 .env 并合并进程环境变量；进程环境变量优先，不覆盖运行环境注入的配置。 */
-function loadEnv(envFile) {
-  if (!envFile || !fs.existsSync(envFile)) return {};
-  return parseDotEnv(fs.readFileSync(envFile, "utf8"));
-}
 
 /** 从指定 OpenList 根目录递归读取目录树，并受最大深度和最大条目数限制，避免扫描失控。 */
 /** 处理 scanTree 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
@@ -557,9 +553,6 @@ function stripExtension(value) {
 
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
 /** 判断当前模块是否作为命令行入口直接运行。 */
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
 
 export {
   buildMediaPlan,
