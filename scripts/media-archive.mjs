@@ -7,14 +7,14 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { parseDotEnv } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
 import { acquireResourceLock, getArchiveOperation, recordArchiveOperation } from "./media-task-store.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
@@ -25,8 +25,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.planFile) throw new Error("请通过 --plan-file 指定 media-plan 输出的 JSON 文件。");
   const envFile = args.envFile || ".env";
-  const fileEnv = envFile && fs.existsSync(envFile) ? parseDotEnv(fs.readFileSync(envFile, "utf8")) : {};
-  const env = { ...fileEnv, ...process.env };
+  const env = mergeEnvValues(loadEnvFile(envFile).values, process.env);
   const raw = JSON.parse(fs.readFileSync(args.planFile, "utf8"));
   const plan = Array.isArray(raw) ? raw : raw.plan;
   if (!Array.isArray(plan)) throw new Error("计划文件必须是 media-plan JSON，且包含 plan 数组。");
