@@ -233,7 +233,7 @@ npm test
 - Do not move, rename, delete, or overwrite files while a cloud save, transfer, copy, or verification task is active, paused, failed, or in an unknown state.
 - A high-confidence task can enter the automatic archive path only after transfer completion, verification, and a conflict-free destination check. Ambiguous identity requires one user confirmation; exact destination conflicts are paused and never overwritten.
 - Ambiguous media classification should remain in staging for manual review.
-- The media planner is always read-only. The separate media archive executor is also read-only by default; only an explicit `--yes` enables OpenList mkdir/move/rename operations. It does not call copy or delete APIs. It rechecks source and destination immediately before each item, stops at the first uncertain error, and verifies the resulting destination. Do not run it against the real Movies/TVShows libraries until the isolated test workspace has passed.
+- The media planner may create missing configured Movies/TVShows root directories (and missing parent directories) through OpenList `fs/mkdir`; it reports every created path. It does not move, rename, copy, or delete files. Destination subfolders for individual titles/seasons are created only by the separate archive executor after explicit `--yes`. The executor rechecks source and destination immediately before each item, stops at the first uncertain error, verifies the resulting destination, and never calls copy or delete APIs. Do not run it against the real Movies/TVShows libraries until the isolated test workspace has passed.
 
 ## Repository Layout
 
