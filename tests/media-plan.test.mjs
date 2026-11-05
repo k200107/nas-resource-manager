@@ -211,3 +211,36 @@ test("treats a missing title folder as a clear target without recursively scanni
   assert.deepEqual(result.existingPaths, []);
   assert.equal(result.complete, true);
 });
+
+
+test("paginates OpenList directory listings before declaring a destination clear", async () => {
+  const calls = [];
+  const result = await scanTargetConflicts({
+    baseUrl: "http://openlist.test", token: "token", timeoutMs: 100,
+    moviesPath: "/Movies", tvShowsPath: "/TVShows",
+    plan: [{ target: "/Movies/Example (2024)/Example (2024) - 1080p.mkv", resourceType: "movie" }],
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push({ path: body.path, page: body.page });
+      let content = [];
+      if (body.path === "/Movies" && body.page === 1) {
+        content = Array.from({ length: 200 }, (_, index) => ({ name: "Folder " + index, is_dir: true }));
+      } else if (body.path === "/Movies" && body.page === 2) {
+        content = [{ name: "Example (2024)", is_dir: true }];
+      } else if (body.path === "/Movies/Example (2024)") {
+        content = [{ name: "Example (2024) - 1080p.mkv", is_dir: false }];
+      }
+      return {
+        ok: true, status: 200,
+        async text() { return JSON.stringify({ code: 200, message: "success", data: { content } }); }
+      };
+    }
+  });
+  assert.deepEqual(calls, [
+    { path: "/Movies", page: 1 },
+    { path: "/Movies", page: 2 },
+    { path: "/Movies/Example (2024)", page: 1 }
+  ]);
+  assert.equal(result.complete, true);
+  assert.equal(result.existingPaths.length, 1);
+});
