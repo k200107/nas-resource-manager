@@ -14,8 +14,6 @@
  * 安全边界：人工确认针对不确定的媒体身份或冲突，不要求对每个明确文件重复审批。
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import { loadEnvFile } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
 import { createTask, getTask, listTasks, transitionTask } from "./media-task-store.mjs";
