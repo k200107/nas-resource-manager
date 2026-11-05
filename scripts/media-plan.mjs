@@ -211,7 +211,11 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
 
     const rawName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
     const year = extractYear(rawName);
-    const identityInput = rawName.replace(/(?:19|20)\d{2}/, "").replace(/[._-]+/g, " ").trim();
+    const identityInput = rawName
+      .replace(/(?:19|20)\d{2}/, "")
+      .replace(/S\d{1,2}E\d{1,3}|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
+      .replace(/(?:2160p|2048p|1080p|720p|480p|4k|2k|uhd|fhd)/ig, "")
+      .replace(/[._-]+/g, " ").trim();
     const identity = resolveMediaTitle(identityInput, aliases);
     const resourceName = identity.canonicalTitle || rawName;
     const relativeFiles = videoFiles.map((file) => ({
