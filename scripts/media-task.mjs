@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
 /**
+ * 媒体任务状态管理 CLI，解析命令行参数并调用状态库创建、查询、列出或迁移任务。
+ *
+ * 本文件说明：函数注释解释职责和关键边界；本次修改只增加注释，不改变原有执行逻辑。
+ * 安全约束：只读预览与真实写入必须严格区分；测试写入必须限制在专用目录并要求显式确认。
+ */
+
+/**
  * 媒体任务状态管理 CLI，将命令行参数转换为任务创建、查询、列表和状态转换请求。
  *
  * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
@@ -21,6 +28,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
+/** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const envFile = args.envFile || ".env";
@@ -66,6 +74,7 @@ async function main() {
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
+/** 解析命令行参数并生成统一参数对象；遇到未知参数时明确报错。 */
 function parseArgs(argv) {
   const args = { action: "list", storePath: "", lockDir: "", envFile: ".env" };
   const positionals = [];
