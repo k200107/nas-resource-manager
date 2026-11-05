@@ -30,7 +30,8 @@ You can install the project and run its automated tests without a `.env` file, O
 Open PowerShell and run:
 
 ```powershell
-# Choose a directory for the project
+# Create and enter a directory for the project (skip mkdir if it already exists)
+New-Item -ItemType Directory -Force D:\Projects | Out-Null
 cd D:\Projects
 
 # Clone the development branch
