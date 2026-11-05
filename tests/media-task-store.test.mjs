@@ -173,7 +173,7 @@ test("a destination conflict cannot be automatically archived until explicitly r
   await assert.rejects(() => transitionTask(task.id, "STAGED", {
     verification: { passed: true, transferCompleted: true, openListTaskId: "conflict-task", stableChecks: 2 },
     reviewResolution: { confirmed: true, resourceName: "Example", resourceType: "movie" }
-  }, options), /conflictResolved/);
+  }, options), /人工复核后必须确认/);
   const resolved = await transitionTask(task.id, "STAGED", {
     verification: { passed: true, transferCompleted: true, openListTaskId: "conflict-task", stableChecks: 2 },
     reviewResolution: { confirmed: true, resourceName: "Example", resourceType: "movie", conflictResolved: true }
