@@ -124,7 +124,7 @@ export function extractEpisode(value) {
   let match = text.match(/S(\d{1,2})\s*E(\d{1,3})/i);
   if (match) return { season: Number(match[1]), episode: Number(match[2]), source: "sxxexx" };
   // E/EP 集数标记必须位于独立分隔边界，避免把 Example.1080p 中的 “e.108” 误判为第 108 集。
-  match = text.match(/(?:^|[ ._-])(?:EP|E)\.?\s*(\d{1,3})(?=$|[ ._-])/i);
+  match = text.match(/(?:^|[ ._/-])(?:EP|E)\.?\s*(\d{1,3})(?=$|[ ._/-])/i);
   if (match) return { season: null, episode: Number(match[1]), source: "episode-tag" };
   match = text.match(/第([零〇一二两三四五六七八九十\d]+)季/);
   const season = match ? parseChineseNumber(match[1]) : null;
