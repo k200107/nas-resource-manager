@@ -108,15 +108,15 @@ test("does not mistake resolution suffixes or title letters for episode numbers"
 });
 
 test("extracts resolution and creates Emby-style distinct version filenames", () => {
-  assert.equal(extractResolution("Movie.2048p.mkv").value, "2048p");
-  assert.equal(extractResolution("Movie_2048.mkv").value, "2048p");
+  assert.equal(extractResolution("Movie.2160p.mkv").value, "2160p");
+  assert.equal(extractResolution("Movie_2160.mkv").value, "2160p");
   assert.equal(extractResolution("Movie.1440p.mkv").value, "1440p");
   assert.equal(extractResolution("Movie.1080p.mkv").value, "1080p");
   assert.equal(extractResolution("anything.mkv", { width: 3840, height: 2160 }).value, "2160p");
-  assert.equal(extractResolution("anything.mkv", { width: 2048, height: 1080 }).value, "2048p");
+  assert.equal(extractResolution("anything.mkv", { width: 2160, height: 1080 }).value, "2160p");
   assert.equal(extractResolution("anything.mkv", { width: 2560, height: 1440 }).value, "1440p");
   assert.equal(buildMovieFileName("Example", 2024, "1080p", ".mkv"), "Example (2024) - 1080p.mkv");
-  assert.equal(buildMovieFileName("Example", 2024, "2048p", ".mkv"), "Example (2024) - 2048p.mkv");
+  assert.equal(buildMovieFileName("Example", 2024, "2160p", ".mkv"), "Example (2024) - 2160p.mkv");
   assert.equal(buildSeriesFileName("Example", 1, 2, "1080p", ".mkv"), "Example - S01E02 - 1080p.mkv");
 });
 
@@ -124,12 +124,12 @@ test("plans multiple movie resolutions as separate Emby versions", () => {
   const items = [
     { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
     { name: "Example.1080p.mkv", path: "/Downloads/Example (2024)/Example.1080p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
-    { name: "Example.2048p.mkv", path: "/Downloads/Example (2024)/Example.2048p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+    { name: "Example.2160p.mkv", path: "/Downloads/Example (2024)/Example.2160p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
   ];
   const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" });
   assert.equal(plan.length, 2);
   assert.equal(plan[0].target, "/media/Movies/Example (2024)/Example (2024) - 1080p.mkv");
-  assert.equal(plan[1].target, "/media/Movies/Example (2024)/Example (2024) - 2048p.mkv");
+  assert.equal(plan[1].target, "/media/Movies/Example (2024)/Example (2024) - 2160p.mkv");
   assert.ok(plan.every((item) => item.status === "auto_archive_candidate"));
 });
 
@@ -166,7 +166,7 @@ test("holds homophone title candidates for confirmation instead of silently rena
 test("different resolution versions do not collide with each other", () => {
   const items = [
     { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
-    { name: "Example.2048p.mkv", path: "/Downloads/Example (2024)/Example.2048p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+    { name: "Example.2160p.mkv", path: "/Downloads/Example (2024)/Example.2160p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
   ];
   const plan = buildMediaPlan({
     sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows",
@@ -282,4 +282,34 @@ test("holds media items when the staging scan is incomplete", () => {
     sourceScanComplete: false
   });
   assert.equal(plan[0].status, "review_required");
+});
+
+test("plans 1080p and 2160p movie versions independently without treating 2160p as a year", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.1080p.mkv", path: "/Downloads/Example (2024)/Example.1080p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.2160p.mkv", path: "/Downloads/Example (2024)/Example.2160p.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" });
+  assert.equal(plan.length, 2);
+  assert.deepEqual(plan.map((item) => item.resolution), ["1080p", "2160p"]);
+  assert.deepEqual(plan.map((item) => item.year), [2024, 2024]);
+  assert.deepEqual(plan.map((item) => item.target), [
+    "/media/Movies/Example (2024)/Example (2024) - 1080p.mkv",
+    "/media/Movies/Example (2024)/Example (2024) - 2160p.mkv"
+  ]);
+  assert.ok(plan.every((item) => item.status === "auto_archive_candidate"));
+});
+
+test("plans multiple seasons into separate Season directories", () => {
+  const items = [
+    { name: "Series", path: "/Downloads/Series", parentPath: "/Downloads", isDir: true },
+    { name: "S01E01.mkv", path: "/Downloads/Series/Season 01/S01E01.mkv", parentPath: "/Downloads/Series/Season 01", isDir: false },
+    { name: "S02E01.mkv", path: "/Downloads/Series/Season 02/S02E01.mkv", parentPath: "/Downloads/Series/Season 02", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.deepEqual(plan.map((item) => item.target), [
+    "/TVShows/Series/Season 01/Series - S01E01.mkv",
+    "/TVShows/Series/Season 02/Series - S02E01.mkv"
+  ]);
 });
