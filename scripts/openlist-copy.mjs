@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parseDotEnv } from "./check-env.mjs";
+import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -349,37 +350,8 @@ async function listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group, stat
 /** 封装OpenListJson相关网络请求，处理超时、响应解析和错误传递；是否改变远端数据取决于请求方法及接口。 */
 /** 封装 OpenList API 请求、超时处理、JSON 解析和错误检查。 */
 async function fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: apiPath, method, body }) {
-  if (!baseUrl || !token) throw new Error("OPENLIST_BASE_URL 或 OPENLIST_TOKEN 缺失。");
-  if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境没有 fetch，请升级到 Node.js 20 或更新版本。");
-  // 为本次请求设置可中止控制器，避免网络无响应时脚本无限等待。
-  const controller = new AbortController();
-  // 请求超时后主动中止底层 fetch；finally 中会清理定时器。
-  const timeout = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_TIMEOUT_MS);
-  try {
-    // 通过 OpenList API 访问存储；不得改用本机 fs 操作绕过 OpenList 的路径和权限边界。
-  const response = await fetchImpl(`${normalizeBaseUrl(baseUrl)}${apiPath}`, {
-      method,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        Authorization: token
-      },
-      body,
-      signal: controller.signal
-    });
-    const text = await response.text();
-    let json;
-    try {
-      json = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(`接口没有返回 JSON：${text.slice(0, 120)}`);
-    }
-    return { ok: Boolean(response.ok), status: response.status, json };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return requestOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, endpoint: apiPath, method, body });
 }
-
 /** 从 OpenList 响应中提取复制任务信息。 */
 /** 从 OpenList 响应中提取复制任务标识和状态。 */
 function extractCopyTask(json = {}) {
@@ -515,7 +487,7 @@ function normalizeBaseUrl(value) {
 /** 根据 OpenList 响应字段判断接口调用是否成功。 */
 /** 依据 OpenList 响应字段判断接口是否成功。 */
 function isOpenListSuccess(json) {
-  return json?.code === 200 || json?.code === 0 || json?.message === "success";
+  return isOpenListResponseSuccess(json);
 }
 
 /** 等待指定毫秒数，通常用于轮询任务状态时控制请求频率。 */
