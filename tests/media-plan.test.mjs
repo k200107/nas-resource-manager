@@ -85,6 +85,13 @@ test("scanTree only reads OpenList fs/list and traverses nested directories", as
 
 
 
+test("does not mark unmatched ordinary titles as requiring title review", () => {
+  const result = resolveMediaTitle("The Last of Us");
+  assert.equal(result.matched, false);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.requiresReview, false);
+});
+
 test("recognizes a known homophone alias as a candidate requiring user confirmation", () => {
   const result = resolveMediaTitle("肖生客的救赎");
   assert.equal(result.matched, true);
