@@ -15,7 +15,10 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 - Inspect and cancel OpenList copy/offline-download tasks.
 - Reconcile an internal media task against its exact OpenList task ID.
 - Create shared media-ingest task records with guarded state transitions, idempotency keys, and resource locks.
-- Preview a read-only media archive plan from an OpenList staging directory. The planner does not move, rename, copy, or delete media files.
+- Analyze movie/series identity, title aliases, years, season/episode markers, and resolution tags.
+- Generate Emby-style movie/season folders and multi-resolution filenames.
+- Detect exact destination collisions and route ambiguous identities to one-time user review.
+- Propose automatic archive candidates for high-confidence, verified, conflict-free tasks; the current planner remains read-only and does not move, rename, copy, or delete media files.
 
 ## Requirements
 
@@ -171,7 +174,9 @@ Preview the staging directory and proposed media destinations (read-only):
 npm run media-plan -- --format text
 ```
 
-The planner reads OpenList directory listings. It does not move, rename, copy, or delete files. Configure the staging and library paths only after checking the OpenList mount.
+The planner reads the staging directory and configured Movies/TVShows trees through OpenList. It proposes Emby-style names, resolution variants, and exact-path collision results. It does not move, rename, copy, or delete files. If the title is an alias/possible homophone, season/episode data is incomplete, a destination collision exists, or destination scanning is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
+
+To maintain confirmed title aliases, copy `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, add aliases only after confirming the canonical title, and set `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local alias file is git-ignored. Offline recognition cannot guarantee all Chinese homophones without a comprehensive catalog or external metadata provider.
 
 List current OpenList copy tasks:
 
@@ -198,7 +203,7 @@ npm test
 - Never print full secrets in logs or diagnostic output.
 - Use OpenList paths for NAS operations; do not substitute local OS paths.
 - Do not move, rename, delete, or overwrite files while a cloud save, transfer, copy, or verification task is active, paused, failed, or in an unknown state.
-- A task is eligible for archive only after the transfer is confirmed complete, verification passes, and an explicit approval is recorded.
+- A high-confidence task can enter the automatic archive path only after transfer completion, verification, and a conflict-free destination check. Ambiguous identity requires one user confirmation; exact destination conflicts are paused and never overwritten.
 - Ambiguous media classification should remain in staging for manual review.
 - The current media planner is read-only. Review its proposed destinations before any future archive execution feature is enabled.
 
