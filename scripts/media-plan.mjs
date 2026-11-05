@@ -239,7 +239,10 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
 
       if (!base || classification.confidence === "low") {
         reviewReasons.push(classification.reason);
-      } else if (classification.type === "movie") {
+      } else if (classification.confidence !== "high") {
+        reviewReasons.push("识别置信度一般；先展示归档建议，等待用户确认。");
+      }
+      if (base && classification.type === "movie" && classification.confidence !== "low") {
         const movieFolder = fileYear ? \`\${resourceName} (\${fileYear})\` : resourceName;
         targetDir = joinOpenListPath(base, movieFolder);
         targetName = buildMovieFileName(resourceName, fileYear, resolution.value, extension);
@@ -294,7 +297,8 @@ function classifyMedia({ resourceName, files, isDirectory = false }) {
   const hasVideo = files.some((file) => VIDEO_EXTENSIONS.has(path.extname(file.name).toLowerCase()));
   const episodeRecords = files.map((file) => extractEpisode(file.name));
   const hasExplicitEpisode = episodeRecords.some((item) => item.episode != null);
-  const hasSeasonEpisode = episodeRecords.some((item) => item.season != null && item.episode != null);
+  const hasSeasonEpisode = episodeRecords.some((item) => item.season != null && item.episode != null) ||
+    (episodeRecords.some((item) => item.episode != null) && detectSeason(haystack) != null);
   const seriesWords = /(电视剧|剧集|番剧|动漫|连续剧|美剧|英剧|韩剧|日剧|Season\s*\d{1,2}|S\d{1,2}(?:E\d{1,3})?|第[一二三四五六七八九十百\d]+季)/i;
   if (hasExplicitEpisode || seriesWords.test(haystack)) {
     return {
