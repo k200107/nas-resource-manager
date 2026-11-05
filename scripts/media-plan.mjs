@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
 /**
+ * 只读扫描 OpenList 暂存目录，识别电影/剧集候选并生成归档预览；不复制、移动、重命名或删除文件。
+ *
+ * 本文件说明：函数注释解释职责和关键边界；本次修改只增加注释，不改变原有执行逻辑。
+ * 安全约束：只读预览与真实写入必须严格区分；测试写入必须限制在专用目录并要求显式确认。
+ */
+
+/**
  * 只读扫描 OpenList 暂存目录，识别电影/剧集候选并生成归档预览；不复制、移动、重命名或删除任何文件。
  *
  * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
@@ -27,6 +34,7 @@ const VIDEO_EXTENSIONS = new Set([".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv"
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
+/** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const env = loadEnv(args.envFile);
@@ -67,6 +75,7 @@ async function main() {
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
+/** 解析命令行参数并生成统一参数对象；遇到未知参数时明确报错。 */
 function parseArgs(argv) {
   const parsed = {
     sourcePath: "",
@@ -98,15 +107,18 @@ function parseArgs(argv) {
 }
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
+/** 读取 .env 并合并进程环境变量；进程环境变量优先，不覆盖运行环境注入的配置。 */
 function loadEnv(envFile) {
   if (!envFile || !fs.existsSync(envFile)) return {};
   return parseDotEnv(fs.readFileSync(envFile, "utf8"));
 }
 
 /** 从指定 OpenList 根目录递归读取目录树，并受最大深度和最大条目数限制，避免扫描失控。 */
+/** 处理 scanTree 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 async function scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath }) {
   const items = [];
   let truncated = false;
+  /** 处理 visit 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
   async function visit(dirPath, depth) {
     if (depth > MAX_SCAN_DEPTH || items.length >= MAX_SCAN_ITEMS) {
       truncated = true;
@@ -129,6 +141,7 @@ async function scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath }) {
 }
 
 /** 调用 OpenList fs/list 读取一个目录；只返回名称、类型、大小和修改时间等规划所需信息。 */
+/** 读取 OpenList 指定目录，检查测试目录是否已经存在。 */
 async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) {
   if (!baseUrl || !token) throw new Error("OPENLIST_BASE_URL 或 OPENLIST_TOKEN 缺失。");
   if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境没有 fetch，请升级到 Node.js 20 或更新版本。");
@@ -168,6 +181,7 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
 }
 
 /** 根据暂存目录的一级资源和视频文件证据生成候选归档计划；模糊项目保留人工复核，不执行文件变更。 */
+/** 构造流程需要的数据结构或预览计划；不应隐式执行远端写入。 */
 function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
   const topLevel = items.filter((item) => item.parentPath === sourcePath);
   const plan = [];
@@ -235,6 +249,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath }) {
 }
 
 /** 依据资源名称和文件名中的集数/季数标记判断电影或剧集；仅有视频文件本身不足以高置信度认定电影。 */
+/** 处理 classifyMedia 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function classifyMedia({ resourceName, files }) {
   const haystack = [resourceName, ...files.map((file) => file.name)].join(" ");
   const episodePattern = /(?:S\d{1,2}E\d{1,3}|\bE\d{1,3}\b|EP\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+集|全\d{1,4}集)/i;
@@ -249,6 +264,7 @@ function classifyMedia({ resourceName, files }) {
 }
 
 /** 移除明确季集标记并规范化剧集名称。 */
+/** 规范化数据或参数，统一字段和格式，减少上游差异。 */
 function normalizeSeriesName(value) {
   return sanitizeName(String(value || "")
     .replace(/\s*(?:S\d{1,2}E\d{1,3}|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+集|全\d{1,4}集).*$/i, "")
@@ -256,6 +272,7 @@ function normalizeSeriesName(value) {
 }
 
 /** 从明确的 SxxExx、Season N 或“第 N 季”标记中提取季数；不根据标题中孤立数字猜季数。 */
+/** 处理 detectSeason 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function detectSeason(value) {
   const text = String(value || "");
   const episode = text.match(/S(\d{1,2})E\d{1,3}/i);
@@ -267,6 +284,7 @@ function detectSeason(value) {
 }
 
 /** 将支持范围内的中文数字转换为整数，供季数识别使用。 */
+/** 解析输入并返回规范化结果；不合法的输入应明确报错。 */
 function parseChineseNumber(value) {
   const text = String(value || "");
   if (/^\d+$/.test(text)) return Number(text);
@@ -281,6 +299,7 @@ function parseChineseNumber(value) {
 }
 
 /** 汇总计划条目数、电影/剧集数量、待复核数量和低置信度数量。 */
+/** 处理 summarizePlan 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function summarizePlan(plan) {
   return {
     total: plan.length,
@@ -292,6 +311,7 @@ function summarizePlan(plan) {
 }
 
 /** 把只读归档计划转换为便于人工审阅的文本，不会触发计划执行。 */
+/** 将内部结果转换为可读输出，不执行数据变更。 */
 function formatPlan(result) {
   const lines = ["### 媒体归档预览（只读）", "", `扫描：${result.source.path}（${result.source.scannedItems} 项）`, `电影：${result.targets.movies}`, `剧集：${result.targets.tvShows}`, ""];
   for (const item of result.plan) {
@@ -302,6 +322,7 @@ function formatPlan(result) {
 }
 
 /** 验证并规范化 OpenList 可见路径，拒绝空路径和路径穿越片段。 */
+/** 规范化数据或参数，统一字段和格式，减少上游差异。 */
 function normalizeOpenListPath(value) {
   const text = String(value || "").trim();
   if (!text || !text.startsWith("/") || text.includes("..")) return "";
@@ -309,6 +330,7 @@ function normalizeOpenListPath(value) {
 }
 
 /** 在 OpenList 路径规则下拼接父目录和子路径。 */
+/** 处理 joinOpenListPath 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function joinOpenListPath(dir, name) {
   const base = String(dir || "").replace(/\/+$/g, "") || "/";
   const child = String(name || "").replace(/^\/+|\/+$/g, "");
@@ -317,16 +339,19 @@ function joinOpenListPath(dir, name) {
 }
 
 /** 处理sanitizeName相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 sanitizeName 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function sanitizeName(value) {
   return String(value || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim() || "Unsorted";
 }
 
 /** 移除文件名末尾扩展名。 */
+/** 处理 stripExtension 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function stripExtension(value) {
   return String(value || "").replace(/\.[^.]+$/, "");
 }
 
 /** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
+/** 判断当前模块是否作为命令行入口直接运行。 */
 function isCliEntryPoint() {
   return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 }
