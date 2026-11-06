@@ -4,14 +4,14 @@ Use this file when OpenClaw, Hermes, or another sub Agent is delegated a media s
 
 ## Hard Rules
 
-- Never print, persist, or commit `QUARK_COOKIE`, `BAIDU_COOKIE`, `OPENLIST_TOKEN`, raw cookies, or raw auth headers.
+- Never print or commit `ALIYUN_REFRESH_TOKEN`, `QUARK_COOKIE`, `BAIDU_COOKIE`, `OPENLIST_TOKEN`, raw cookies, or raw auth headers. Aliyun token rotation may be persisted only in the ignored `.state/aliyun-auth.json` state file.
 - Do not use `--yes` until the user or supervising Agent has confirmed the preview payload, unless the task explicitly includes `confirmed: true`.
 - Prefer `--format json` or `--json` for every script call that supports it. Do not parse Markdown when JSON is available.
-- Search defaults to Aliyun Drive, Quark Netdisk, then Baidu Netdisk with a 50-result candidate cap. This is candidate ordering, not provider substitution. Aliyun saving remains unavailable until its dedicated adapter and readiness checks are complete.
+- Search defaults to Aliyun Drive, Quark Netdisk, then Baidu Netdisk with a 50-result candidate cap. This is candidate ordering, not provider substitution. Aliyun saving uses its dedicated web-session adapter and must pass the same readiness and preview-confirm-save checks as the other providers.
 - If the user specifies a provider, such as "只要夸克" or "取消百度", act only on that provider. Do not start, retry, copy, or report another provider as an acceptable substitute. Never reroute an explicitly supplied share URL to another provider.
 - Do not create background retry loops, cron jobs, or recurring automations unless the user explicitly asks for them.
 - Readiness validation is an Agent JSON tool. Run `npm run check-ready` before real saves/copies on fresh installs or after auth/path errors, and continue only when `nextAction` is `ready`.
-- Quark and Baidu remain the currently supported save providers. A complete configuration needs at least one reachable provider, not both. Aliyun is search-prioritized but must not be used for saving until its adapter is implemented and tested.
+- Aliyun, Quark, and Baidu are supported save providers with separate adapters and authorization mechanisms. A complete configuration needs at least one reachable provider, not all three.
 - Quark save targets may be full folder URLs or cloud-drive paths like `/备份资源`.
 - In JSON mode, use `--dry-run` for preview or `--yes` for confirmed save. Do not invoke interactive save prompts in JSON mode.
 - For cloud saves, always run a preview first, classify the resource, and produce a confirmation payload before mutation.
@@ -25,6 +25,7 @@ Use this file when OpenClaw, Hermes, or another sub Agent is delegated a media s
 | Full readiness check | `npm run check-ready` | none |
 | Check install config | `npm run check-env -- --json` | none |
 | Check Cookie validity | `npm run check-cookies` | none |
+| Save Aliyun share | `node scripts/aliyun-save.mjs "$SHARE_URL" "$DEST_PATH" --dry-run --json` | Same command with `--yes --json` after confirmation |
 | Save Quark share | `node scripts/quark-save.mjs "$SHARE_URL" "$DEST_URL" --dry-run --json` | Same command with `--yes --json` after confirmation |
 | Save Baidu share | `node scripts/baidu-save.mjs "$SHARE_URL" "$DEST_PATH_OR_URL" --dry-run --json` | Same command with `--yes --json` after confirmation |
 | View OpenList copy progress | `npm run openlist-tasks -- list copy undone --format json` | none |
@@ -34,7 +35,7 @@ Use this file when OpenClaw, Hermes, or another sub Agent is delegated a media s
 
 ## JSON Preview Contract
 
-The Quark and Baidu preview commands return one JSON object:
+The Aliyun, Quark, and Baidu preview commands return one JSON object with the same confirmation contract:
 
 ```json
 {
@@ -88,6 +89,8 @@ Before any save/copy mutation, report these exact fields to the user or supervis
 
 ## Save Commands
 
+Aliyun: `node scripts/aliyun-save.mjs "$SHARE_URL" "$ALIYUN_DEFAULT_SAVE_PATH" --dry-run --format json`. After confirmation, rerun with `--yes`. The rotated refresh token is stored in the ignored `.state/aliyun-auth.json` file.
+
 Quark:
 
 ```bash
@@ -123,9 +126,9 @@ After confirmation, replace `--dry-run` with `--yes`.
 | Symptom | Action |
 | --- | --- |
 | Missing `.env` or missing key | Run `npm run check-ready`, then ask user to follow `https://guantou.site/archives/N2CmhISt`. |
-| `check-ready.nextAction` is `configure_provider` | Ask the user to configure at least one full provider: Quark or Baidu. Both are not required. |
+| `check-ready.nextAction` is `configure_provider` | Ask the user to configure at least one full provider: Aliyun, Quark, or Baidu. Both are not required. |
 | `check-ready.nextAction` is `fix_openlist_target` | Ask the user to fix `OPENLIST_BASE_URL`, `OPENLIST_TOKEN`, or `OPENLIST_DEFAULT_COPY_DST_PATH`. |
-| `check-ready.nextAction` is `fix_provider_target` | Ask the user to verify the configured Quark/Baidu save directory exists. |
+| `check-ready.nextAction` is `fix_provider_target` | Ask the user to verify the configured provider save directory exists. |
 | `check-cookies.nextAction` is `configure_missing_cookies` | Ask the user to fill the missing Cookie env vars listed in `recommendations`. |
 | `check-cookies.nextAction` is `refresh_invalid_cookies` | Ask the user to log in again, copy fresh Cookies, and re-run `npm run check-cookies`. |
 | `check-cookies.nextAction` is `retry_network_or_check_access` | Do not claim the Cookie is invalid; ask the user to check network/provider access and retry. |
