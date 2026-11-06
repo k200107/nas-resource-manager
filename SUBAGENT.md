@@ -7,11 +7,11 @@ Use this file when OpenClaw, Hermes, or another sub Agent is delegated a media s
 - Never print, persist, or commit `QUARK_COOKIE`, `BAIDU_COOKIE`, `OPENLIST_TOKEN`, raw cookies, or raw auth headers.
 - Do not use `--yes` until the user or supervising Agent has confirmed the preview payload, unless the task explicitly includes `confirmed: true`.
 - Prefer `--format json` or `--json` for every script call that supports it. Do not parse Markdown when JSON is available.
-- Search defaults to Baidu Netdisk and Quark Netdisk with a 50-result candidate cap. Only broaden `--cloud-types` when the user asks for other providers.
-- If the user specifies a provider, such as "只要夸克" or "取消百度", act only on that provider. Do not start, retry, copy, or report another provider as an acceptable substitute.
+- Search defaults to Aliyun Drive, Quark Netdisk, then Baidu Netdisk with a 50-result candidate cap. This is candidate ordering, not provider substitution. Aliyun saving remains unavailable until its dedicated adapter and readiness checks are complete.
+- If the user specifies a provider, such as "只要夸克" or "取消百度", act only on that provider. Do not start, retry, copy, or report another provider as an acceptable substitute. Never reroute an explicitly supplied share URL to another provider.
 - Do not create background retry loops, cron jobs, or recurring automations unless the user explicitly asks for them.
 - Readiness validation is an Agent JSON tool. Run `npm run check-ready` before real saves/copies on fresh installs or after auth/path errors, and continue only when `nextAction` is `ready`.
-- Quark and Baidu are alternatives. A complete configuration needs at least one reachable provider, not both.
+- Quark and Baidu remain the currently supported save providers. A complete configuration needs at least one reachable provider, not both. Aliyun is search-prioritized but must not be used for saving until its adapter is implemented and tested.
 - Quark save targets may be full folder URLs or cloud-drive paths like `/备份资源`.
 - In JSON mode, use `--dry-run` for preview or `--yes` for confirmed save. Do not invoke interactive save prompts in JSON mode.
 - For cloud saves, always run a preview first, classify the resource, and produce a confirmation payload before mutation.
