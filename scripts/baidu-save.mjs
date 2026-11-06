@@ -1,17 +1,24 @@
 #!/usr/bin/env node
+import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
 
-import fs from "node:fs";
-import path from "node:path";
-import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
-import { fileURLToPath } from "node:url";
+/**
+ * 解析百度分享资源、展示候选项并按明确选择转存到用户网盘；转存和重命名属于远端写操作。
+ *
+ * 本文件说明：函数注释描述职责和关键边界；除注释外不改变既有执行逻辑。
+ * 安全约束：任何网盘/NAS 写操作都必须以明确目标和用户授权为前提；预览和查询流程保持只读。
+ */
 
-import {
-  classifyResource,
-  normalizeContextName,
-  parseSelection
-} from "./quark-save.mjs";
-import { parseDotEnv } from "./check-env.mjs";
+/**
+ * 处理百度网盘分享链接解析、分享文件选择、转存和命名整理；转存、重命名会改变用户网盘内容。
+ *
+ * 维护说明：本文件以显式参数和返回值组织流程；请勿在注释之外改变既有行为。
+ * 安全边界：涉及网盘/NAS 写入的函数必须在调用前确认目标、范围和用户授权；只读函数不得引入隐式写操作。
+ */
+
+
+
 
 const DEFAULT_API_BASE = "https://pan.baidu.com";
 const DEFAULT_APP_ID = "250528";
@@ -22,7 +29,8 @@ const DEFAULT_PAGE_SIZE = 100;
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-if (isCliEntryPoint()) {
+// 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
+  if (isCli(import.meta.url)) {
   main().catch((error) => {
     const message = error && error.message ? error.message : String(error);
     console.error(JSON.stringify({ ok: false, error: message }, null, 2));
@@ -30,6 +38,8 @@ if (isCliEntryPoint()) {
   });
 }
 
+/** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
+/** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
   const args = applyEnvDefaults(parseArgs(process.argv.slice(2)));
   if (!args.shareUrl || !args.savePath) {
@@ -95,6 +105,8 @@ async function main() {
   }
 }
 
+/** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
+/** 解析命令行参数并生成统一参数对象；未知参数会报错，避免拼写错误被静默忽略。 */
 function parseArgs(argv) {
   const parsed = {
     shareUrl: "",
@@ -167,9 +179,10 @@ function parseArgs(argv) {
   return parsed;
 }
 
+/** 执行applyEnvDefaults相关的远端变更；调用前必须确保用户已明确选择目标并确认写入范围。 */
+/** 处理 applyEnvDefaults 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function applyEnvDefaults(args, injectedEnv = null) {
-  const fileEnv = injectedEnv || loadEnvFile(args.envFile);
-  const env = { ...fileEnv, ...process.env };
+  const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env, injectedEnv);
   const rawSavePath = args.savePath || env.BAIDU_DEFAULT_SAVE_PATH || "";
   return {
     ...args,
@@ -178,11 +191,11 @@ function applyEnvDefaults(args, injectedEnv = null) {
   };
 }
 
-function loadEnvFile(envFile = DEFAULT_ENV_FILE) {
-  if (!envFile || !fs.existsSync(envFile)) return {};
-  return parseDotEnv(fs.readFileSync(envFile, "utf8"));
-}
+/** 读取指定 .env 文件并解析键值；不会改写文件。 */
+/** 读取并解析 .env 文件；不会创建或修改配置文件。 */
 
+/** 处理printUsage相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 printUsage 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function printUsage() {
   console.error("Usage: node scripts/baidu-save.mjs <share-url> <baidu-save-path> [options]");
   console.error("Options:");
@@ -198,6 +211,8 @@ function printUsage() {
   console.error("  --no-rename                    转存后不执行重命名修正");
 }
 
+/** 解析百度分享资源并生成可供人工选择的预览；此阶段以读取和准备为主。 */
+/** 解析百度分享链接、读取分享条目并生成待用户审阅的资源预览。 */
 async function prepareBaiduSave(args) {
   const share = parseBaiduShareUrl(args.shareUrl);
   if (args.passcode) share.passcode = args.passcode;
@@ -304,6 +319,8 @@ async function prepareBaiduSave(args) {
   };
 }
 
+/** 根据用户明确选择的资源执行网盘保存；这是会修改个人网盘内容的操作。 */
+/** 仅对用户明确选中的资源执行网盘保存/转存；此流程会改变用户网盘内容。 */
 async function saveSelectedItems(args) {
   const transferResponse = await transferBaiduShare({
     apiBase: args.apiBase,
@@ -339,6 +356,8 @@ async function saveSelectedItems(args) {
   };
 }
 
+/** 解析百度分享 URL 中的分享码、提取码等必要信息。 */
+/** 解析输入并返回规范化结果；无法识别的输入应明确报错。 */
 function parseBaiduShareUrl(value) {
   let parsed;
   try {
@@ -371,6 +390,8 @@ function parseBaiduShareUrl(value) {
   };
 }
 
+/** 从百度分享页面 HTML 中提取分享上下文。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractBaiduShareContextFromHtml(html) {
   const text = String(html || "");
   const mergedContext = mergeBaiduShareContexts([
@@ -387,6 +408,8 @@ function extractBaiduShareContextFromHtml(html) {
   throw new Error("无法解析百度分享页中的分享上下文。");
 }
 
+/** 从页面内嵌 JSON 中提取登录/分享上下文。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractJsonLoginContext(text) {
   const markerIndex = text.search(/["']?loginstate["']?\s*:/);
   if (markerIndex === -1) {
@@ -408,6 +431,8 @@ function extractJsonLoginContext(text) {
   return null;
 }
 
+/** 从页面数据对象中提取百度分享上下文。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractYunDataContext(text) {
   const match = String(text || "").match(/window\.yunData\s*=\s*\{([\s\S]*?)\};/);
   if (!match) return null;
@@ -419,6 +444,8 @@ function extractYunDataContext(text) {
   };
 }
 
+/** 从页面脚本变量中提取分享上下文。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractLocalsMsetContext(text) {
   let searchIndex = 0;
   while (searchIndex < text.length) {
@@ -438,6 +465,8 @@ function extractLocalsMsetContext(text) {
   return null;
 }
 
+/** 从 JavaScript 片段中提取目标属性值，供分享页面兼容解析使用。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractJsObjectProperty(body, key) {
   const pattern = new RegExp(`(?:^|,)\\s*${escapeRegExp(key)}\\s*:\\s*(?:"([^"]*)"|'([^']*)'|([^,}]+))`, "s");
   const match = String(body || "").match(pattern);
@@ -445,6 +474,8 @@ function extractJsObjectProperty(body, key) {
   return String(match[1] ?? match[2] ?? match[3] ?? "").trim();
 }
 
+/** 合并页面不同位置提取到的分享上下文。 */
+/** 处理 mergeBaiduShareContexts 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function mergeBaiduShareContexts(contexts) {
   const merged = {
     bdstoken: "",
@@ -470,6 +501,8 @@ function mergeBaiduShareContexts(contexts) {
   return merged;
 }
 
+/** 定位并截取括号闭合的 JSON 内容，避免截断对象被误解析。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
 function extractBalancedJson(text, startIndex) {
   let depth = 0;
   let inString = false;
@@ -502,6 +535,8 @@ function extractBalancedJson(text, startIndex) {
   return "";
 }
 
+/** 规范化从百度页面提取的分享上下文。 */
+/** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizeBaiduShareContext(data) {
   const files = data.file_list || data.list || [];
   return {
@@ -514,6 +549,8 @@ function normalizeBaiduShareContext(data) {
   };
 }
 
+/** 把百度分享接口返回的文件条目转换为统一结构。 */
+/** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizeBaiduShareItems(rows) {
   return (rows || []).map((row, index) => {
     const isDir = Number(row.isdir ?? row.is_dir ?? row.is_directory ?? 0) === 1 || row.isDirectory === true;
@@ -533,6 +570,8 @@ function normalizeBaiduShareItems(rows) {
   });
 }
 
+/** 构造百度分享转存接口所需参数。 */
+/** 构造百度分享转存接口所需的请求数据。 */
 function buildBaiduTransferRequest({
   apiBase = DEFAULT_API_BASE,
   appId = DEFAULT_APP_ID,
@@ -565,6 +604,8 @@ function buildBaiduTransferRequest({
   return { url, body };
 }
 
+/** 构造BaiduRenamePlanForSelection所需的数据结构或执行计划；除非函数说明明确涉及执行，否则只准备数据、不提交远端变更。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildBaiduRenamePlanForSelection({ args, result, selectedItems }) {
   if (args.noRename) return [];
   if (args.agentRenamePlan) {
@@ -583,6 +624,8 @@ function buildBaiduRenamePlanForSelection({ args, result, selectedItems }) {
   });
 }
 
+/** 为百度网盘候选文件生成建议名称和重命名计划。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildBaiduRenamePlan({ resourceType = "auto", contextName = "", shareTitle = "", savePath = "/", selectedItems = [] } = {}) {
   const baseName = sanitizeFileName(contextName || shareTitle || "");
   if (!baseName) return [];
@@ -606,6 +649,8 @@ function buildBaiduRenamePlan({ resourceType = "auto", contextName = "", shareTi
   return plan;
 }
 
+/** 根据资源信息和用户选择解析百度网盘重命名计划，不在此处执行修改。 */
+/** 解析并确认路径、配置或计划，供后续步骤使用。 */
 function resolveBaiduRenamePlan({ selectedItems = [], savePath = "/", agentRenamePlan = [] } = {}) {
   if (!Array.isArray(agentRenamePlan)) {
     throw new Error("Agent rename plan must be a JSON array");
@@ -639,6 +684,8 @@ function resolveBaiduRenamePlan({ selectedItems = [], savePath = "/", agentRenam
   return plan;
 }
 
+/** 将renderBaiduShareItemsTable相关结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function renderBaiduShareItemsTable({
   shareTitle = "",
   contextName = "",
@@ -689,6 +736,8 @@ function renderBaiduShareItemsTable({
   return lines.join("\n");
 }
 
+/** 汇总网盘保存结果，包括成功、失败和待处理项目。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function renderSaveSummary(saveResult) {
   const lines = [
     "",
@@ -706,6 +755,8 @@ function renderSaveSummary(saveResult) {
   return lines.join("\n");
 }
 
+/** 生成供自动化代理展示的百度资源预览，不执行转存。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildBaiduSubagentPreview({ args = {}, result }) {
   const selectedItems = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
@@ -750,6 +801,8 @@ function buildBaiduSubagentPreview({ args = {}, result }) {
   };
 }
 
+/** 构造百度转存动作所需的参数和结果结构。 */
+/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildBaiduSubagentSave({ args = {}, result, saveResult }) {
   return {
     ok: true,
@@ -781,6 +834,8 @@ function buildBaiduSubagentSave({ args = {}, result, saveResult }) {
   };
 }
 
+/** 将百度资源对象转换为稳定、可输出的字段集合。 */
+/** 将内部对象转换为稳定的输出结构，避免暴露无关字段。 */
 function serializeBaiduItem(item) {
   return {
     rank: item.rank,
@@ -795,6 +850,8 @@ function serializeBaiduItem(item) {
   };
 }
 
+/** 将重命名计划转换为可展示/传递的结构。 */
+/** 将内部对象转换为稳定的输出结构，避免暴露无关字段。 */
 function serializeRenamePlan(plan) {
   return (plan || []).map((item, index) => ({
     rank: index + 1,
@@ -805,6 +862,8 @@ function serializeRenamePlan(plan) {
   }));
 }
 
+/** 将重命名执行结果转换为可展示结构。 */
+/** 将内部对象转换为稳定的输出结构，避免暴露无关字段。 */
 function serializeRenameResults(results) {
   return (results || []).map((item) => ({
     ok: Boolean(item.ok),
@@ -816,6 +875,8 @@ function serializeRenameResults(results) {
   }));
 }
 
+/** 汇总百度转存接口响应，提取任务结果和错误信息。 */
+/** 处理 summarizeBaiduTransferResponse 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function summarizeBaiduTransferResponse(response) {
   return {
     errno: response.errno ?? 0,
@@ -824,16 +885,9 @@ function summarizeBaiduTransferResponse(response) {
   };
 }
 
-async function askUserSelection(items, defaultSelection) {
-  const rl = readline.createInterface({ input, output });
-  try {
-    const answer = await rl.question(`请选择要转存的序号（默认 ${defaultSelection}，支持 all、1,3、2-5）：`);
-    return parseSelection(answer.trim() || defaultSelection, items);
-  } finally {
-    rl.close();
-  }
-}
-
+/** 展示候选资源并收集明确选择；未获得选择时不应擅自保存全部资源。 */
+/** 展示候选资源并收集明确选择；未获得用户选择时不得擅自保存全部候选。 */
+/** 读取并核验百度分享上下文及可访问性。 */
 async function verifyBaiduShare({ apiBase, timeoutMs, cookie, bdstoken, verifySurl, passcode, referer }) {
   const url = new URL("/share/verify", normalizeApiBase(apiBase));
   const query = {
@@ -869,6 +923,8 @@ async function verifyBaiduShare({ apiBase, timeoutMs, cookie, bdstoken, verifySu
   };
 }
 
+/** 从百度网盘只读接口获取后续请求所需的 bdstoken。 */
+/** 通过只读接口获取百度后续请求需要的 bdstoken。 */
 async function getBaiduBdstoken({ apiBase, timeoutMs, cookie }) {
   const url = new URL("/api/gettemplatevariable", normalizeApiBase(apiBase));
   url.searchParams.set("fields", '["bdstoken"]');
@@ -880,6 +936,8 @@ async function getBaiduBdstoken({ apiBase, timeoutMs, cookie }) {
   return response.result?.bdstoken || response.bdstoken || "";
 }
 
+/** 读取百度分享中的文件列表，不执行转存。 */
+/** 读取百度分享中的文件列表，不执行转存。 */
 async function listBaiduShareFiles({ apiBase, appId, timeoutMs, cookie, shareId, shareUk, sekey = "", dir = "/" }) {
   const rows = [];
   let page = 1;
@@ -917,6 +975,8 @@ async function listBaiduShareFiles({ apiBase, appId, timeoutMs, cookie, shareId,
   return rows;
 }
 
+/** 向百度网盘提交分享文件转存请求；该操作会在用户网盘中新增文件。 */
+/** 向百度网盘提交分享转存请求；该操作会在用户网盘中新增文件。 */
 async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, bdstoken, shareId, shareUk, savePath, selectedItems }) {
   if (!bdstoken) {
     throw new Error("缺少百度 bdstoken，无法调用 share/transfer。请确认 BAIDU_COOKIE 有效且已登录百度网盘。");
@@ -939,6 +999,8 @@ async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, 
   });
 }
 
+/** 读取百度网盘目标目录内容，不执行目录修改。 */
+/** 通过对应服务接口读取列表数据，不修改远端内容。 */
 async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }) {
   const url = new URL("/api/list", normalizeApiBase(apiBase));
   const query = {
@@ -965,6 +1027,8 @@ async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }
   return normalizeBaiduShareItems(response.list || []);
 }
 
+/** 按确认后的重命名计划调用百度接口修改网盘文件或目录名称。 */
+/** 处理 applyBaiduRenamePlan 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, savePath, renamePlan }) {
   const targetRows = await listBaiduDir({
     apiBase,
@@ -998,6 +1062,8 @@ async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoke
   return results;
 }
 
+/** 调用百度网盘接口重命名指定路径；该函数会改变网盘目录项。 */
+/** 处理 renameBaiduPath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 async function renameBaiduPath({ apiBase, appId, timeoutMs, cookie, bdstoken, sourcePath, newName }) {
   const url = new URL("/api/filemanager", normalizeApiBase(apiBase));
   const query = {
@@ -1024,6 +1090,8 @@ async function renameBaiduPath({ apiBase, appId, timeoutMs, cookie, bdstoken, so
   });
 }
 
+/** 封装BaiduText相关网络请求，处理超时、响应解析和错误传递；是否改变远端数据取决于请求方法及接口。 */
+/** 封装网络请求、超时和响应解析；是否改变远端数据由调用的 API 决定。 */
 async function fetchBaiduText(url, options = {}) {
   const result = await fetchWithTimeout(url, options);
   const text = await result.response.text();
@@ -1033,10 +1101,14 @@ async function fetchBaiduText(url, options = {}) {
   return text;
 }
 
+/** 发送百度 API 请求并解析 JSON 响应；具体读写属性由调用接口决定。 */
+/** 封装网络请求、超时和响应解析；是否改变远端数据由调用的 API 决定。 */
 async function fetchBaiduJson(url, options = {}) {
   return (await fetchBaiduJsonWithMeta(url, options)).json;
 }
 
+/** 发送百度 API 请求并保留 HTTP 状态、响应头等元数据，供后续兼容性判断。 */
+/** 封装网络请求、超时和响应解析；是否改变远端数据由调用的 API 决定。 */
 async function fetchBaiduJsonWithMeta(url, options = {}) {
   const result = await fetchWithTimeout(url, options);
   const text = await result.response.text();
@@ -1058,9 +1130,13 @@ async function fetchBaiduJsonWithMeta(url, options = {}) {
   };
 }
 
+/** 执行带超时控制的网络请求；超时后通过 AbortController 中止。 */
+/** 执行带超时控制的 HTTP 请求，超时后主动中止请求。 */
 async function fetchWithTimeout(url, options = {}) {
   const requestUrl = new URL(String(url));
+  // 为本次请求设置可中止控制器，避免网络无响应时脚本无限等待。
   const controller = new AbortController();
+  // 请求超时后主动中止底层 fetch；finally 中会清理定时器。
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEFAULT_TIMEOUT_MS);
   try {
     const headers = {
@@ -1084,12 +1160,16 @@ async function fetchWithTimeout(url, options = {}) {
   }
 }
 
+/** 从 HTTP 响应头中提取 Set-Cookie 值，兼容不同运行环境。 */
+/** 处理 getSetCookieHeaders 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function getSetCookieHeaders(headers) {
   if (typeof headers.getSetCookie === "function") return headers.getSetCookie();
   const value = headers.get("set-cookie");
   return value ? [value] : [];
 }
 
+/** 合并响应中的 Set-Cookie 字段，形成后续请求可用的 Cookie 字符串。 */
+/** 处理 mergeCookieString 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function mergeCookieString(cookie, setCookies = []) {
   const values = new Map();
   for (const part of String(cookie || "").split(";")) {
@@ -1108,18 +1188,22 @@ function mergeCookieString(cookie, setCookies = []) {
   return [...values.entries()].map(([key, value]) => `${key}=${value}`).join("; ");
 }
 
-function resolveCookie(args) {
-  return (args.env?.[args.cookieEnv] || process.env[args.cookieEnv] || "").trim();
-}
-
+/** 从参数或环境变量中解析网盘 Cookie；避免在输出中回显完整凭证。 */
+/** 从参数或环境变量中解析 Cookie；不得在日志中回显完整凭证。 */
+/** 规范化 API 根地址，清理多余斜杠或补齐所需路径。 */
+/** 规范化 API 根地址，清理末尾斜杠或补齐所需路径。 */
 function normalizeApiBase(value) {
   return String(value || DEFAULT_API_BASE).replace(/\/+$/g, "");
 }
 
+/** 检查网盘路径是否为以斜杠开头且不含路径穿越片段的路径。 */
+/** 检查输入是否符合模块要求，返回布尔值供调用方分支处理。 */
 function isCloudDrivePath(value) {
   return String(value || "").startsWith("/") && !String(value).includes("..");
 }
 
+/** 从路径或目录 URL 中提取百度网盘目标目录路径。 */
+/** 解析输入并返回规范化结果；无法识别的输入应明确报错。 */
 function parseBaiduSavePath(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -1143,108 +1227,49 @@ function parseBaiduSavePath(value) {
   return pathValue;
 }
 
-function suggestSavedName({ baseName, item, selectedCount, isSeries }) {
-  const extension = item.isDir ? "" : getExtension(item.name);
-  if (item.isDir) {
-    if (selectedCount === 1) return baseName;
-    return sanitizeFileName(`${baseName} - ${item.name}`);
-  }
-  if (isSeries) {
-    const episode = extractEpisodeLabel(item.name);
-    if (episode) return sanitizeFileName(`${baseName} ${episode}${extension}`);
-  }
-  if (selectedCount === 1) return sanitizeFileName(`${baseName}${extension}`);
-  return sanitizeFileName(`${baseName} - ${stripExtension(item.name)}${extension}`);
-}
-
-function extractEpisodeLabel(value) {
-  const text = String(value || "");
-  const seasonEpisode = text.match(/S(\d{1,2})E(\d{1,3})/i);
-  if (seasonEpisode) {
-    return `S${seasonEpisode[1].padStart(2, "0")}E${seasonEpisode[2].padStart(2, "0")}`;
-  }
-  const cnEpisode = text.match(/第([一二三四五六七八九十百\d]+)集/);
-  if (cnEpisode) return `第${cnEpisode[1]}集`;
-  const ep = text.match(/\bEP?\.?(\d{1,3})\b/i);
-  if (ep) return `E${ep[1].padStart(2, "0")}`;
-  return "";
-}
-
-function getExtension(value) {
-  const ext = path.extname(String(value || ""));
-  return ext.length <= 12 ? ext : "";
-}
-
-function stripExtension(value) {
-  const ext = getExtension(value);
-  return ext ? String(value).slice(0, -ext.length) : String(value || "");
-}
-
-function sanitizeFileName(value) {
-  return String(value || "")
-    .replace(/[\\/:*?"<>|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
+/** 根据资源类型和文件名信息生成建议保存名称，不直接修改原文件。 */
+/** 根据已有资源信息生成建议值，不直接修改原始资源。 */
+/** 从资源名中提取集数标签，供命名建议使用。 */
+/** 从原始文本、URL 或接口响应中提取所需字段，供后续校验和处理。 */
+/** 提取文件扩展名。 */
+/** 处理 getExtension 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
+/** 移除文件名末尾扩展名。 */
+/** 处理 stripExtension 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
+/** 清理文件名中不适合用于文件系统/网盘路径的字符。 */
+/** 处理 sanitizeFileName 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
+/** 处理joinCloudPath相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 joinCloudPath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function joinCloudPath(basePath, name) {
   const base = String(basePath || "/").replace(/\/+$/g, "") || "/";
   const cleanName = String(name || "").replace(/^\/+/g, "");
   return base === "/" ? `/${cleanName}` : `${base}/${cleanName}`;
 }
 
-function parseJson(value, label) {
-  try {
-    return JSON.parse(value || "[]");
-  } catch (error) {
-    throw new Error(`${label} must be valid JSON: ${error.message}`);
-  }
-}
-
+/** 解析 JSON 参数字符串，遇到格式错误时给出带参数名的提示。 */
+/** 解析 JSON 字符串；格式错误时明确抛出异常。 */
+/** 处理stringOrEmpty相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 stringOrEmpty 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function stringOrEmpty(value) {
   return value === undefined || value === null ? "" : String(value);
 }
 
+/** 处理escapeRegExp相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
+/** 处理 escapeRegExp 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function formatBytes(bytes) {
-  if (!bytes) return "-";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const rounded = value >= 10 || Number.isInteger(value) ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${rounded} ${units[unitIndex]}`;
-}
-
-function formatTimestamp(value) {
-  if (!value) return "-";
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "-";
-  const ms = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toISOString().slice(0, 10);
-}
-
-function escapeMarkdownCell(value) {
-  return escapeMarkdownText(value).replace(/\|/g, "\\|");
-}
-
-function escapeMarkdownText(value) {
-  return String(value ?? "")
-    .replace(/\r?\n+/g, " ")
-    .trim();
-}
-
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
+/** 把字节数转换为易读的容量单位。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
+/** 把时间戳或日期值转换为可读时间文本。 */
+/** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
+/** 转义 Markdown 表格单元格中的特殊字符。 */
+/** 处理 escapeMarkdownCell 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
+/** 清理文本中的换行和多余空白，避免破坏 Markdown 输出。 */
+/** 处理 escapeMarkdownText 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
+/** 确认模块是直接运行而非被导入，避免导入时触发命令行副作用。 */
+/** 判断模块是否由 Node.js 直接执行；被其他模块导入时不自动启动 CLI。 */
+function formatTimestamp(value) { return formatTimestampCommon(value, { unixSeconds: true }); }
 
 export {
   applyEnvDefaults,

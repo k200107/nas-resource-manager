@@ -1,21 +1,21 @@
 ---
 name: resource-2-nas
-description: Use when a user asks to search for movie, TV, animation, or other media resources; provides a Quark/Baidu share link to save; wants to verify saved resources through OpenList; wants to view/cancel OpenList transfer task progress; or wants to copy saved resources to NAS/SMB storage.
+description: Use when a user asks to search for movie, TV, animation, or other media resources; provides an Aliyun/Quark/Baidu share link to save; wants to verify saved resources through OpenList; wants to view/cancel OpenList transfer task progress; or wants to copy saved resources to NAS/SMB storage.
 ---
 
 # Resource 2 NAS
 
 Use this skill when the user enters any stage of a media-to-NAS workflow:
 
-- Search stage: they ask to search a movie, TV show, animation, or media title and need ranked Baidu/Quark resource links.
-- Share-link stage: they already have a Quark or Baidu share URL and want it saved into their own cloud drive.
+- Search stage: they ask to search a movie, TV show, animation, or media title and need ranked resource links with Aliyun first, then Quark, then Baidu.
+- Share-link stage: they already have an Aliyun, Quark, or Baidu share URL and want it saved into their own cloud drive.
 - Verification stage: they want to check whether a saved resource is visible in OpenList.
 - Task stage: they want to view, diagnose, or cancel OpenList copy/offline-download task progress.
 - Backup stage: they want to copy a saved cloud-drive resource into a NAS/SMB-backed OpenList path.
 
-The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
+The default provider priority for search candidates is Aliyun Drive → Quark → Baidu. When the user wants to save, choose the highest-priority candidate among providers listed in `check-ready.validProviders`; do not select an unconfigured provider. This changes search-result ordering only; a user-provided share URL always stays with its detected or explicitly selected provider. The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
 
-Use `scripts/quark-save.mjs` when the user wants to save a Quark share link into their own Quark cloud drive folder. Use `scripts/baidu-save.mjs` when the user wants to save a Baidu Netdisk share link into their own Baidu cloud drive path. These workflows transfer the resource into the user's cloud drive only; they do not download files to the local filesystem.
+Use `scripts/aliyun-save.mjs` for Aliyun Drive share links, `scripts/quark-save.mjs` for Quark share links, and `scripts/baidu-save.mjs` for Baidu Netdisk share links. Each provider keeps its own authorization and API adapter. These workflows transfer the resource into the user's cloud drive only; they do not download files to the local filesystem.
 
 For OpenClaw, Hermes, or any delegated sub Agent, read `SUBAGENT.md` first. Sub Agents should prefer `--format json`, follow the preview-confirm-save protocol, and never parse Markdown when a JSON result is available.
 
@@ -27,6 +27,7 @@ For OpenClaw, Hermes, or any delegated sub Agent, read `SUBAGENT.md` first. Sub 
 | Full readiness check | `npm run check-ready` |
 | ENV check | `npm run check-env -- --json` |
 | Cookie check | `npm run check-cookies` |
+| Aliyun preview | `node scripts/aliyun-save.mjs "$SHARE_URL" "$DEST_PATH" --dry-run --format json` |
 | Quark preview | `node scripts/quark-save.mjs "$SHARE_URL" "$DEST_URL" --dry-run --format json` |
 | Baidu preview | `node scripts/baidu-save.mjs "$SHARE_URL" "$DEST_PATH_OR_URL" --dry-run --format json` |
 | OpenList task progress | `npm run openlist-tasks -- list copy undone --format json` |
@@ -48,20 +49,20 @@ npm run check-ready
 `check-ready` is Agent-oriented and outputs JSON by default. It checks:
 
 - `.env` shape and required core keys.
-- Quark/Baidu Cookie validity.
-- At least one usable cloud-drive provider: Quark or Baidu. Both are not required.
-- The configured Quark/Baidu save directory can be reached.
+- Aliyun refresh-token validity and Quark/Baidu Cookie validity.
+- At least one usable cloud-drive provider: Aliyun, Quark, or Baidu. The selected provider's credential and destination must both be configured.
+- Each configured provider's default save directory can be reached.
 - The OpenList/NAS backup target can be listed with `refresh:true`.
 
 Use `nextAction` to decide what to do:
 
 - `ready`: configuration and read-only connectivity are usable; save/copy flows can continue.
 - `configure_core`: ask for OpenList URL, OpenList Token, or NAS backup path.
-- `configure_provider`: ask the user to configure at least one complete provider: Quark or Baidu.
+- `configure_provider`: ask the user to configure at least one complete provider: Aliyun, Quark, or Baidu.
 - `configure_core_and_provider`: both core and provider config are incomplete.
 - `fix_openlist_target`: OpenList/NAS backup target cannot be listed.
-- `fix_provider_target`: the configured Quark/Baidu save directory cannot be reached.
-- `refresh_invalid_cookies`: ask the user to log in again and copy fresh Cookies.
+- `fix_provider_target`: the configured cloud-drive save directory cannot be reached.
+- `refresh_invalid_cookies`: ask the user to log in again and refresh the affected provider credential.
 - `retry_network_or_check_access`: the current machine cannot reach the provider or the request timed out.
 
 For focused checks, use `npm run check-env -- --json` or `npm run check-cookies`. For a human-readable view, run `npm run check-ready -- --format text`. These scripts mask Cookie/Token values and never print raw secrets.
@@ -74,29 +75,43 @@ Required `.env` values:
 | --- | --- | --- |
 | `OPENLIST_TOKEN` | yes | Fixed OpenList API token used for `fs/list`, `fs/get`, `fs/copy`, and task APIs. |
 | `OPENLIST_BASE_URL` | yes | OpenList service base URL, e.g. `http://127.0.0.1:5244`. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default OpenList path backed by SMB/NAS storage for backup copies. |
-| `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | conditional | Quark provider config. Required only if using Quark. `QUARK_DEFAULT_SAVE_URL` may be `/备份资源` or a full Quark folder URL. |
-| `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | conditional | Baidu provider config. Required only if using Baidu. `BAIDU_DEFAULT_SAVE_PATH` may be `/NAS资源下载` or a Baidu folder URL. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default destination for generic OpenList copy/backup commands; defaults to `/本地存储`. |
+| `OPENLIST_STAGING_PATH` | media workflow | Temporary media-ingest directory scanned by `media-plan`; defaults to `/本地存储/Downloads`. |
+| `MEDIA_MOVIES_PATH` + `MEDIA_TVSHOWS_PATH` | media workflow | Formal media-library roots; default to `/本地存储/Movies` and `/本地存储/TVShows`. |
+| `ALIYUN_REFRESH_TOKEN` + `ALIYUN_DEFAULT_SAVE_PATH` | conditional | Aliyun web-session refresh token and an existing folder path inside the Aliyun Drive account. The default save path is `/影视库`. The token is obtained from the logged-in web app Local Storage; it is not the raw HTTP Cookie header. |
+| `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | conditional | Quark provider config. Required only if using Quark. The default save path is `/影视库`; a full Quark folder URL is also accepted. |
+| `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | conditional | Baidu provider config. Required only if using Baidu. The default save path is `/影视库`; a Baidu folder URL is also accepted. |
 
 Security rules:
 
 - `.env` contains full credentials. It is ignored by git and must not be committed.
-- Print only masked secret values. `scripts/check-env.mjs` masks `QUARK_COOKIE`, `BAIDU_COOKIE`, and `OPENLIST_TOKEN`.
+- Print only masked secret values. `scripts/check-env.mjs` masks `ALIYUN_REFRESH_TOKEN`, `QUARK_COOKIE`, `BAIDU_COOKIE`, and `OPENLIST_TOKEN`.
 - If any value is missing or invalid, stop before saving/copying and explain the specific missing key.
-- Quark and Baidu are alternative providers. At least one must be fully configured, but both are not required.
-- `QUARK_DEFAULT_SAVE_URL` may be a Quark cloud-drive path such as `/备份资源`, or a full Quark folder URL such as `https://pan.quark.cn/list#/list/all/<fid>-<folder-name>`. It is not a local filesystem path.
-- `BAIDU_DEFAULT_SAVE_PATH` must be a Baidu cloud-drive path such as `/NAS资源下载`, or a Baidu folder URL copied from the address bar such as `https://pan.baidu.com/disk/main#/index?category=all&path=%2FNAS%E8%B5%84%E6%BA%90%E4%B8%8B%E8%BD%BD`. It is not a local filesystem path.
-- `OPENLIST_DEFAULT_COPY_DST_PATH` must be an OpenList path such as `/影视资源备份/影视`, not an OS path such as `/mnt/nas/movies`.
+- Aliyun, Quark, and Baidu are alternative providers. At least one must be fully configured; all three are not required.
+- `QUARK_DEFAULT_SAVE_URL` may be a Quark cloud-drive path such as `/影视库`, or a full Quark folder URL such as `https://pan.quark.cn/list#/list/all/<fid>-<folder-name>`. It is not a local filesystem path.
+- `ALIYUN_DEFAULT_SAVE_PATH` must be an existing absolute folder path inside the Aliyun Drive account, such as `/影视库`. The rotated refresh token is stored locally in the ignored `.state/aliyun-auth.json` file with restricted file permissions.
+- `BAIDU_DEFAULT_SAVE_PATH` must be a Baidu cloud-drive path such as `/影视库`, or a Baidu folder URL copied from the address bar such as `https://pan.baidu.com/disk/main#/index?category=all&path=%2FNAS%E8%B5%84%E6%BA%90%E4%B8%8B%E8%BD%BD`. It is not a local filesystem path.
+- `OPENLIST_DEFAULT_COPY_DST_PATH`, `OPENLIST_STAGING_PATH`, `MEDIA_MOVIES_PATH`, and `MEDIA_TVSHOWS_PATH` must be OpenList mount paths, not OS paths such as `/mnt/nas/movies`.
+- The default NAS layout is `/本地存储/Downloads`, `/本地存储/Movies`, and `/本地存储/TVShows`, with `/本地存储` as the parent storage root and generic copy fallback.
+- `OPENLIST_DEFAULT_COPY_DST_PATH=/本地存储` and `OPENLIST_STAGING_PATH=/本地存储/Downloads` are intentionally different. The former is the generic copy/backup fallback root; the latter is the media-ingest staging directory scanned by `media-plan`. Do not collapse them into one setting.
+- The cloud-drive folder `/影视库` is a provider-side directory in Aliyun, Quark, or Baidu. It is not the OpenList `/本地存储` mount.
+
+Default path workflow:
+
+1. Save a shared resource into the selected provider's `/影视库` folder (unless the user specifies another provider-side destination).
+2. Use OpenList to copy the saved resource into `/本地存储/Downloads` (unless the user explicitly chooses another destination).
+3. Run `npm run media-plan -- --format json` to scan Downloads and plan a movie or TV destination.
+4. Only after transfer completion and a separate explicit archive confirmation may a later archive operation move/rename files into `/本地存储/Movies` or `/本地存储/TVShows`. Do not archive while any transfer task is active, failed, or unknown.
 
 Use these values as defaults:
 
-- When the user provides a Quark share but no save folder, use `QUARK_DEFAULT_SAVE_URL`.
-- When the user provides a Baidu share but no save folder, use `BAIDU_DEFAULT_SAVE_PATH`.
-- Before a real Quark/Baidu save on a new install or after an auth failure, run `npm run check-ready` and require `nextAction: "ready"`.
+- Aliyun, Quark, and Baidu share saves with no explicit destination use their respective `*_DEFAULT_SAVE_PATH` / `*_DEFAULT_SAVE_URL`, all defaulting to `/影视库`.
+- Before a real provider save or OpenList copy on a new install or after an auth/path failure, run `npm run check-ready` and require `nextAction: "ready"`.
 - When calling OpenList APIs, use `OPENLIST_BASE_URL` and `OPENLIST_TOKEN`.
-- When the user asks to back up/copy a saved resource but does not name a target, use `OPENLIST_DEFAULT_COPY_DST_PATH`.
+- For generic backup/copy requests without a named target, use `OPENLIST_DEFAULT_COPY_DST_PATH` (`/本地存储`). For media ingestion, explicitly pass `/本地存储/Downloads` as the copy destination.
+- When the user asks to organize staged files without specifying a source, use `OPENLIST_STAGING_PATH` (`/本地存储/Downloads` by default).
+- Use `MEDIA_MOVIES_PATH` and `MEDIA_TVSHOWS_PATH` for final media destinations; never substitute these for the Downloads staging path.
 - Still tell the user the source path, copied object, target path, and final naming before `fs/copy`.
-
 ## Default Endpoint
 
 - Site: `https://so.252035.xyz/`
@@ -528,3 +543,55 @@ Notes:
 11. If the user asks about current OpenList transfer progress, run `npm run openlist-tasks -- list copy undone --format json` or the matching task group; report task ids, names, progress, and errors. If they ask to cancel, preview first and require confirmation before adding `--yes`.
 12. If the user asks to back up into a NAS/SMB OpenList storage, state the source path, exact object name, target backup directory, and final naming before execution; then use `npm run openlist-copy -- "$SRC_DIR" "$DST_DIR" "$NAME" --yes --format json` after confirmation. Use `OPENLIST_DEFAULT_COPY_DST_PATH` when the user does not specify a target.
 13. If the user asks to download into NAS/server storage and copy is not suitable, do not click browser download. Use OpenList offline download into a NAS-backed OpenList storage path, or run a server-side download script using a fresh `raw_url` from `POST /api/fs/get`.
+
+
+## OpenList transfer reconciliation
+
+Use `npm run openlist-reconcile -- MEDIA_TASK_ID` after a copy task has been recorded. It queries the exact OpenList task ID in both `copy/undone` and `copy/done`. Only explicit success evidence advances the media task to `VERIFYING`; active tasks remain active, errors become `FAILED`, and missing or ambiguous results become `UNKNOWN`. Never infer completion from a missing task or from elapsed time. This command does not touch media files.
+
+## Shared media task state
+
+OpenClaw and Hermes must use the same persistent `MEDIA_TASK_STORE_PATH` and `MEDIA_TASK_LOCK_DIR`. Use `npm run media-task -- create/list/get` for task metadata. Acquire the shared resource lock before processing and release it in a `finally` block. Never auto-delete an old lock without checking whether its owner process is still active.
+
+The state machine separates clear resources from exceptions:
+
+- The state machine can mark a verified high-confidence classification with a complete transfer and no destination conflict as `ARCHIVE_PENDING` using `archiveDecision.mode="automatic"`. This state-machine decision is not yet wired into the archive CLI, so it does not authorize unattended execution.
+- A title alias, likely homophone/typo, unclear movie-vs-series classification, or incomplete season/episode information enters `REVIEW_REQUIRED`. Ask the user to confirm the canonical title and resource type once.
+- An exact destination path collision enters `CONFLICT`. Never overwrite an existing file. Resolve the conflict explicitly before returning to `STAGED`.
+- Existing explicit approval records remain accepted for compatibility, but they are not the default for every item.
+- `STAGED` still requires transfer completion and at least two stable-size checks. The state store validates evidence fields; a real verifier must inspect the file through OpenList.
+
+This state layer does not itself perform OpenList transfers, file verification, or file moves.
+
+## Read-only media identity and archive planning
+
+When organizing media in the OpenList staging/download directory, run:
+
+```bash
+npm run media-plan -- --format json
+```
+
+The planner reads the staging directory and checks only the planned destination parent-directory chains in Movies/TVShows using OpenList `fs/list`. It never recursively scans the entire media library, uses local filesystem paths to access NAS files, or copies, moves, renames, overwrites, or deletes anything.
+
+Identity and naming rules:
+
+- Combine title, year, directory structure, season/episode markers, and known title aliases.
+- A known alias/homophone produces a candidate and requires one user confirmation; do not silently replace the source title with a guessed canonical title.
+- Extend confirmed aliases by copying `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, then setting `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local catalog is git-ignored.
+- Offline alias/fuzzy recognition is limited by the catalog. Do not claim every Chinese homophone can be resolved without a comprehensive title database or external metadata provider.
+- Recognize explicit resolution tags (2160p/4K, 2048p/2K, 1440p, 1080p, 720p, 480p). The current planner reads tags from names; it does not probe the actual remote video stream for dimensions.
+- Movie versions use one title/year folder and resolution-specific filenames, for example `Example (2024) - 1080p.mkv` and `Example (2024) - 2160p.mkv`.
+- TV episodes use `Series/Season 01/Series - S01E01 - 1080p.mkv`.
+- Do not infer a season from an unrelated number in a title.
+
+Conflict and routing rules:
+
+- An exact target-path match is a conflict and must pause; never overwrite.
+- Different resolution suffixes produce distinct filenames and are not conflicts with one another.
+- If the destination scan reaches its safety limit, absence of a collision cannot be proven; route the item to review.
+- Only `auto_archive_candidate` items with high confidence and no conflict are eligible for archive review; this label is not itself execution permission.
+- `review_required` and `conflict` items remain in Downloads until their identity/target issue is resolved.
+
+The planner is a proposal, not an executor. A separate `media-archive` command now supports read-only preflight by default and OpenList Move/Rename execution only with explicit `--yes`. It processes planned video and sidecar entries, creates missing target subdirectories, rechecks source and destination, blocks detected conflicts, uses resource-group locks, verifies the destination, and records successful source/target pairs for idempotent replay.
+
+Important production limitation: `media-archive` does not yet consult the media task state machine or independently verify the exact OpenList transfer task is complete. Before execution, the operator must confirm the transfer has completed and files are stable. Do not enable unattended archive execution or run against the real media library until the state-machine transfer-completion gate is integrated. All NAS file operations must use OpenList APIs.

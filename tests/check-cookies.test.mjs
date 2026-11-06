@@ -11,7 +11,7 @@ import {
 test("parseArgs defaults to checking Quark and Baidu cookies", () => {
   const args = parseArgs([]);
 
-  assert.deepEqual(args.providers, ["quark", "baidu"]);
+  assert.deepEqual(args.providers, ["aliyun", "quark", "baidu"]);
   assert.equal(args.envFile, ".env");
   assert.equal(args.format, "json");
 });
@@ -37,8 +37,8 @@ test("validateCookieConfig reports missing cookies without making network calls"
   assert.equal(fetchCalled, false);
   assert.equal(result.ok, false);
   assert.equal(result.nextAction, "configure_missing_cookies");
-  assert.deepEqual(result.recommendations, ["填写 QUARK_COOKIE。", "填写 BAIDU_COOKIE。"]);
-  assert.deepEqual(result.results.map((item) => item.state), ["missing", "missing"]);
+  assert.deepEqual(result.recommendations, ["填写 ALIYUN_REFRESH_TOKEN。", "填写 QUARK_COOKIE。", "填写 BAIDU_COOKIE。"]);
+  assert.deepEqual(result.results.map((item) => item.state), ["missing", "missing", "missing"]);
 });
 
 test("validateCookieConfig checks Quark and Baidu with injected fetch", async () => {
@@ -49,6 +49,7 @@ test("validateCookieConfig checks Quark and Baidu with injected fetch", async ()
       BAIDU_COOKIE: "baidu-cookie"
     },
     {
+      providers: ["quark", "baidu"],
       fetchImpl: async (url) => {
         seenUrls.push(String(url));
         if (String(url).includes("drive-pc.quark.cn")) {
@@ -127,6 +128,38 @@ test("validateCookieConfig gives stable agent fields for network failures", asyn
   assert.equal(result.results[0].state, "network_error");
   assert.equal(result.results[0].cookieConfigured, true);
   assert.equal(result.results[0].cookieRaw, undefined);
+});
+
+
+test("validateCookieConfig validates Aliyun refresh token and never exposes it", async () => {
+  const result = await validateCookieConfig(
+    { ALIYUN_REFRESH_TOKEN: "aliyun-refresh-token" },
+    {
+      providers: ["aliyun"],
+      aliyunStateFile: "/tmp/aliyun-check-cookies-test/auth.json",
+      fetchImpl: async (url) => {
+        assert.equal(new URL(String(url)).pathname, "/v2/account/token");
+        return jsonResponse({
+          access_token: "access-token",
+          refresh_token: "rotated-refresh-token",
+          default_drive_id: "drive-1",
+          nick_name: "tester"
+        });
+      }
+    }
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.validProviders, ["aliyun"]);
+  assert.equal(result.results[0].state, "valid");
+  assert.equal(result.results[0].account, "tester");
+  assert.equal(result.results[0].cookieRaw, undefined);
+  assert.doesNotMatch(JSON.stringify(result), /aliyun-refresh-token|rotated-refresh-token/);
+});
+
+test("classifyCookieCheckError marks expired Aliyun refresh tokens as invalid", () => {
+  const classified = classifyCookieCheckError(new Error("阿里云盘登录态验证失败：RefreshTokenExpired"));
+  assert.equal(classified.state, "invalid");
+  assert.match(classified.message, /更新 ALIYUN_REFRESH_TOKEN/);
 });
 
 test("classifyCookieCheckError distinguishes network failures", () => {

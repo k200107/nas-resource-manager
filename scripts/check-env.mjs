@@ -1,12 +1,37 @@
 #!/usr/bin/env node
+import { loadEnvFile, mergeEnvValues, parseDotEnv } from "./env-config.mjs";
+import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+/**
+ * 读取并检查 .env 配置格式；密钥只显示掩码，不发起网盘或 NAS 写操作。
+ *
+ * 本文件说明：函数注释解释各步骤职责及重要约束；本次修改仅增加注释，不改变业务执行逻辑。
+ * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
+ */
+
 
 const DEFAULT_ENV_FILE = ".env";
 
 const PROVIDER_CONFIG = [
+  {
+    provider: "aliyun",
+    label: "阿里云盘",
+    keys: [
+      {
+        key: "ALIYUN_REFRESH_TOKEN",
+        label: "阿里云盘网页登录 refresh_token",
+        secret: true,
+        hint: "从已登录阿里云盘网页 Local Storage 的 token.refresh_token 获取；这是网页登录态凭据，不是原始 HTTP Cookie。"
+      },
+      {
+        key: "ALIYUN_DEFAULT_SAVE_PATH",
+        label: "默认阿里云盘保存目录",
+        secret: false,
+        hint: "阿里云盘账号中已存在的目录路径，例如 /影视库。",
+        validate: (value) => isCloudDrivePath(value)
+      }
+    ]
+  },
   {
     provider: "quark",
     label: "夸克网盘",
@@ -21,7 +46,7 @@ const PROVIDER_CONFIG = [
         key: "QUARK_DEFAULT_SAVE_URL",
         label: "默认夸克保存目录",
         secret: false,
-        hint: "夸克网盘目标文件夹路径或 URL，例如 /备份资源，或 https://pan.quark.cn/list#/list/all/<fid>-<name>。",
+        hint: "夸克网盘目标文件夹路径或 URL，例如 /影视库，或 https://pan.quark.cn/list#/list/all/<fid>-<name>。",
         validate: (value) => isQuarkSaveTarget(value)
       }
     ]
@@ -40,7 +65,7 @@ const PROVIDER_CONFIG = [
         key: "BAIDU_DEFAULT_SAVE_PATH",
         label: "默认百度保存目录",
         secret: false,
-        hint: "百度网盘目标目录路径或目录 URL，例如 /NAS资源下载，或 https://pan.baidu.com/disk/main#/index?...&path=%2FNAS资源下载。",
+        hint: "百度网盘目标目录路径或目录 URL，例如 /影视库，或 https://pan.baidu.com/disk/main#/index?...&path=%2F%E5%BD%B1%E8%A7%86%E5%BA%93。",
         validate: (value) => isBaiduSaveTarget(value)
       }
     ]
@@ -65,7 +90,7 @@ const CORE_CONFIG = [
     key: "OPENLIST_DEFAULT_COPY_DST_PATH",
     label: "默认 SMB/NAS 复制目录",
     secret: false,
-    hint: "OpenList 中 SMB/NAS 存储的目标路径，例如 /影视资源备份/影视。",
+    hint: "OpenList 中 SMB/NAS 存储的目标路径，例如 /本地存储/Downloads。",
     validate: (value) => isOpenListPath(value)
   }
 ];
@@ -75,17 +100,18 @@ const REQUIRED_CONFIG = [
   ...PROVIDER_CONFIG.flatMap((provider) => provider.keys)
 ];
 
-if (isCliEntryPoint()) {
+if (isCli(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
   });
 }
 
+/** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const loaded = loadEnvFile(args.envFile);
-  const env = { ...loaded.values, ...process.env };
+  const env = mergeEnvValues(loaded.values, process.env);
   const result = validateSkillEnv(env, {
     envFile: args.envFile,
     envFileExists: loaded.exists
@@ -100,72 +126,12 @@ async function main() {
   if (!result.ok) process.exit(1);
 }
 
-function parseArgs(argv) {
-  const parsed = {
-    envFile: DEFAULT_ENV_FILE,
-    format: "text"
-  };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--env-file" || arg === "--dotenv" || arg === "--config") {
-      parsed.envFile = argv[++index] || DEFAULT_ENV_FILE;
-    } else if (arg === "--json") {
-      parsed.format = "json";
-    } else if (arg === "--format") {
-      parsed.format = argv[++index] || "text";
-    } else if (arg.startsWith("--")) {
-      throw new Error(`Unknown option: ${arg}`);
-    } else {
-      parsed.envFile = arg;
-    }
-  }
-
-  return parsed;
-}
-
-function loadEnvFile(envFile) {
-  if (!fs.existsSync(envFile)) {
-    return { exists: false, values: {} };
-  }
-  return {
-    exists: true,
-    values: parseDotEnv(fs.readFileSync(envFile, "utf8"))
-  };
-}
-
-function parseDotEnv(input) {
-  const values = {};
-  for (const rawLine of String(input || "").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
-    const equalIndex = normalized.indexOf("=");
-    if (equalIndex === -1) continue;
-
-    const key = normalized.slice(0, equalIndex).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    values[key] = parseDotEnvValue(normalized.slice(equalIndex + 1).trim());
-  }
-  return values;
-}
-
-function parseDotEnvValue(value) {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    const inner = value.slice(1, -1);
-    if (value.startsWith('"')) {
-      return inner
-        .replace(/\\n/g, "\n")
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\");
-    }
-    return inner;
-  }
-
-  const commentIndex = value.search(/\s#/);
-  return (commentIndex === -1 ? value : value.slice(0, commentIndex)).trim();
-}
-
+/** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
+function parseArgs(argv) { return parseEnvCliArgs(argv, { defaultEnvFile: DEFAULT_ENV_FILE, defaultFormat: "text" }); }
+/** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
+/** 解析 dotenv 文本，支持注释、export 前缀、引号和常见转义。 */
+/** 解析单个 dotenv 值，处理引号、转义字符和行尾注释。 */
+/** 检查核心配置和至少一个完整网盘配置，返回缺失项、格式错误项和下一步建议。 */
 function validateSkillEnv(env, options = {}) {
   const missing = [];
   const invalid = [];
@@ -229,6 +195,7 @@ function validateSkillEnv(env, options = {}) {
   };
 }
 
+/** 检查指定网盘所需环境变量是否齐全且格式有效。 */
 function validateProviderConfig(provider, env) {
   const missing = [];
   const invalid = [];
@@ -251,6 +218,7 @@ function validateProviderConfig(provider, env) {
   };
 }
 
+/** 根据配置文件、核心配置和网盘配置的完整性决定下一步动作。 */
 function decideEnvNextAction({ envFileExists, missing, invalid, providerOk }) {
   if (!envFileExists) return "create_env_file";
   const coreOk = missing.length === 0 && invalid.length === 0;
@@ -260,6 +228,7 @@ function decideEnvNextAction({ envFileExists, missing, invalid, providerOk }) {
   return "ready";
 }
 
+/** 只提取可公开展示的配置说明字段，不返回校验函数或秘密值。 */
 function publicConfigItem(item) {
   return {
     key: item.key,
@@ -269,6 +238,7 @@ function publicConfigItem(item) {
   };
 }
 
+/** 格式化环境变量检查结果；秘密值只展示掩码。 */
 function formatEnvCheckResult(result) {
   const lines = ["### Resource 2 NAS ENV 检查", ""];
   if (!result.envFileExists) {
@@ -312,12 +282,14 @@ function formatEnvCheckResult(result) {
   return lines.join("\n");
 }
 
+/** 遮蔽密钥中间部分，避免检查输出泄露完整凭证。 */
 function maskSecret(value) {
   const text = String(value || "");
   if (text.length < 12) return "***";
   return `${text.slice(0, 8)}...${text.slice(-4)}`;
 }
 
+/** 验证地址是否为 HTTP 或 HTTPS URL。 */
 function isHttpUrl(value) {
   try {
     const parsed = new URL(value);
@@ -327,6 +299,7 @@ function isHttpUrl(value) {
   }
 }
 
+/** 检查夸克保存目标是否为允许的绝对路径或夸克文件夹 URL。 */
 function isQuarkSaveTarget(value) {
   const text = String(value || "").trim();
   if (isCloudDrivePath(text)) return true;
@@ -338,14 +311,17 @@ function isQuarkSaveTarget(value) {
   }
 }
 
+/** 检查配置项是否符合 OpenList 可见路径格式。 */
 function isOpenListPath(value) {
   return isCloudDrivePath(value);
 }
 
+/** 检查云盘路径是否为绝对路径且不含路径穿越片段。 */
 function isCloudDrivePath(value) {
   return String(value || "").startsWith("/") && !String(value).includes("..");
 }
 
+/** 检查百度保存目标是否为允许的绝对路径或百度网盘目录 URL。 */
 function isBaiduSaveTarget(value) {
   const text = String(value || "").trim();
   if (isCloudDrivePath(text)) return true;
@@ -360,10 +336,7 @@ function isBaiduSaveTarget(value) {
   }
 }
 
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
-
+/** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
 export {
   REQUIRED_CONFIG,
   formatEnvCheckResult,

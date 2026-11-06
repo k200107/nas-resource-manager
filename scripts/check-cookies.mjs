@@ -1,16 +1,28 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+/**
+ * 通过只读接口验证夸克/百度 Cookie，并区分有效、失效、网络异常和未知错误。
+ *
+ * 本文件说明：函数注释解释各步骤职责及重要约束；本次修改仅增加注释，不改变业务执行逻辑。
+ * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
+ */
 
-import { maskSecret, parseDotEnv } from "./check-env.mjs";
+
+import { maskSecret } from "./check-env.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
+import { isCliEntryPoint } from "./cli-utils.mjs";
+import { validateAliyunRefreshToken } from "./aliyun-save.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_BAIDU_APP_ID = "250528";
 
 const PROVIDERS = {
+  aliyun: {
+    provider: "aliyun",
+    label: "阿里云盘",
+    cookieEnv: "ALIYUN_REFRESH_TOKEN"
+  },
   quark: {
     provider: "quark",
     label: "夸克网盘",
@@ -46,17 +58,18 @@ const PROVIDERS = {
   }
 };
 
-if (isCliEntryPoint()) {
+if (isCliEntryPoint(import.meta.url)) {
   main().catch((error) => {
     console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
     process.exit(1);
   });
 }
 
+/** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const fileEnv = loadEnvFile(args.envFile);
-  const env = { ...fileEnv.values, ...process.env };
+  const env = mergeEnvValues(fileEnv.values, process.env);
   const result = await validateCookieConfig(env, {
     providers: args.providers,
     envFile: args.envFile,
@@ -77,9 +90,10 @@ async function main() {
   if (!result.ok) process.exit(1);
 }
 
+/** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
 function parseArgs(argv) {
   const parsed = {
-    providers: ["quark", "baidu"],
+    providers: ["aliyun", "quark", "baidu"],
     envFile: DEFAULT_ENV_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     format: "json",
@@ -116,8 +130,9 @@ function parseArgs(argv) {
   return parsed;
 }
 
+/** 按配置范围验证网盘 Cookie，并汇总各 provider 的状态。 */
 async function validateCookieConfig(env = {}, options = {}) {
-  const providers = normalizeProviders(options.providers || ["quark", "baidu"]);
+  const providers = normalizeProviders(options.providers || ["aliyun", "quark", "baidu"]);
   const results = [];
 
   for (const providerName of providers) {
@@ -135,12 +150,38 @@ async function validateCookieConfig(env = {}, options = {}) {
         cookieEnv: config.cookieEnv,
         cookieConfigured: false,
         cookiePreview,
-        message: `未配置 ${config.cookieEnv}。请先登录${config.label}网页，复制完整 Cookie。`
+        message: providerName === "aliyun"
+          ? "未配置 ALIYUN_REFRESH_TOKEN。请登录阿里云盘网页并从 Local Storage 获取 token.refresh_token。"
+          : `未配置 ${config.cookieEnv}。请先登录${config.label}网页，复制完整 Cookie。`
       });
       continue;
     }
 
     try {
+      if (providerName === "aliyun") {
+        const validation = await validateAliyunRefreshToken({
+          refreshToken: cookie,
+          stateFile: options.aliyunStateFile,
+          fetchImpl: options.fetchImpl || globalThis.fetch,
+          timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS
+        });
+        results.push({
+          provider: "aliyun",
+          label: config.label,
+          ok: true,
+          state: "valid",
+          stateLabel: stateToLabel("valid"),
+          cookieEnv: config.cookieEnv,
+          cookieConfigured: true,
+          cookiePreview,
+          message: validation.refreshTokenRotated
+            ? "阿里云盘网页登录态有效，已安全保存轮换后的 refresh_token。"
+            : "阿里云盘网页登录态有效，可以访问账号信息。",
+          account: validation.account || "",
+          endpoint: "https://api.aliyundrive.com"
+        });
+        continue;
+      }
       const result = await checkProviderCookie({
         config,
         cookie,
@@ -183,6 +224,7 @@ async function validateCookieConfig(env = {}, options = {}) {
   };
 }
 
+/** 调用网盘只读接口验证 Cookie，并分类接口响应。 */
 async function checkProviderCookie({ config, cookie, cookiePreview, fetchImpl, timeoutMs, baseUrl, appId }) {
   if (typeof fetchImpl !== "function") {
     throw new Error("当前 Node.js 环境没有 fetch，请升级到 Node.js 20 或更新版本。");
@@ -212,6 +254,7 @@ async function checkProviderCookie({ config, cookie, cookiePreview, fetchImpl, t
   };
 }
 
+/** 发送带超时控制的 HTTP 请求，解析响应并在超时后中止。 */
 async function fetchJsonWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEFAULT_TIMEOUT_MS);
@@ -243,6 +286,7 @@ async function fetchJsonWithTimeout(url, options = {}) {
   }
 }
 
+/** 根据夸克接口响应判断 Cookie 有效、失效或网络异常。 */
 function classifyQuarkResponse(response) {
   if (!response.ok) {
     return {
@@ -263,6 +307,7 @@ function classifyQuarkResponse(response) {
   };
 }
 
+/** 根据百度接口响应判断 Cookie 有效、失效或网络异常。 */
 function classifyBaiduResponse(response) {
   if (!response.ok) {
     return {
@@ -288,8 +333,15 @@ function classifyBaiduResponse(response) {
   };
 }
 
+/** 把超时、连接失败等异常映射为可理解的检查状态。 */
 function classifyCookieCheckError(error) {
   const message = error?.message || String(error);
+  if (/RefreshTokenExpired|AccessTokenInvalid|refresh.?token.*(invalid|expired)|登录态验证失败/i.test(message)) {
+    return {
+      state: "invalid",
+      message: "阿里云盘 refresh_token 已失效或无效，请重新从已登录的阿里云盘网页获取 refresh_token 并更新 ALIYUN_REFRESH_TOKEN。"
+    };
+  }
   if (error?.name === "AbortError") {
     return {
       state: "network_error",
@@ -308,6 +360,7 @@ function classifyCookieCheckError(error) {
   };
 }
 
+/** 格式化 Cookie 检查结果；不得输出完整 Cookie。 */
 function formatCookieCheckResult(result) {
   const lines = ["### Cookie 有效性检查", ""];
   if (!result.envFileExists) {
@@ -324,6 +377,7 @@ function formatCookieCheckResult(result) {
   return lines.join("\n");
 }
 
+/** 处理 stateToLabel 相关逻辑；请结合调用位置核对输入、返回值和异常处理。 */
 function stateToLabel(state) {
   if (state === "valid") return "有效";
   if (state === "missing") return "未填写";
@@ -332,6 +386,7 @@ function stateToLabel(state) {
   return "检查失败";
 }
 
+/** 根据输入状态选择下一步动作标识。 */
 function decideNextAction(results) {
   if (results.some((item) => item.ok)) return "ready";
   if (results.some((item) => item.state === "missing")) return "configure_missing_cookies";
@@ -341,6 +396,7 @@ function decideNextAction(results) {
   return "ready";
 }
 
+/** 构造后续流程所需的数据结构或建议，不应隐式执行远端写入。 */
 function buildRecommendations(results) {
   const recommendations = [];
   for (const item of results) {
@@ -357,36 +413,31 @@ function buildRecommendations(results) {
   return recommendations;
 }
 
-function loadEnvFile(envFile) {
-  if (!envFile || !fs.existsSync(envFile)) return { exists: false, values: {} };
-  return {
-    exists: true,
-    values: parseDotEnv(fs.readFileSync(envFile, "utf8"))
-  };
-}
+/** 读取并解析 .env 文件；文件不存在时返回空配置，不创建或修改文件。 */
 
+/** 解析输入并返回规范化结果；无效输入应明确报错。 */
 function parseProviders(value) {
-  if (!value || value === "all") return ["quark", "baidu"];
+  if (!value || value === "all") return ["aliyun", "quark", "baidu"];
   return normalizeProviders(String(value).split(",").map((item) => item.trim()).filter(Boolean));
 }
 
+/** 规范化输入或接口数据，统一字段和格式。 */
 function normalizeProviders(providers) {
   const normalized = providers.map((item) => String(item).trim()).filter(Boolean);
   for (const provider of normalized) {
     if (!PROVIDERS[provider]) {
-      throw new Error(`不支持的 Cookie 检查对象：${provider}。可选值：quark, baidu, all。`);
+      throw new Error(`不支持的 Cookie 检查对象：${provider}。可选值：aliyun, quark, baidu, all。`);
     }
   }
   return normalized;
 }
 
+/** 规范化输入或接口数据，统一字段和格式。 */
 function normalizeBaseUrl(value) {
   return String(value || "").replace(/\/+$/g, "");
 }
 
-function isCliEntryPoint() {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-}
+/** 判断模块是否由 Node.js 直接执行，避免被其他模块导入时触发 CLI 副作用。 */
 
 export {
   classifyCookieCheckError,

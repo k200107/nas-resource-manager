@@ -14,3 +14,9 @@ yarn-error.log*
 .cache/
 .tmp/
 tmp/
+
+# Local shared task state and process locks
+.state/
+
+# User-maintained confirmed media aliases (copy from the example file)
+config/media-title-aliases.json

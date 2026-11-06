@@ -9,12 +9,12 @@ import {
   renderMarkdownTable
 } from "../scripts/search-rrdynb.mjs";
 
-test("parseArgs defaults search to Baidu and Quark with a 50 candidate cap", () => {
+test("parseArgs defaults search to Aliyun, Quark, and Baidu with a 50 candidate cap", () => {
   const args = parseArgs(["蜘蛛侠"]);
 
   assert.equal(args.title, "蜘蛛侠");
   assert.equal(args.maxCandidates, 50);
-  assert.deepEqual(args.cloudTypes, ["baidu", "quark"]);
+  assert.deepEqual(args.cloudTypes, ["aliyun", "quark", "baidu"]);
 });
 
 test("buildSearchQueryParams serializes PanSou GET parameters", () => {
@@ -44,7 +44,7 @@ test("buildSearchQueryParams serializes PanSou GET parameters", () => {
   assert.equal(params.get("ext"), JSON.stringify({ title_en: "Spider-Man" }));
 });
 
-test("normalizePanSouSearchResponse defaults to Baidu and Quark results only", () => {
+test("normalizePanSouSearchResponse defaults to Aliyun, Quark, and Baidu results only", () => {
   const normalized = normalizePanSouSearchResponse(
     {
       data: {
@@ -60,8 +60,8 @@ test("normalizePanSouSearchResponse defaults to Baidu and Quark results only", (
     { title: "蜘蛛侠" }
   );
 
-  assert.equal(normalized.returnedCount, 2);
-  assert.deepEqual(normalized.candidates.map((candidate) => candidate.diskType), ["baidu", "quark"]);
+  assert.equal(normalized.returnedCount, 3);
+  assert.deepEqual(normalized.candidates.map((candidate) => candidate.diskType), ["aliyun", "quark", "baidu"]);
 });
 
 test("normalizePanSouSearchResponse converts merged_by_type into candidates and downloadLinks", () => {
