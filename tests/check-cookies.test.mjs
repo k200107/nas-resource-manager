@@ -157,6 +157,12 @@ test("validateCookieConfig validates Aliyun refresh token and never exposes it",
   assert.doesNotMatch(JSON.stringify(result), /aliyun-refresh-token|rotated-refresh-token/);
 });
 
+test("classifyCookieCheckError marks expired Aliyun refresh tokens as invalid", () => {
+  const classified = classifyCookieCheckError(new Error("阿里云盘登录态验证失败：RefreshTokenExpired"));
+  assert.equal(classified.state, "invalid");
+  assert.match(classified.message, /更新 ALIYUN_REFRESH_TOKEN/);
+});
+
 test("classifyCookieCheckError distinguishes network failures", () => {
   const classified = classifyCookieCheckError(new Error("fetch failed"));
 
