@@ -461,7 +461,9 @@ function normalizeCloudPath(value) {
 }
 
 export {
-  authenticateAliyun,\n  buildAliyunSubagentPreview,\n  checkAliyunSaveTarget,
+  authenticateAliyun,
+  buildAliyunSubagentPreview,
+  checkAliyunSaveTarget,
   listAliyunShareItems,
   parseAliyunShareUrl,
   parseArgs,
@@ -469,5 +471,6 @@ export {
   refreshAliyunToken,
   requestAliyun,
   resolveAliyunFolder,
-  saveAliyunSelectedItems
+  saveAliyunSelectedItems,
+  validateAliyunRefreshToken
 };
