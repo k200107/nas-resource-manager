@@ -107,7 +107,7 @@ The paths below belong to different systems and must not be treated as interchan
 | `BAIDU_DEFAULT_SAVE_PATH` | Destination folder in Baidu Netdisk; defaults to `/影视库` and may also be a folder URL. |
 | `OPENLIST_TOKEN` | OpenList API token for the configured OpenList operations. Treat it as a password. |
 | `OPENLIST_BASE_URL` | OpenList service URL reachable from the computer running this project. For example, `http://127.0.0.1:5244` only works when OpenList is running on that same computer. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList copy destination; defaults to `/本地存储/Downloads`. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default destination for generic OpenList copy/backup commands; defaults to `/本地存储`. |
 | `OPENLIST_STAGING_PATH` | Temporary staging/download folder scanned by `media-plan`; defaults to `/本地存储/Downloads`. |
 | `MEDIA_MOVIES_PATH` | Final Movies library root; defaults to `/本地存储/Movies`. |
 | `MEDIA_TVSHOWS_PATH` | Final TVShows library root; defaults to `/本地存储/TVShows`. |
@@ -117,17 +117,18 @@ The paths below belong to different systems and must not be treated as interchan
 Default directory layout:
 
 - Cloud-drive save folder on each configured provider: `/影视库`.
-- OpenList staging/download folder: `/本地存储/Downloads`.
+- OpenList storage root and generic copy fallback: `/本地存储`.
+- OpenList staging/download folder for media ingestion: `/本地存储/Downloads`.
 - OpenList final movie library: `/本地存储/Movies`.
 - OpenList final TV library: `/本地存储/TVShows`.
 
-`OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` intentionally default to the same Downloads directory. They are separate controls: the first is the fallback destination for `openlist-copy`, while the second is the source scanned by `media-plan`. The centralized defaults live in `scripts/env-config.mjs`; local `.env` and process environment values override them.
+`OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` intentionally have different defaults: `/本地存储` versus `/本地存储/Downloads`. The first is the fallback destination for generic `openlist-copy` backup operations; the second is the temporary source directory scanned by `media-plan`. For media ingestion, explicitly pass `/本地存储/Downloads` as the copy destination. The centralized defaults live in `scripts/env-config.mjs`; local `.env` and process environment values override them.
 
 Important path distinctions:
 
 - Quark/Baidu save paths are folders inside the corresponding cloud-drive account.
 - `OPENLIST_STAGING_PATH` is an OpenList path for temporary files after transfer.
-- `OPENLIST_DEFAULT_COPY_DST_PATH` is the default destination for the existing OpenList copy workflow. It is not automatically the staging path.
+- `OPENLIST_DEFAULT_COPY_DST_PATH` is the default destination for generic OpenList copy/backup operations. For media ingestion, explicitly target `OPENLIST_STAGING_PATH`; do not send media straight to the storage root or formal library.
 - `MEDIA_MOVIES_PATH` and `MEDIA_TVSHOWS_PATH` are separate OpenList media-library paths.
 - Values such as `/vol1/1000/media` are NAS filesystem paths, not necessarily OpenList paths. Do not enter them as OpenList paths unless the OpenList mount exposes that exact path.
 - The task store and lock directory are local application metadata. OpenClaw and Hermes must use the same persistent location when they share task processing.
