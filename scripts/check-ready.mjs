@@ -11,6 +11,7 @@ import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 
 import { parseBaiduSavePath } from "./baidu-save.mjs";
+import { checkAliyunSaveTarget } from "./aliyun-save.mjs";
 import { validateSkillEnv } from "./check-env.mjs";
 import { validateCookieConfig } from "./check-cookies.mjs";
 import { parseQuarkFolderUrl } from "./quark-save.mjs";
@@ -62,7 +63,7 @@ async function validateReadyConfig(env = {}, options = {}) {
     .filter((item) => item.ok)
     .map((item) => item.provider);
   const cookieCheck = await validateCookieConfig(env, {
-    providers: configuredProviders.length > 0 ? configuredProviders : ["quark", "baidu"],
+    providers: configuredProviders.length > 0 ? configuredProviders : ["aliyun", "quark", "baidu"],
     envFile: options.envFile || DEFAULT_ENV_FILE,
     envFileExists: options.envFileExists !== false,
     timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
@@ -79,6 +80,15 @@ async function validateReadyConfig(env = {}, options = {}) {
   });
 
   const providerTargets = [];
+  if (validProviders.includes("aliyun")) {
+    providerTargets.push(await checkAliyunSaveTarget({
+      refreshToken: env.ALIYUN_REFRESH_TOKEN,
+      targetPath: env.ALIYUN_DEFAULT_SAVE_PATH,
+      stateFile: options.aliyunStateFile,
+      timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
+      fetchImpl
+    }));
+  }
   if (validProviders.includes("quark")) {
     providerTargets.push(await checkQuarkSaveTarget({
       cookie: env.QUARK_COOKIE,
@@ -362,7 +372,7 @@ function buildReadyRecommendations({ envCheck, cookieCheck, openList, providerTa
     recommendations.push(...envCheck.missing.map((item) => `填写 ${item.key}。`));
     recommendations.push(...envCheck.invalid.map((item) => `修正 ${item.key} 的格式。`));
     if (!envCheck.providerOk) {
-      recommendations.push("至少配置一个完整网盘：夸克需要 QUARK_COOKIE + QUARK_DEFAULT_SAVE_URL，百度需要 BAIDU_COOKIE + BAIDU_DEFAULT_SAVE_PATH。");
+      recommendations.push("至少配置一个完整网盘：阿里云盘需要 ALIYUN_REFRESH_TOKEN + ALIYUN_DEFAULT_SAVE_PATH，夸克需要 QUARK_COOKIE + QUARK_DEFAULT_SAVE_URL，百度需要 BAIDU_COOKIE + BAIDU_DEFAULT_SAVE_PATH。");
     }
   }
   if (!cookieCheck.ok) recommendations.push(...(cookieCheck.recommendations || []));
