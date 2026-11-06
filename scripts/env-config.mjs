@@ -42,7 +42,11 @@ const DEFAULT_PATHS = Object.freeze({
 });
 
 function mergeEnvValues(fileValues = {}, processValues = process.env, injectedValues = null) {
-  return { ...DEFAULT_PATHS, ...(injectedValues || fileValues || {}), ...(processValues || {}) };
+  const merged = { ...DEFAULT_PATHS, ...(injectedValues || fileValues || {}), ...(processValues || {}) };
+  for (const [key, fallback] of Object.entries(DEFAULT_PATHS)) {
+    if (merged[key] == null || String(merged[key]).trim() === "") merged[key] = fallback;
+  }
+  return merged;
 }
 
 export { DEFAULT_PATHS, loadEnvFile, mergeEnvValues, parseDotEnv, parseDotEnvValue };
