@@ -75,10 +75,10 @@ Required `.env` values:
 | --- | --- | --- |
 | `OPENLIST_TOKEN` | yes | Fixed OpenList API token used for `fs/list`, `fs/get`, `fs/copy`, and task APIs. |
 | `OPENLIST_BASE_URL` | yes | OpenList service base URL, e.g. `http://127.0.0.1:5244`. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default OpenList path backed by SMB/NAS storage for backup copies. |
-| `ALIYUN_REFRESH_TOKEN` + `ALIYUN_DEFAULT_SAVE_PATH` | conditional | Aliyun web-session refresh token and an existing folder path inside the Aliyun Drive account. The token is obtained from the logged-in web app Local Storage; it is not the raw HTTP Cookie header. |
-| `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | conditional | Quark provider config. Required only if using Quark. `QUARK_DEFAULT_SAVE_URL` may be `/备份资源` or a full Quark folder URL. |
-| `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | conditional | Baidu provider config. Required only if using Baidu. `BAIDU_DEFAULT_SAVE_PATH` may be `/NAS资源下载` or a Baidu folder URL. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default OpenList copy destination. Defaults to `/本地存储/Downloads`, the same location as the staging directory. |
+| `ALIYUN_REFRESH_TOKEN` + `ALIYUN_DEFAULT_SAVE_PATH` | conditional | Aliyun web-session refresh token and an existing folder path inside the Aliyun Drive account. The default save path is `/影视库`. The token is obtained from the logged-in web app Local Storage; it is not the raw HTTP Cookie header. |
+| `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | conditional | Quark provider config. Required only if using Quark. The default save path is `/影视库`; a full Quark folder URL is also accepted. |
+| `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | conditional | Baidu provider config. Required only if using Baidu. The default save path is `/影视库`; a Baidu folder URL is also accepted. |
 
 Security rules:
 
@@ -89,17 +89,27 @@ Security rules:
 - `QUARK_DEFAULT_SAVE_URL` may be a Quark cloud-drive path such as `/备份资源`, or a full Quark folder URL such as `https://pan.quark.cn/list#/list/all/<fid>-<folder-name>`. It is not a local filesystem path.
 - `ALIYUN_DEFAULT_SAVE_PATH` must be an existing absolute folder path inside the Aliyun Drive account, such as `/资源下载`. The rotated refresh token is stored locally in the ignored `.state/aliyun-auth.json` file with restricted file permissions.
 - `BAIDU_DEFAULT_SAVE_PATH` must be a Baidu cloud-drive path such as `/NAS资源下载`, or a Baidu folder URL copied from the address bar such as `https://pan.baidu.com/disk/main#/index?category=all&path=%2FNAS%E8%B5%84%E6%BA%90%E4%B8%8B%E8%BD%BD`. It is not a local filesystem path.
-- `OPENLIST_DEFAULT_COPY_DST_PATH` must be an OpenList path such as `/影视资源备份/影视`, not an OS path such as `/mnt/nas/movies`.
+- `OPENLIST_DEFAULT_COPY_DST_PATH`, `OPENLIST_STAGING_PATH`, `MEDIA_MOVIES_PATH`, and `MEDIA_TVSHOWS_PATH` must be OpenList mount paths, not OS paths such as `/mnt/nas/movies`.
+- The default NAS layout is `/本地存储/Downloads`, `/本地存储/Movies`, and `/本地存储/TVShows`.
+- `OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` intentionally point to the same Downloads folder by default. They are separate settings because one is the default destination for generic `openlist-copy` calls and the other is the input directory scanned by `media-plan`. Keep them aligned unless the operator deliberately wants generic copies to land elsewhere.
+- The cloud-drive folder `/影视库` is a provider-side directory in Aliyun, Quark, or Baidu. It is not the OpenList `/本地存储` mount.
+
+Default path workflow:
+
+1. Save a shared resource into the selected provider's `/影视库` folder (unless the user specifies another provider-side destination).
+2. Use OpenList to copy the saved resource into `/本地存储/Downloads` (unless the user explicitly chooses another destination).
+3. Run `npm run media-plan -- --format json` to scan Downloads and plan a movie or TV destination.
+4. Only after transfer completion and a separate explicit archive confirmation may a later archive operation move/rename files into `/本地存储/Movies` or `/本地存储/TVShows`. Do not archive while any transfer task is active, failed, or unknown.
 
 Use these values as defaults:
 
-- When the user provides a Quark share but no save folder, use `QUARK_DEFAULT_SAVE_URL`.
-- When the user provides a Baidu share but no save folder, use `BAIDU_DEFAULT_SAVE_PATH`.
-- Before a real Quark/Baidu save on a new install or after an auth failure, run `npm run check-ready` and require `nextAction: "ready"`.
+- Aliyun, Quark, and Baidu share saves with no explicit destination use their respective `*_DEFAULT_SAVE_PATH` / `*_DEFAULT_SAVE_URL`, all defaulting to `/影视库`.
+- Before a real provider save or OpenList copy on a new install or after an auth/path failure, run `npm run check-ready` and require `nextAction: "ready"`.
 - When calling OpenList APIs, use `OPENLIST_BASE_URL` and `OPENLIST_TOKEN`.
-- When the user asks to back up/copy a saved resource but does not name a target, use `OPENLIST_DEFAULT_COPY_DST_PATH`.
+- When the user asks to copy a saved resource but does not name a target, use `OPENLIST_DEFAULT_COPY_DST_PATH` (`/本地存储/Downloads` by default).
+- When the user asks to organize staged files without specifying a source, use `OPENLIST_STAGING_PATH` (`/本地存储/Downloads` by default).
+- Use `MEDIA_MOVIES_PATH` and `MEDIA_TVSHOWS_PATH` for final media destinations; never substitute these for the Downloads staging path.
 - Still tell the user the source path, copied object, target path, and final naming before `fs/copy`.
-
 ## Default Endpoint
 
 - Site: `https://so.252035.xyz/`
