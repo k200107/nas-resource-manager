@@ -1,6 +1,6 @@
 ---
 name: resource-2-nas
-description: Use when a user asks to search for movie, TV, animation, or other media resources; provides a Quark/Baidu share link to save; wants to verify saved resources through OpenList; wants to view/cancel OpenList transfer task progress; or wants to copy saved resources to NAS/SMB storage.
+description: Use when a user asks to search for movie, TV, animation, or other media resources; provides an Aliyun/Quark/Baidu share link to save; wants to verify saved resources through OpenList; wants to view/cancel OpenList transfer task progress; or wants to copy saved resources to NAS/SMB storage.
 ---
 
 # Resource 2 NAS
@@ -8,14 +8,14 @@ description: Use when a user asks to search for movie, TV, animation, or other m
 Use this skill when the user enters any stage of a media-to-NAS workflow:
 
 - Search stage: they ask to search a movie, TV show, animation, or media title and need ranked resource links with Aliyun first, then Quark, then Baidu.
-- Share-link stage: they already have a Quark or Baidu share URL and want it saved into their own cloud drive.
+- Share-link stage: they already have an Aliyun, Quark, or Baidu share URL and want it saved into their own cloud drive.
 - Verification stage: they want to check whether a saved resource is visible in OpenList.
 - Task stage: they want to view, diagnose, or cancel OpenList copy/offline-download task progress.
 - Backup stage: they want to copy a saved cloud-drive resource into a NAS/SMB-backed OpenList path.
 
 The default provider priority for search candidates is Aliyun Drive → Quark → Baidu. This changes search-result ordering only; a user-provided share URL always stays with its detected or explicitly selected provider. The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
 
-Use `scripts/quark-save.mjs` when the user wants to save a Quark share link into their own Quark cloud drive folder. Use `scripts/baidu-save.mjs` when the user wants to save a Baidu Netdisk share link into their own Baidu cloud drive path. These workflows transfer the resource into the user's cloud drive only; they do not download files to the local filesystem.
+Use `scripts/aliyun-save.mjs` for Aliyun Drive share links, `scripts/quark-save.mjs` for Quark share links, and `scripts/baidu-save.mjs` for Baidu Netdisk share links. Each provider keeps its own authorization and API adapter. These workflows transfer the resource into the user's cloud drive only; they do not download files to the local filesystem.
 
 For OpenClaw, Hermes, or any delegated sub Agent, read `SUBAGENT.md` first. Sub Agents should prefer `--format json`, follow the preview-confirm-save protocol, and never parse Markdown when a JSON result is available.
 
@@ -27,6 +27,7 @@ For OpenClaw, Hermes, or any delegated sub Agent, read `SUBAGENT.md` first. Sub 
 | Full readiness check | `npm run check-ready` |
 | ENV check | `npm run check-env -- --json` |
 | Cookie check | `npm run check-cookies` |
+| Aliyun preview | `node scripts/aliyun-save.mjs "$SHARE_URL" "$DEST_PATH" --dry-run --format json` |
 | Quark preview | `node scripts/quark-save.mjs "$SHARE_URL" "$DEST_URL" --dry-run --format json` |
 | Baidu preview | `node scripts/baidu-save.mjs "$SHARE_URL" "$DEST_PATH_OR_URL" --dry-run --format json` |
 | OpenList task progress | `npm run openlist-tasks -- list copy undone --format json` |
@@ -48,20 +49,20 @@ npm run check-ready
 `check-ready` is Agent-oriented and outputs JSON by default. It checks:
 
 - `.env` shape and required core keys.
-- Quark/Baidu Cookie validity.
-- At least one usable cloud-drive provider. Aliyun support is being added; until its save adapter and readiness checks are complete, use the existing Quark/Baidu save commands.
-- The configured Quark/Baidu save directory can be reached.
+- Aliyun refresh-token validity and Quark/Baidu Cookie validity.
+- At least one usable cloud-drive provider: Aliyun, Quark, or Baidu. The selected provider's credential and destination must both be configured.
+- Each configured provider's default save directory can be reached.
 - The OpenList/NAS backup target can be listed with `refresh:true`.
 
 Use `nextAction` to decide what to do:
 
 - `ready`: configuration and read-only connectivity are usable; save/copy flows can continue.
 - `configure_core`: ask for OpenList URL, OpenList Token, or NAS backup path.
-- `configure_provider`: ask the user to configure at least one complete provider: Quark or Baidu.
+- `configure_provider`: ask the user to configure at least one complete provider: Aliyun, Quark, or Baidu.
 - `configure_core_and_provider`: both core and provider config are incomplete.
 - `fix_openlist_target`: OpenList/NAS backup target cannot be listed.
-- `fix_provider_target`: the configured Quark/Baidu save directory cannot be reached.
-- `refresh_invalid_cookies`: ask the user to log in again and copy fresh Cookies.
+- `fix_provider_target`: the configured cloud-drive save directory cannot be reached.
+- `refresh_invalid_cookies`: ask the user to log in again and refresh the affected provider credential.
 - `retry_network_or_check_access`: the current machine cannot reach the provider or the request timed out.
 
 For focused checks, use `npm run check-env -- --json` or `npm run check-cookies`. For a human-readable view, run `npm run check-ready -- --format text`. These scripts mask Cookie/Token values and never print raw secrets.
@@ -75,16 +76,18 @@ Required `.env` values:
 | `OPENLIST_TOKEN` | yes | Fixed OpenList API token used for `fs/list`, `fs/get`, `fs/copy`, and task APIs. |
 | `OPENLIST_BASE_URL` | yes | OpenList service base URL, e.g. `http://127.0.0.1:5244`. |
 | `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default OpenList path backed by SMB/NAS storage for backup copies. |
+| `ALIYUN_REFRESH_TOKEN` + `ALIYUN_DEFAULT_SAVE_PATH` | conditional | Aliyun web-session refresh token and an existing folder path inside the Aliyun Drive account. The token is obtained from the logged-in web app Local Storage; it is not the raw HTTP Cookie header. |
 | `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | conditional | Quark provider config. Required only if using Quark. `QUARK_DEFAULT_SAVE_URL` may be `/备份资源` or a full Quark folder URL. |
 | `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | conditional | Baidu provider config. Required only if using Baidu. `BAIDU_DEFAULT_SAVE_PATH` may be `/NAS资源下载` or a Baidu folder URL. |
 
 Security rules:
 
 - `.env` contains full credentials. It is ignored by git and must not be committed.
-- Print only masked secret values. `scripts/check-env.mjs` masks `QUARK_COOKIE`, `BAIDU_COOKIE`, and `OPENLIST_TOKEN`.
+- Print only masked secret values. `scripts/check-env.mjs` masks `ALIYUN_REFRESH_TOKEN`, `QUARK_COOKIE`, `BAIDU_COOKIE`, and `OPENLIST_TOKEN`.
 - If any value is missing or invalid, stop before saving/copying and explain the specific missing key.
-- Quark and Baidu are alternative providers. At least one must be fully configured, but both are not required.
+- Aliyun, Quark, and Baidu are alternative providers. At least one must be fully configured; all three are not required.
 - `QUARK_DEFAULT_SAVE_URL` may be a Quark cloud-drive path such as `/备份资源`, or a full Quark folder URL such as `https://pan.quark.cn/list#/list/all/<fid>-<folder-name>`. It is not a local filesystem path.
+- `ALIYUN_DEFAULT_SAVE_PATH` must be an existing absolute folder path inside the Aliyun Drive account, such as `/资源下载`. The rotated refresh token is stored locally in the ignored `.state/aliyun-auth.json` file with restricted file permissions.
 - `BAIDU_DEFAULT_SAVE_PATH` must be a Baidu cloud-drive path such as `/NAS资源下载`, or a Baidu folder URL copied from the address bar such as `https://pan.baidu.com/disk/main#/index?category=all&path=%2FNAS%E8%B5%84%E6%BA%90%E4%B8%8B%E8%BD%BD`. It is not a local filesystem path.
 - `OPENLIST_DEFAULT_COPY_DST_PATH` must be an OpenList path such as `/影视资源备份/影视`, not an OS path such as `/mnt/nas/movies`.
 
