@@ -16,7 +16,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { loadEnvFile } from "./env-config.mjs";
+import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
@@ -42,7 +42,7 @@ const VIDEO_EXTENSIONS = new Set([".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv"
 /** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const env = loadEnvFile(args.envFile).values;
+  const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const sourcePath = normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
   const moviesPath = normalizeOpenListPath(args.moviesPath || env.MEDIA_MOVIES_PATH);
   const tvShowsPath = normalizeOpenListPath(args.tvShowsPath || env.MEDIA_TVSHOWS_PATH);
