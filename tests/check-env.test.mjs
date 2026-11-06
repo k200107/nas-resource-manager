@@ -43,6 +43,22 @@ test("validateSkillEnv reports missing required first-use configuration", () => 
   assert.equal(result.nextAction, "configure_core_and_provider");
 });
 
+
+test("validateSkillEnv accepts Aliyun-only web-session configuration", () => {
+  const result = validateSkillEnv({
+    ALIYUN_REFRESH_TOKEN: "aliyun-refresh-token",
+    ALIYUN_DEFAULT_SAVE_PATH: "/资源下载",
+    OPENLIST_TOKEN: "token",
+    OPENLIST_BASE_URL: "http://127.0.0.1:5244",
+    OPENLIST_DEFAULT_COPY_DST_PATH: "/影视资源备份/影视"
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.providerOk, true);
+  assert.equal(result.providerResults.find((item) => item.provider === "aliyun").ok, true);
+  assert.equal(result.values.ALIYUN_REFRESH_TOKEN.secret, true);
+  assert.doesNotMatch(result.values.ALIYUN_REFRESH_TOKEN.displayValue, /aliyun-refresh-token/);
+});
+
 test("validateSkillEnv accepts complete configuration and masks secrets", () => {
   const result = validateSkillEnv({
     QUARK_COOKIE: "b-user-id=abc; __uid=uid-value",
