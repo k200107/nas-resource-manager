@@ -1,16 +1,16 @@
 # Resource 2 NAS Skill
 
-A Node.js toolkit and Agent skill for the resource-to-NAS workflow. It supports PanSou resource search, Quark/Baidu share preview and saving, OpenList task inspection, and read-only media-library planning.
+A Node.js toolkit and Agent skill for the resource-to-NAS workflow. It supports PanSou resource search, Aliyun/Quark/Baidu share preview and saving, OpenList task inspection, and read-only media-library planning.
 
 The repository is being extended with a cautious media-ingest workflow. Existing NAS media files are treated as read-only unless a separate, explicit operation is implemented and approved.
 
 ## Features
 
-- Search PanSou and return ranked Baidu/Quark resource links as Markdown or JSON.
+- Search PanSou and return ranked Aliyun/Quark/Baidu resource links as Markdown or JSON.
 - Preserve download links, extraction codes, provider names, source notes, and timestamps.
-- Preview Quark and Baidu share contents before saving.
-- Validate Quark and Baidu Cookies before real saves.
-- Save Quark shares to a configured Quark folder.
+- Preview Aliyun, Quark, and Baidu share contents before saving.
+- Validate Aliyun web-session refresh tokens and Quark/Baidu Cookies before real saves.
+- Save Aliyun shares to a configured Aliyun Drive folder using the web-session refresh token.
 - Save Baidu shares to a configured Baidu path or folder URL.
 - Inspect and cancel OpenList copy/offline-download tasks.
 - Reconcile an internal media task against its exact OpenList task ID.
@@ -99,6 +99,8 @@ The paths below belong to different systems and must not be treated as interchan
 
 | Variable | Meaning |
 | --- | --- |
+| `ALIYUN_REFRESH_TOKEN` | Aliyun web-session refresh token from the logged-in web app Local Storage; not the raw HTTP Cookie header. Rotated values are stored in ignored `.state/aliyun-auth.json`. |
+| `ALIYUN_DEFAULT_SAVE_PATH` | Existing folder path inside the Aliyun Drive account, e.g. `/资源下载`. |
 | `QUARK_COOKIE` | Quark web Cookie used to save Quark share links. |
 | `BAIDU_COOKIE` | Baidu Netdisk web Cookie used to save Baidu share links. |
 | `QUARK_DEFAULT_SAVE_URL` | Destination folder in the Quark cloud drive; may be a provider folder path or folder URL. |
@@ -121,7 +123,7 @@ Important path distinctions:
 - Values such as `/vol1/1000/media` are NAS filesystem paths, not necessarily OpenList paths. Do not enter them as OpenList paths unless the OpenList mount exposes that exact path.
 - The task store and lock directory are local application metadata. OpenClaw and Hermes must use the same persistent location when they share task processing.
 
-At least one provider must be configured for provider save operations. Quark and Baidu are alternatives; both are not required. Search-only and local automated tests do not require provider Cookies.
+At least one provider must be configured for provider save operations. Aliyun, Quark, and Baidu are alternatives; at least one is required for cloud-save operations. Search-only and local automated tests do not require provider Cookies.
 
 ## Usage
 
@@ -137,6 +139,8 @@ Check service configuration and connectivity after configuring the required cred
 npm run check-ready
 npm run check-ready -- --format text
 ```
+
+Preview an Aliyun share with `node scripts/aliyun-save.mjs "$ALIYUN_SHARE_URL" "$ALIYUN_DEFAULT_SAVE_PATH" --dry-run --format json`.
 
 Preview a Quark share:
 
