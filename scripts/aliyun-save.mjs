@@ -131,15 +131,11 @@ async function prepareAliyunSave(args = {}) {
   if (!refreshToken) throw new Error("缺少阿里云盘 refresh_token。");
   const share = parseAliyunShareUrl(args.shareUrl);
   const passcode = args.passcode || share.passcode;
-  const stateFile = path.resolve(args.stateFile || DEFAULT_STATE_FILE);
-  const stored = await readAuthState(stateFile);
-  const sourceFingerprint = createHash("sha256").update(refreshToken).digest("hex");
-  const effectiveRefreshToken = stored.source_fingerprint === sourceFingerprint ? (stored.refresh_token || refreshToken) : refreshToken;
-  const token = await refreshAliyunToken(effectiveRefreshToken, { fetchImpl, timeoutMs: args.timeoutMs });
-  await persistAuthState(stateFile, {
-    refresh_token: token.refresh_token || effectiveRefreshToken,
-    source_fingerprint: sourceFingerprint,
-    updated_at: new Date().toISOString()
+  const { token } = await authenticateAliyun({
+    refreshToken,
+    stateFile: args.stateFile || DEFAULT_STATE_FILE,
+    fetchImpl,
+    timeoutMs: args.timeoutMs
   });
 
   const shareInfo = await requestAliyun("/adrive/v2/share_link/get_share_by_anonymous", {
@@ -194,6 +190,32 @@ async function prepareAliyunSave(args = {}) {
     selectedItems,
     fetchImpl,
     timeoutMs: args.timeoutMs
+  };
+}
+
+async function authenticateAliyun({ refreshToken, stateFile = DEFAULT_STATE_FILE, fetchImpl = globalThis.fetch, timeoutMs }) {
+  const configuredToken = String(refreshToken || "").trim();
+  if (!configuredToken) throw new Error("缺少阿里云盘 refresh_token。");
+  const resolvedStateFile = path.resolve(stateFile);
+  const stored = await readAuthState(resolvedStateFile);
+  const sourceFingerprint = createHash("sha256").update(configuredToken).digest("hex");
+  const effectiveRefreshToken = stored.source_fingerprint === sourceFingerprint ? (stored.refresh_token || configuredToken) : configuredToken;
+  const token = await refreshAliyunToken(effectiveRefreshToken, { fetchImpl, timeoutMs });
+  await persistAuthState(resolvedStateFile, {
+    refresh_token: token.refresh_token || effectiveRefreshToken,
+    source_fingerprint: sourceFingerprint,
+    updated_at: new Date().toISOString()
+  });
+  return { token, refreshTokenRotated: Boolean(token.refresh_token && token.refresh_token !== effectiveRefreshToken) };
+}
+
+async function validateAliyunRefreshToken(options = {}) {
+  const { token, refreshTokenRotated } = await authenticateAliyun(options);
+  return {
+    ok: true,
+    account: token.nick_name || token.user_name || token.user_id || "",
+    driveIdConfigured: Boolean(token.default_drive_id),
+    refreshTokenRotated
   };
 }
 
@@ -418,7 +440,7 @@ function normalizeCloudPath(value) {
 }
 
 export {
-  buildAliyunSubagentPreview,
+  authenticateAliyun,\n  buildAliyunSubagentPreview,
   listAliyunShareItems,
   parseAliyunShareUrl,
   parseArgs,
