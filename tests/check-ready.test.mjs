@@ -66,6 +66,40 @@ test("validateReadyConfig passes with Quark path target when it can be resolved"
   assert.equal(result.providerTargets[0].fid, "backup-fid");
 });
 
+
+test("validateReadyConfig passes with Aliyun-only provider and existing save folder", async () => {
+  const result = await validateReadyConfig(
+    {
+      ALIYUN_REFRESH_TOKEN: "aliyun-refresh-token",
+      ALIYUN_DEFAULT_SAVE_PATH: "/Downloads",
+      OPENLIST_TOKEN: "openlist-token",
+      OPENLIST_BASE_URL: "http://openlist.test",
+      OPENLIST_DEFAULT_COPY_DST_PATH: "/影视资源备份/影视"
+    },
+    {
+      aliyunStateFile: "/tmp/aliyun-check-ready-test/auth.json",
+      fetchImpl: async (url) => {
+        const text = String(url);
+        if (text.includes("/v2/account/token")) {
+          return jsonResponse({ access_token: "access-token", refresh_token: "rotated", default_drive_id: "drive-1" });
+        }
+        if (text.includes("/adrive/v3/file/list")) {
+          return jsonResponse({ items: [{ file_id: "downloads-id", name: "Downloads", type: "folder" }] });
+        }
+        if (text.includes("/api/fs/list")) {
+          return jsonResponse({ code: 200, message: "success", data: { content: [] } });
+        }
+        throw new Error(`Unexpected URL: ${text}`);
+      }
+    }
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.nextAction, "ready");
+  assert.deepEqual(result.validProviders, ["aliyun"]);
+  assert.equal(result.providerTargets[0].provider, "aliyun");
+  assert.equal(result.providerTargets[0].folderId, "downloads-id");
+});
+
 test("validateReadyConfig fails when no provider is complete", async () => {
   const result = await validateReadyConfig(
     {
