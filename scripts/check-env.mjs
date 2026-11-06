@@ -27,7 +27,7 @@ const PROVIDER_CONFIG = [
         key: "ALIYUN_DEFAULT_SAVE_PATH",
         label: "默认阿里云盘保存目录",
         secret: false,
-        hint: "阿里云盘账号中已存在的目录路径，例如 /资源下载。",
+        hint: "阿里云盘账号中已存在的目录路径，例如 /影视库。",
         validate: (value) => isCloudDrivePath(value)
       }
     ]
@@ -46,7 +46,7 @@ const PROVIDER_CONFIG = [
         key: "QUARK_DEFAULT_SAVE_URL",
         label: "默认夸克保存目录",
         secret: false,
-        hint: "夸克网盘目标文件夹路径或 URL，例如 /备份资源，或 https://pan.quark.cn/list#/list/all/<fid>-<name>。",
+        hint: "夸克网盘目标文件夹路径或 URL，例如 /影视库，或 https://pan.quark.cn/list#/list/all/<fid>-<name>。",
         validate: (value) => isQuarkSaveTarget(value)
       }
     ]
@@ -65,7 +65,7 @@ const PROVIDER_CONFIG = [
         key: "BAIDU_DEFAULT_SAVE_PATH",
         label: "默认百度保存目录",
         secret: false,
-        hint: "百度网盘目标目录路径或目录 URL，例如 /NAS资源下载，或 https://pan.baidu.com/disk/main#/index?...&path=%2FNAS资源下载。",
+        hint: "百度网盘目标目录路径或目录 URL，例如 /影视库，或 https://pan.baidu.com/disk/main#/index?...&path=%2FNAS资源下载。",
         validate: (value) => isBaiduSaveTarget(value)
       }
     ]
@@ -90,7 +90,7 @@ const CORE_CONFIG = [
     key: "OPENLIST_DEFAULT_COPY_DST_PATH",
     label: "默认 SMB/NAS 复制目录",
     secret: false,
-    hint: "OpenList 中 SMB/NAS 存储的目标路径，例如 /影视资源备份/影视。",
+    hint: "OpenList 中 SMB/NAS 存储的目标路径，例如 /本地存储/Downloads。",
     validate: (value) => isOpenListPath(value)
   }
 ];
