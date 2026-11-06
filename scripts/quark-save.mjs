@@ -822,7 +822,6 @@ function serializeRenameResults(results) {
 
 /** 展示候选资源并收集明确选择；未获得选择时不应擅自保存全部资源。 */
 /** 展示候选资源并收集明确选择；未获得用户选择时不得擅自保存全部候选。 */
-async /** 获取夸克分享访问所需的 token。 */
 /** 处理 getShareToken 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 async function getShareToken({ apiBase, timeoutMs, pwdId, passcode }) {
   return fetchQuarkJson(`${normalizeApiBase(apiBase)}/1/clouddrive/share/sharepage/token`, {
