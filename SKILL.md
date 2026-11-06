@@ -7,13 +7,13 @@ description: Use when a user asks to search for movie, TV, animation, or other m
 
 Use this skill when the user enters any stage of a media-to-NAS workflow:
 
-- Search stage: they ask to search a movie, TV show, animation, or media title and need ranked Baidu/Quark resource links.
+- Search stage: they ask to search a movie, TV show, animation, or media title and need ranked resource links with Aliyun first, then Quark, then Baidu.
 - Share-link stage: they already have a Quark or Baidu share URL and want it saved into their own cloud drive.
 - Verification stage: they want to check whether a saved resource is visible in OpenList.
 - Task stage: they want to view, diagnose, or cancel OpenList copy/offline-download task progress.
 - Backup stage: they want to copy a saved cloud-drive resource into a NAS/SMB-backed OpenList path.
 
-The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
+The default provider priority for search candidates is Aliyun Drive → Quark → Baidu. This changes search-result ordering only; a user-provided share URL always stays with its detected or explicitly selected provider. The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
 
 Use `scripts/quark-save.mjs` when the user wants to save a Quark share link into their own Quark cloud drive folder. Use `scripts/baidu-save.mjs` when the user wants to save a Baidu Netdisk share link into their own Baidu cloud drive path. These workflows transfer the resource into the user's cloud drive only; they do not download files to the local filesystem.
 
@@ -49,7 +49,7 @@ npm run check-ready
 
 - `.env` shape and required core keys.
 - Quark/Baidu Cookie validity.
-- At least one usable cloud-drive provider: Quark or Baidu. Both are not required.
+- At least one usable cloud-drive provider. Aliyun support is being added; until its save adapter and readiness checks are complete, use the existing Quark/Baidu save commands.
 - The configured Quark/Baidu save directory can be reached.
 - The OpenList/NAS backup target can be listed with `refresh:true`.
 
