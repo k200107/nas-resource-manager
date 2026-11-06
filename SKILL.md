@@ -78,9 +78,6 @@ Required `.env` values:
 | `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default destination for generic OpenList copy/backup commands; defaults to `/本地存储`. |
 | `OPENLIST_STAGING_PATH` | media workflow | Temporary media-ingest directory scanned by `media-plan`; defaults to `/本地存储/Downloads`. |
 | `MEDIA_MOVIES_PATH` + `MEDIA_TVSHOWS_PATH` | media workflow | Formal media-library roots; default to `/本地存储/Movies` and `/本地存储/TVShows`.
-| `OPENLIST_STAGING_PATH` | for media planning | Temporary OpenList download/staging folder; defaults to `/本地存储/Downloads`. |
-| `MEDIA_MOVIES_PATH` | for media planning | Final movie library root; defaults to `/本地存储/Movies`. |
-| `MEDIA_TVSHOWS_PATH` | for media planning | Final TV library root; defaults to `/本地存储/TVShows`. |
 | `ALIYUN_REFRESH_TOKEN` + `ALIYUN_DEFAULT_SAVE_PATH` | conditional | Aliyun web-session refresh token and an existing folder path inside the Aliyun Drive account. The default save path is `/影视库`. The token is obtained from the logged-in web app Local Storage; it is not the raw HTTP Cookie header. |
 | `QUARK_COOKIE` + `QUARK_DEFAULT_SAVE_URL` | conditional | Quark provider config. Required only if using Quark. The default save path is `/影视库`; a full Quark folder URL is also accepted. |
 | `BAIDU_COOKIE` + `BAIDU_DEFAULT_SAVE_PATH` | conditional | Baidu provider config. Required only if using Baidu. The default save path is `/影视库`; a Baidu folder URL is also accepted. |
