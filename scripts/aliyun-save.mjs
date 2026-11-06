@@ -458,7 +458,7 @@ function renderPreview(preview) {
 
 function normalizeCloudPath(value) {
   let normalized = String(value || "").trim().split(String.fromCharCode(92)).join("/");
-  if (!normalized.startsWith("/") || normalized.includes("..")) throw new Error("ALIYUN_DEFAULT_SAVE_PATH 必须是阿里云盘内的绝对目录路径，例如 /资源下载。");
+  if (!normalized.startsWith("/") || normalized.includes("..")) throw new Error("ALIYUN_DEFAULT_SAVE_PATH 必须是阿里云盘内的绝对目录路径，例如 /影视库。");
   while (normalized.length > 1 && normalized.endsWith("/")) normalized = normalized.slice(0, -1);
   return normalized;
 }
