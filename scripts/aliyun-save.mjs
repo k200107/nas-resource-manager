@@ -219,6 +219,27 @@ async function validateAliyunRefreshToken(options = {}) {
   };
 }
 
+async function checkAliyunSaveTarget({ refreshToken, targetPath, stateFile = DEFAULT_STATE_FILE, fetchImpl = globalThis.fetch, timeoutMs }) {
+  const { token } = await authenticateAliyun({ refreshToken, stateFile, fetchImpl, timeoutMs });
+  const normalizedPath = normalizeCloudPath(targetPath);
+  const folder = await resolveAliyunFolder({
+    driveId: token.default_drive_id,
+    targetPath: normalizedPath,
+    accessToken: token.access_token,
+    fetchImpl,
+    timeoutMs
+  });
+  return {
+    provider: "aliyun",
+    label: "阿里云盘",
+    ok: true,
+    state: "reachable",
+    targetPath: normalizedPath,
+    folderId: folder.file_id,
+    message: "阿里云盘默认保存目录可访问。"
+  };
+}
+
 async function refreshAliyunToken(refreshToken, options = {}) {
   const response = await requestAliyun("/v2/account/token", {
     body: { refresh_token: refreshToken, grant_type: "refresh_token" },
@@ -440,7 +461,7 @@ function normalizeCloudPath(value) {
 }
 
 export {
-  authenticateAliyun,\n  buildAliyunSubagentPreview,
+  authenticateAliyun,\n  buildAliyunSubagentPreview,\n  checkAliyunSaveTarget,
   listAliyunShareItems,
   parseAliyunShareUrl,
   parseArgs,
