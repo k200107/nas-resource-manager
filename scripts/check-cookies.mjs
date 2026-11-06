@@ -11,12 +11,18 @@
 import { maskSecret } from "./check-env.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
+import { validateAliyunRefreshToken } from "./aliyun-save.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_BAIDU_APP_ID = "250528";
 
 const PROVIDERS = {
+  aliyun: {
+    provider: "aliyun",
+    label: "阿里云盘",
+    cookieEnv: "ALIYUN_REFRESH_TOKEN"
+  },
   quark: {
     provider: "quark",
     label: "夸克网盘",
@@ -87,7 +93,7 @@ async function main() {
 /** 解析命令行参数并生成统一参数对象；未知参数会明确报错。 */
 function parseArgs(argv) {
   const parsed = {
-    providers: ["quark", "baidu"],
+    providers: ["aliyun", "quark", "baidu"],
     envFile: DEFAULT_ENV_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     format: "json",
@@ -126,7 +132,7 @@ function parseArgs(argv) {
 
 /** 按配置范围验证网盘 Cookie，并汇总各 provider 的状态。 */
 async function validateCookieConfig(env = {}, options = {}) {
-  const providers = normalizeProviders(options.providers || ["quark", "baidu"]);
+  const providers = normalizeProviders(options.providers || ["aliyun", "quark", "baidu"]);
   const results = [];
 
   for (const providerName of providers) {
@@ -150,6 +156,30 @@ async function validateCookieConfig(env = {}, options = {}) {
     }
 
     try {
+      if (providerName === "aliyun") {
+        const validation = await validateAliyunRefreshToken({
+          refreshToken: cookie,
+          stateFile: options.aliyunStateFile,
+          fetchImpl: options.fetchImpl || globalThis.fetch,
+          timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS
+        });
+        results.push({
+          provider: "aliyun",
+          label: config.label,
+          ok: true,
+          state: "valid",
+          stateLabel: stateToLabel("valid"),
+          cookieEnv: config.cookieEnv,
+          cookieConfigured: true,
+          cookiePreview,
+          message: validation.refreshTokenRotated
+            ? "阿里云盘网页登录态有效，已安全保存轮换后的 refresh_token。"
+            : "阿里云盘网页登录态有效，可以访问账号信息。",
+          account: validation.account || "",
+          endpoint: "https://api.aliyundrive.com"
+        });
+        continue;
+      }
       const result = await checkProviderCookie({
         config,
         cookie,
@@ -379,7 +409,7 @@ function buildRecommendations(results) {
 
 /** 解析输入并返回规范化结果；无效输入应明确报错。 */
 function parseProviders(value) {
-  if (!value || value === "all") return ["quark", "baidu"];
+  if (!value || value === "all") return ["aliyun", "quark", "baidu"];
   return normalizeProviders(String(value).split(",").map((item) => item.trim()).filter(Boolean));
 }
 
@@ -388,7 +418,7 @@ function normalizeProviders(providers) {
   const normalized = providers.map((item) => String(item).trim()).filter(Boolean);
   for (const provider of normalized) {
     if (!PROVIDERS[provider]) {
-      throw new Error(`不支持的 Cookie 检查对象：${provider}。可选值：quark, baidu, all。`);
+      throw new Error(`不支持的 Cookie 检查对象：${provider}。可选值：aliyun, quark, baidu, all。`);
     }
   }
   return normalized;
