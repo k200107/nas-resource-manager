@@ -1,12 +1,8 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  classifyResource,
-  parseSelection,
-  suggestSavedName
-} from "./cloud-save-common.mjs";
+import { createHash } from "node:crypto";
+import { classifyResource, parseSelection } from "./cloud-save-common.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
 
@@ -137,10 +133,12 @@ async function prepareAliyunSave(args = {}) {
   const passcode = args.passcode || share.passcode;
   const stateFile = path.resolve(args.stateFile || DEFAULT_STATE_FILE);
   const stored = await readAuthState(stateFile);
-  const effectiveRefreshToken = stored.refresh_token || refreshToken;
+  const sourceFingerprint = createHash("sha256").update(refreshToken).digest("hex");
+  const effectiveRefreshToken = stored.source_fingerprint === sourceFingerprint ? (stored.refresh_token || refreshToken) : refreshToken;
   const token = await refreshAliyunToken(effectiveRefreshToken, { fetchImpl, timeoutMs: args.timeoutMs });
   await persistAuthState(stateFile, {
     refresh_token: token.refresh_token || effectiveRefreshToken,
+    source_fingerprint: sourceFingerprint,
     updated_at: new Date().toISOString()
   });
 
@@ -193,7 +191,9 @@ async function prepareAliyunSave(args = {}) {
     contextName,
     resource,
     items,
-    selectedItems
+    selectedItems,
+    fetchImpl,
+    timeoutMs: args.timeoutMs
   };
 }
 
