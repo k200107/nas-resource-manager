@@ -887,7 +887,6 @@ function summarizeBaiduTransferResponse(response) {
 
 /** 展示候选资源并收集明确选择；未获得选择时不应擅自保存全部资源。 */
 /** 展示候选资源并收集明确选择；未获得用户选择时不得擅自保存全部候选。 */
-async /** 读取百度分享页面/接口信息，确认分享资源及访问上下文。 */
 /** 读取并核验百度分享上下文及可访问性。 */
 async function verifyBaiduShare({ apiBase, timeoutMs, cookie, bdstoken, verifySurl, passcode, referer }) {
   const url = new URL("/share/verify", normalizeApiBase(apiBase));
