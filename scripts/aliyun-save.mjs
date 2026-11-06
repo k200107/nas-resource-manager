@@ -405,14 +405,14 @@ function renderPreview(preview) {
     "|---:|---|---|---:|"
   ];
   for (const item of preview.selection.selectedItems) {
-    lines.push(`| ${item.rank} | ${String(item.name).replace(/\\|/g, "\\\\|")} | ${item.isDir ? "文件夹" : "文件"} | ${item.size || "-"} |`);
+    lines.push(`| ${item.rank} | ${String(item.name).replaceAll("|", " ")} | ${item.isDir ? "文件夹" : "文件"} | ${item.size || "-"} |`);
   }
   lines.push("", "预览模式不会执行转存。确认后再使用 --yes。");
   return lines.join("\n");
 }
 
 function normalizeCloudPath(value) {
-  const normalized = String(value || "").trim().replace(/\\\\/g, "/");
+  const normalized = String(value || "").trim().split(String.fromCharCode(92)).join("/");
   if (!normalized.startsWith("/") || normalized.includes("..")) throw new Error("ALIYUN_DEFAULT_SAVE_PATH 必须是阿里云盘内的绝对目录路径，例如 /资源下载。");
   return normalized.replace(/\\/+$/g, "") || "/";
 }
