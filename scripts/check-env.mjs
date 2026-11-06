@@ -14,6 +14,25 @@ const DEFAULT_ENV_FILE = ".env";
 
 const PROVIDER_CONFIG = [
   {
+    provider: "aliyun",
+    label: "阿里云盘",
+    keys: [
+      {
+        key: "ALIYUN_REFRESH_TOKEN",
+        label: "阿里云盘网页登录 refresh_token",
+        secret: true,
+        hint: "从已登录阿里云盘网页 Local Storage 的 token.refresh_token 获取；这是网页登录态凭据，不是原始 HTTP Cookie。"
+      },
+      {
+        key: "ALIYUN_DEFAULT_SAVE_PATH",
+        label: "默认阿里云盘保存目录",
+        secret: false,
+        hint: "阿里云盘账号中已存在的目录路径，例如 /资源下载。",
+        validate: (value) => isCloudDrivePath(value)
+      }
+    ]
+  },
+  {
     provider: "quark",
     label: "夸克网盘",
     keys: [
