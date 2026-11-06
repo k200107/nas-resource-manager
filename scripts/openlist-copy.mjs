@@ -130,17 +130,34 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
   if (names.length === 0) throw new Error("缺少要复制的对象名。请传 --name 或 --names。");
 
   const sourceListing = await listDirectory({ ...context, dirPath: srcDir, refresh: true });
-  const destinationListing = await listDirectory({ ...context, dirPath: dstDir, refresh: true });
+  let destinationListing = null;
+  let destinationExists = true;
+  try {
+    destinationListing = await listDirectory({ ...context, dirPath: dstDir, refresh: true });
+  } catch (error) {
+    if (!isOpenListNotFoundError(error)) throw error;
+    destinationExists = false;
+  }
+
+  // 预览阶段不创建目录，保持 dry-run 只读；用户确认 --yes 后才自动创建目标目录。
+  if (!destinationExists && args.yes) {
+    await createDirectory({ ...context, dirPath: dstDir });
+    destinationListing = await listDirectory({ ...context, dirPath: dstDir, refresh: true });
+    destinationExists = true;
+  }
+
   const sourceNames = new Set(sourceListing.items.map((item) => item.name));
-  const destinationNames = new Set(destinationListing.items.map((item) => item.name));
+  const destinationNames = new Set((destinationListing?.items || []).map((item) => item.name));
   const missingNames = names.filter((name) => !sourceNames.has(name));
   const existingTargetNames = names.filter((name) => destinationNames.has(name));
   const expectedPaths = names.map((name) => joinOpenListPath(dstDir, name));
   const nextAction = missingNames.length > 0
     ? "fix_copy_source"
-    : existingTargetNames.length > 0
-      ? "confirm_copy_over_existing"
-      : "confirm_before_copy";
+    : !destinationExists
+      ? "confirm_create_destination_and_copy"
+      : existingTargetNames.length > 0
+        ? "confirm_copy_over_existing"
+        : "confirm_before_copy";
   const baseResult = {
     ok: missingNames.length === 0,
     tool: "openlist-copy",
@@ -155,7 +172,9 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
     },
     destination: {
       dir: dstDir,
-      itemCount: destinationListing.items.length,
+      exists: destinationExists,
+      created: !destinationExists ? false : Boolean(args.yes && destinationListing),
+      itemCount: destinationListing?.items.length ?? 0,
       existingTargetNames
     },
     copyPlan: {
@@ -174,7 +193,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
   };
 
   if (missingNames.length > 0) return baseResult;
-  // 没有 --yes 时保持预览模式，避免误把测试数据写入真实目录。
+  // 没有 --yes 时保持预览模式；目标目录不存在时只报告，确认执行后才自动创建。
   if (!args.yes) return baseResult;
 
   const copyResponse = await startCopyTask({ ...context, srcDir, dstDir, names });
@@ -301,6 +320,28 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath, re
     path: dirPath,
     items: normalizeListItems(response.json)
   };
+}
+
+/** 判断目录列表错误是否明确表示目标对象不存在；其他错误不得触发自动创建。 */
+function isOpenListNotFoundError(error) {
+  return /object not found|failed get dir|not found/i.test(String(error?.message || error || ""));
+}
+
+/** 创建 OpenList 目标目录；只在用户通过 --yes 确认执行时调用。 */
+async function createDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) {
+  const response = await fetchOpenListJson({
+    baseUrl,
+    token,
+    fetchImpl,
+    timeoutMs,
+    path: "/api/fs/mkdir",
+    method: "POST",
+    body: JSON.stringify({ path: dirPath })
+  });
+  if (!response.ok || !isOpenListSuccess(response.json)) {
+    throw new Error(`OpenList mkdir failed for ${dirPath}: ${response.json?.message || response.status || "unknown"}`);
+  }
+  return { path: dirPath, created: true };
 }
 
 /** 调用 OpenList 复制接口发起复制任务；该操作会在目标存储产生数据。 */
