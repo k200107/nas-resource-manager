@@ -334,6 +334,12 @@ function classifyBaiduResponse(response) {
 /** 把超时、连接失败等异常映射为可理解的检查状态。 */
 function classifyCookieCheckError(error) {
   const message = error?.message || String(error);
+  if (/RefreshTokenExpired|AccessTokenInvalid|refresh.?token.*(invalid|expired)|登录态验证失败/i.test(message)) {
+    return {
+      state: "invalid",
+      message: "阿里云盘 refresh_token 已失效或无效，请重新从已登录的阿里云盘网页获取 refresh_token 并更新 ALIYUN_REFRESH_TOKEN。"
+    };
+  }
   if (error?.name === "AbortError") {
     return {
       state: "network_error",
