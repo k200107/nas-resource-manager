@@ -65,7 +65,7 @@ const PROVIDER_CONFIG = [
         key: "BAIDU_DEFAULT_SAVE_PATH",
         label: "默认百度保存目录",
         secret: false,
-        hint: "百度网盘目标目录路径或目录 URL，例如 /影视库，或 https://pan.baidu.com/disk/main#/index?...&path=%2FNAS资源下载。",
+        hint: "百度网盘目标目录路径或目录 URL，例如 /影视库，或 https://pan.baidu.com/disk/main#/index?...&path=%2F%E5%BD%B1%E8%A7%86%E5%BA%93。",
         validate: (value) => isBaiduSaveTarget(value)
       }
     ]
