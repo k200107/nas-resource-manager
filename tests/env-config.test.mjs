@@ -8,7 +8,18 @@ test("dotenv parser handles export, quotes and inline comments", () => {
 });
 
 test("environment precedence keeps process values above file values and injected values", () => {
-  assert.deepEqual(mergeEnvValues({A:"file",B:"file"}, {A:"process"}, {B:"injected",C:"injected"}), {A:"process",B:"injected",C:"injected"});
+  const result = mergeEnvValues({A:"file",B:"file"}, {A:"process"}, {B:"injected",C:"injected"});
+  assert.equal(result.A, "process");
+  assert.equal(result.B, "injected");
+  assert.equal(result.C, "injected");
+  assert.equal(result.OPENLIST_BASE_URL, "http://127.0.0.1:5244");
+  assert.equal(result.OPENLIST_DEFAULT_COPY_DST_PATH, "/本地存储");
+  assert.equal(result.OPENLIST_STAGING_PATH, "/本地存储/Downloads");
+  assert.equal(result.MEDIA_MOVIES_PATH, "/本地存储/Movies");
+  assert.equal(result.MEDIA_TVSHOWS_PATH, "/本地存储/TVShows");
+  assert.equal(result.ALIYUN_DEFAULT_SAVE_PATH, "/影视库");
+  assert.equal(result.QUARK_DEFAULT_SAVE_URL, "/影视库");
+  assert.equal(result.BAIDU_DEFAULT_SAVE_PATH, "/影视库");
 });
 
 test("missing env files are reported without creating files", () => {
