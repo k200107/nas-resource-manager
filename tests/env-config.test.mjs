@@ -13,7 +13,7 @@ test("environment precedence keeps process values above file values and injected
   assert.equal(result.B, "injected");
   assert.equal(result.C, "injected");
   assert.equal(result.OPENLIST_BASE_URL, "http://127.0.0.1:5244");
-  assert.equal(result.OPENLIST_DEFAULT_COPY_DST_PATH, "/本地存储/Downloads");
+  assert.equal(result.OPENLIST_DEFAULT_COPY_DST_PATH, "/本地存储");
   assert.equal(result.OPENLIST_STAGING_PATH, "/本地存储/Downloads");
   assert.equal(result.MEDIA_MOVIES_PATH, "/本地存储/Movies");
   assert.equal(result.MEDIA_TVSHOWS_PATH, "/本地存储/TVShows");
