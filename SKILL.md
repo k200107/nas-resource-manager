@@ -75,7 +75,9 @@ Required `.env` values:
 | --- | --- | --- |
 | `OPENLIST_TOKEN` | yes | Fixed OpenList API token used for `fs/list`, `fs/get`, `fs/copy`, and task APIs. |
 | `OPENLIST_BASE_URL` | yes | OpenList service base URL, e.g. `http://127.0.0.1:5244`. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default OpenList copy destination. Defaults to `/本地存储/Downloads`, the same location as the staging directory. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | yes | Default destination for generic OpenList copy/backup commands; defaults to `/本地存储`. |
+| `OPENLIST_STAGING_PATH` | media workflow | Temporary media-ingest directory scanned by `media-plan`; defaults to `/本地存储/Downloads`. |
+| `MEDIA_MOVIES_PATH` + `MEDIA_TVSHOWS_PATH` | media workflow | Formal media-library roots; default to `/本地存储/Movies` and `/本地存储/TVShows`.
 | `OPENLIST_STAGING_PATH` | for media planning | Temporary OpenList download/staging folder; defaults to `/本地存储/Downloads`. |
 | `MEDIA_MOVIES_PATH` | for media planning | Final movie library root; defaults to `/本地存储/Movies`. |
 | `MEDIA_TVSHOWS_PATH` | for media planning | Final TV library root; defaults to `/本地存储/TVShows`. |
@@ -93,8 +95,8 @@ Security rules:
 - `ALIYUN_DEFAULT_SAVE_PATH` must be an existing absolute folder path inside the Aliyun Drive account, such as `/影视库`. The rotated refresh token is stored locally in the ignored `.state/aliyun-auth.json` file with restricted file permissions.
 - `BAIDU_DEFAULT_SAVE_PATH` must be a Baidu cloud-drive path such as `/影视库`, or a Baidu folder URL copied from the address bar such as `https://pan.baidu.com/disk/main#/index?category=all&path=%2FNAS%E8%B5%84%E6%BA%90%E4%B8%8B%E8%BD%BD`. It is not a local filesystem path.
 - `OPENLIST_DEFAULT_COPY_DST_PATH`, `OPENLIST_STAGING_PATH`, `MEDIA_MOVIES_PATH`, and `MEDIA_TVSHOWS_PATH` must be OpenList mount paths, not OS paths such as `/mnt/nas/movies`.
-- The default NAS layout is `/本地存储/Downloads`, `/本地存储/Movies`, and `/本地存储/TVShows`.
-- `OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` intentionally point to the same Downloads folder by default. They are separate settings because one is the default destination for generic `openlist-copy` calls and the other is the input directory scanned by `media-plan`. Keep them aligned unless the operator deliberately wants generic copies to land elsewhere.
+- The default NAS layout is `/本地存储/Downloads`, `/本地存储/Movies`, and `/本地存储/TVShows`, with `/本地存储` as the parent storage root and generic copy fallback.
+- `OPENLIST_DEFAULT_COPY_DST_PATH=/本地存储` and `OPENLIST_STAGING_PATH=/本地存储/Downloads` are intentionally different. The former is the generic copy/backup fallback root; the latter is the media-ingest staging directory scanned by `media-plan`. Do not collapse them into one setting.
 - The cloud-drive folder `/影视库` is a provider-side directory in Aliyun, Quark, or Baidu. It is not the OpenList `/本地存储` mount.
 
 Default path workflow:
@@ -109,7 +111,7 @@ Use these values as defaults:
 - Aliyun, Quark, and Baidu share saves with no explicit destination use their respective `*_DEFAULT_SAVE_PATH` / `*_DEFAULT_SAVE_URL`, all defaulting to `/影视库`.
 - Before a real provider save or OpenList copy on a new install or after an auth/path failure, run `npm run check-ready` and require `nextAction: "ready"`.
 - When calling OpenList APIs, use `OPENLIST_BASE_URL` and `OPENLIST_TOKEN`.
-- When the user asks to copy a saved resource but does not name a target, use `OPENLIST_DEFAULT_COPY_DST_PATH` (`/本地存储/Downloads` by default).
+- For generic backup/copy requests without a named target, use `OPENLIST_DEFAULT_COPY_DST_PATH` (`/本地存储`). For media ingestion, explicitly pass `/本地存储/Downloads` as the copy destination.
 - When the user asks to organize staged files without specifying a source, use `OPENLIST_STAGING_PATH` (`/本地存储/Downloads` by default).
 - Use `MEDIA_MOVIES_PATH` and `MEDIA_TVSHOWS_PATH` for final media destinations; never substitute these for the Downloads staging path.
 - Still tell the user the source path, copied object, target path, and final naming before `fs/copy`.
