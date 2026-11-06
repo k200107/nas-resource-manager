@@ -18,6 +18,7 @@
     "media-task": "node scripts/media-task.mjs",
     "openlist-reconcile": "node scripts/openlist-reconcile.mjs",
     "media-test-fixtures": "node scripts/openlist-media-fixtures.mjs",
-    "media-archive-fixtures": "node scripts/openlist-media-fixtures.mjs"
+    "media-archive-fixtures": "node scripts/openlist-media-fixtures.mjs",
+    "aliyun-save": "node scripts/aliyun-save.mjs"
   }
 }
