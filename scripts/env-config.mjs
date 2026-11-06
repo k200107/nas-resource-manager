@@ -30,8 +30,19 @@ function loadEnvFile(envFile = ".env") {
   return { exists: true, values: parseDotEnv(fs.readFileSync(envFile, "utf8")) };
 }
 
+const DEFAULT_PATHS = Object.freeze({
+  OPENLIST_BASE_URL: "http://127.0.0.1:5244",
+  OPENLIST_DEFAULT_COPY_DST_PATH: "/本地存储/Downloads",
+  OPENLIST_STAGING_PATH: "/本地存储/Downloads",
+  MEDIA_MOVIES_PATH: "/本地存储/Movies",
+  MEDIA_TVSHOWS_PATH: "/本地存储/TVShows",
+  ALIYUN_DEFAULT_SAVE_PATH: "/影视库",
+  QUARK_DEFAULT_SAVE_URL: "/影视库",
+  BAIDU_DEFAULT_SAVE_PATH: "/影视库"
+});
+
 function mergeEnvValues(fileValues = {}, processValues = process.env, injectedValues = null) {
-  return { ...(injectedValues || fileValues || {}), ...(processValues || {}) };
+  return { ...DEFAULT_PATHS, ...(injectedValues || fileValues || {}), ...(processValues || {}) };
 }
 
-export { loadEnvFile, mergeEnvValues, parseDotEnv, parseDotEnvValue };
+export { DEFAULT_PATHS, loadEnvFile, mergeEnvValues, parseDotEnv, parseDotEnvValue };
