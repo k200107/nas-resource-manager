@@ -150,7 +150,9 @@ async function validateCookieConfig(env = {}, options = {}) {
         cookieEnv: config.cookieEnv,
         cookieConfigured: false,
         cookiePreview,
-        message: `未配置 ${config.cookieEnv}。请先登录${config.label}网页，复制完整 Cookie。`
+        message: providerName === "aliyun"
+          ? "未配置 ALIYUN_REFRESH_TOKEN。请登录阿里云盘网页并从 Local Storage 获取 token.refresh_token。"
+          : `未配置 ${config.cookieEnv}。请先登录${config.label}网页，复制完整 Cookie。`
       });
       continue;
     }
