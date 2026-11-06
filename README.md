@@ -100,19 +100,28 @@ The paths below belong to different systems and must not be treated as interchan
 | Variable | Meaning |
 | --- | --- |
 | `ALIYUN_REFRESH_TOKEN` | Aliyun web-session refresh token from the logged-in web app Local Storage; not the raw HTTP Cookie header. Rotated values are stored in ignored `.state/aliyun-auth.json`. |
-| `ALIYUN_DEFAULT_SAVE_PATH` | Existing folder path inside the Aliyun Drive account, e.g. `/资源下载`. |
+| `ALIYUN_DEFAULT_SAVE_PATH` | Existing folder path inside the Aliyun Drive account; defaults to `/影视库`. |
 | `QUARK_COOKIE` | Quark web Cookie used to save Quark share links. |
 | `BAIDU_COOKIE` | Baidu Netdisk web Cookie used to save Baidu share links. |
-| `QUARK_DEFAULT_SAVE_URL` | Destination folder in the Quark cloud drive; may be a provider folder path or folder URL. |
-| `BAIDU_DEFAULT_SAVE_PATH` | Destination folder in Baidu Netdisk; may be a provider folder path or folder URL. |
+| `QUARK_DEFAULT_SAVE_URL` | Destination folder in the Quark cloud drive; defaults to `/影视库` and may also be a folder URL. |
+| `BAIDU_DEFAULT_SAVE_PATH` | Destination folder in Baidu Netdisk; defaults to `/影视库` and may also be a folder URL. |
 | `OPENLIST_TOKEN` | OpenList API token for the configured OpenList operations. Treat it as a password. |
 | `OPENLIST_BASE_URL` | OpenList service URL reachable from the computer running this project. For example, `http://127.0.0.1:5244` only works when OpenList is running on that same computer. |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList destination backed by SMB/NAS storage for the existing copy workflow. Its original purpose is unchanged. |
-| `OPENLIST_STAGING_PATH` | OpenList path used as a temporary staging/download area. Configure only after confirming the actual OpenList mount and path. |
-| `MEDIA_MOVIES_PATH` | OpenList path for the Movies library. |
-| `MEDIA_TVSHOWS_PATH` | OpenList path for the TVShows library. |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | Default OpenList copy destination; defaults to `/本地存储/Downloads`. |
+| `OPENLIST_STAGING_PATH` | Temporary staging/download folder scanned by `media-plan`; defaults to `/本地存储/Downloads`. |
+| `MEDIA_MOVIES_PATH` | Final Movies library root; defaults to `/本地存储/Movies`. |
+| `MEDIA_TVSHOWS_PATH` | Final TVShows library root; defaults to `/本地存储/TVShows`. |
 | `MEDIA_TASK_STORE_PATH` | Local application metadata file used by the media-task workflow; not a media directory. |
 | `MEDIA_TASK_LOCK_DIR` | Local directory for application task locks; not an OpenList or NAS media path. |
+
+Default directory layout:
+
+- Cloud-drive save folder on each configured provider: `/影视库`.
+- OpenList staging/download folder: `/本地存储/Downloads`.
+- OpenList final movie library: `/本地存储/Movies`.
+- OpenList final TV library: `/本地存储/TVShows`.
+
+`OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` intentionally default to the same Downloads directory. They are separate controls: the first is the fallback destination for `openlist-copy`, while the second is the source scanned by `media-plan`. The centralized defaults live in `scripts/env-config.mjs`; local `.env` and process environment values override them.
 
 Important path distinctions:
 
