@@ -29,7 +29,7 @@ test("missing env files are reported without creating files", () => {
 test("centralized NAS and cloud-drive defaults are applied and remain overridable", () => {
   const defaults = mergeEnvValues({}, {});
   assert.deepEqual(defaults, DEFAULT_PATHS);
-  assert.equal(defaults.OPENLIST_DEFAULT_COPY_DST_PATH, "/本地存储/Downloads");
+  assert.equal(defaults.OPENLIST_DEFAULT_COPY_DST_PATH, "/本地存储");
   assert.equal(defaults.OPENLIST_STAGING_PATH, "/本地存储/Downloads");
   assert.equal(defaults.MEDIA_MOVIES_PATH, "/本地存储/Movies");
   assert.equal(defaults.MEDIA_TVSHOWS_PATH, "/本地存储/TVShows");
