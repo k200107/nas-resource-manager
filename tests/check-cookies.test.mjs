@@ -139,7 +139,7 @@ test("validateCookieConfig validates Aliyun refresh token and never exposes it",
       providers: ["aliyun"],
       aliyunStateFile: "/tmp/aliyun-check-cookies-test/auth.json",
       fetchImpl: async (url) => {
-        assert.match(String(url), /api\\.aliyundrive\\.com\\/v2\\/account\\/token/);
+        assert.equal(new URL(String(url)).pathname, "/v2/account/token");
         return jsonResponse({
           access_token: "access-token",
           refresh_token: "rotated-refresh-token",
