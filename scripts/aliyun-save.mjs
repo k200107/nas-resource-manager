@@ -338,7 +338,7 @@ async function requestAliyun(endpoint, options = {}) {
 async function readAuthState(filePath) {
   try {
     const value = JSON.parse(await fs.readFile(filePath, "utf8"));
-    return { refresh_token: String(value.refresh_token || "") };
+    return { refresh_token: String(value.refresh_token || ""), source_fingerprint: String(value.source_fingerprint || "") };
   } catch (error) {
     if (error.code === "ENOENT") return {};
     throw new Error(`读取阿里云盘本地授权状态失败：${error.message}`);
