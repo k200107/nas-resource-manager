@@ -132,6 +132,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
   const sourceListing = await listDirectory({ ...context, dirPath: srcDir, refresh: true });
   let destinationListing = null;
   let destinationExists = true;
+  let destinationCreated = false;
   try {
     destinationListing = await listDirectory({ ...context, dirPath: dstDir, refresh: true });
   } catch (error) {
@@ -144,6 +145,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
     await createDirectory({ ...context, dirPath: dstDir });
     destinationListing = await listDirectory({ ...context, dirPath: dstDir, refresh: true });
     destinationExists = true;
+    destinationCreated = true;
   }
 
   const sourceNames = new Set(sourceListing.items.map((item) => item.name));
@@ -173,7 +175,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
     destination: {
       dir: dstDir,
       exists: destinationExists,
-      created: !destinationExists ? false : Boolean(args.yes && destinationListing),
+      created: destinationCreated,
       itemCount: destinationListing?.items.length ?? 0,
       existingTargetNames
     },
