@@ -38,4 +38,8 @@ test("centralized NAS and cloud-drive defaults are applied and remain overridabl
     mergeEnvValues({ OPENLIST_STAGING_PATH: "/custom/Downloads" }, {}).OPENLIST_STAGING_PATH,
     "/custom/Downloads"
   );
+  assert.equal(
+    mergeEnvValues({ OPENLIST_STAGING_PATH: "" }, {}).OPENLIST_STAGING_PATH,
+    "/本地存储/Downloads"
+  );
 });
