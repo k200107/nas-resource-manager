@@ -111,7 +111,9 @@ function parseAliyunShareUrl(value) {
   } catch {
     throw new Error("阿里云盘分享链接格式无效。");
   }
-  if (!/(^|\\.)((aliyundrive|alipan)\\.com)$/i.test(parsed.hostname)) {
+  const host = parsed.hostname.toLowerCase();
+  const allowedHost = host === "aliyundrive.com" || host.endsWith(".aliyundrive.com") || host === "alipan.com" || host.endsWith(".alipan.com");
+  if (!allowedHost) {
     throw new Error("分享链接不是阿里云盘或 alipan.com 地址。");
   }
   const segments = parsed.pathname.split("/").filter(Boolean);
@@ -455,9 +457,10 @@ function renderPreview(preview) {
 }
 
 function normalizeCloudPath(value) {
-  const normalized = String(value || "").trim().split(String.fromCharCode(92)).join("/");
+  let normalized = String(value || "").trim().split(String.fromCharCode(92)).join("/");
   if (!normalized.startsWith("/") || normalized.includes("..")) throw new Error("ALIYUN_DEFAULT_SAVE_PATH 必须是阿里云盘内的绝对目录路径，例如 /资源下载。");
-  return normalized.replace(/\\/+$/g, "") || "/";
+  while (normalized.length > 1 && normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  return normalized;
 }
 
 export {
