@@ -1,5 +1,17 @@
 import fs from "node:fs";
 
+// Personal NAS/OpenList defaults. Credentials deliberately have no defaults.
+const DEFAULT_ENV_VALUES = Object.freeze({
+  OPENLIST_BASE_URL: "http://127.0.0.1:5244",
+  OPENLIST_DEFAULT_COPY_DST_PATH: "/本地存储",
+  OPENLIST_STAGING_PATH: "/本地存储/Downloads",
+  MEDIA_MOVIES_PATH: "/本地存储/Movies",
+  MEDIA_TVSHOWS_PATH: "/本地存储/TVShows",
+  ALIYUN_DEFAULT_SAVE_PATH: "/影视库",
+  QUARK_DEFAULT_SAVE_URL: "/影视库",
+  BAIDU_DEFAULT_SAVE_PATH: "/影视库"
+});
+
 function parseDotEnv(input) {
   const values = {};
   for (const rawLine of String(input || "").split(/\r?\n/)) {
