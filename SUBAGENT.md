@@ -26,18 +26,18 @@ Use the following directory layout unless the user explicitly overrides a path:
 | `ALIYUN_DEFAULT_SAVE_PATH` | `/影视库` | Aliyun Drive cloud-side save folder |
 | `QUARK_DEFAULT_SAVE_URL` | `/影视库` | Quark cloud-side save folder |
 | `BAIDU_DEFAULT_SAVE_PATH` | `/影视库` | Baidu cloud-side save folder |
-| `OPENLIST_DEFAULT_COPY_DST_PATH` | `/本地存储/Downloads` | Default target for generic OpenList copy operations |
+| `OPENLIST_DEFAULT_COPY_DST_PATH` | `/本地存储` | Default target for generic OpenList copy/backup operations |
 | `OPENLIST_STAGING_PATH` | `/本地存储/Downloads` | Temporary NAS staging folder scanned by `media-plan` |
 | `MEDIA_MOVIES_PATH` | `/本地存储/Movies` | Final movie library root |
 | `MEDIA_TVSHOWS_PATH` | `/本地存储/TVShows` | Final TV library root |
 
-`OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` intentionally share the same default directory, but they are not duplicate settings: the former is the fallback target for `openlist-copy`; the latter is the source scanned by `media-plan`. Keep them equal for the standard ingest flow.
+`OPENLIST_DEFAULT_COPY_DST_PATH` and `OPENLIST_STAGING_PATH` are intentionally different: the former is the generic `openlist-copy` fallback root (`/本地存储`); the latter is the media-ingest staging folder (`/本地存储/Downloads`) scanned by `media-plan`. For media ingestion, explicitly pass `/本地存储/Downloads` as the copy destination. Do not collapse these settings.
 
 Cloud-drive `/影视库` and OpenList `/本地存储/...` are different storage systems. Never pass a cloud-drive path as an OpenList path or vice versa.
 
 Standard flow: save to the selected cloud provider's `/影视库` → copy through OpenList to `/本地存储/Downloads` → inspect with `media-plan` → only after every transfer task is confirmed successful and the user separately authorizes archiving, move/rename into Movies or TVShows. Never start archive work while transfer status is active, failed, or unknown.
 
-Path defaults are centralized in `scripts/env-config.mjs`; `.env` values and process environment variables override them. Never put real credentials in the defaults or documentation.
+Path defaults are centralized in `scripts/env-config.mjs`; `.env` values and process environment variables override them. Credentials have no defaults. Never put real credentials in the defaults or documentation.
 ## Decision Table
 
 | User intent | First command | Mutating command |
