@@ -13,7 +13,7 @@ Use this skill when the user enters any stage of a media-to-NAS workflow:
 - Task stage: they want to view, diagnose, or cancel OpenList copy/offline-download task progress.
 - Backup stage: they want to copy a saved cloud-drive resource into a NAS/SMB-backed OpenList path.
 
-The default provider priority for search candidates is Aliyun Drive → Quark → Baidu. This changes search-result ordering only; a user-provided share URL always stays with its detected or explicitly selected provider. The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
+The default provider priority for search candidates is Aliyun Drive → Quark → Baidu. When the user wants to save, choose the highest-priority candidate among providers listed in `check-ready.validProviders`; do not select an unconfigured provider. This changes search-result ordering only; a user-provided share URL always stays with its detected or explicitly selected provider. The default search upstream is the PanSou instance at `https://so.252035.xyz/`, backed by the `fish2018/pansou` API.
 
 Use `scripts/aliyun-save.mjs` for Aliyun Drive share links, `scripts/quark-save.mjs` for Quark share links, and `scripts/baidu-save.mjs` for Baidu Netdisk share links. Each provider keeps its own authorization and API adapter. These workflows transfer the resource into the user's cloud drive only; they do not download files to the local filesystem.
 
