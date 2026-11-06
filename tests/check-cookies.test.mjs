@@ -74,7 +74,6 @@ test("validateCookieConfig is ready when one default provider is valid", async (
   const result = await validateCookieConfig(
     { BAIDU_COOKIE: "baidu-cookie" },
     {
-      providers: ["baidu"],
       fetchImpl: async () => jsonResponse({ errno: 0, username: "tester" })
     }
   );
