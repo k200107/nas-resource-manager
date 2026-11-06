@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { isCliEntryPoint } from "./cli-utils.mjs";
+import { sortCloudLinksByPriority } from "./provider-priority.mjs";
 
 /**
  * 通过 PanSou API 搜索资源、规范化网盘链接并输出结果；搜索及链接检查不执行网盘转存。
@@ -21,7 +22,7 @@ const DEFAULT_MAX_CANDIDATES = 50;
 const DEFAULT_RESULT_TYPE = "all";
 const DEFAULT_SOURCE_TYPE = "all";
 const DEFAULT_TIMEOUT_MS = 60_000;
-const DEFAULT_CLOUD_TYPES = ["baidu", "quark"];
+const DEFAULT_CLOUD_TYPES = ["aliyun", "quark", "baidu"];
 
 const PROVIDER_LABELS = {
   baidu: "百度网盘",
@@ -236,7 +237,7 @@ function normalizePanSouSearchResponse(response, options = {}) {
   const mergedByType = data.merged_by_type || groupResultsByType(data.results || []);
   const rawLinks = rankedLinks.length > 0 ? rankedLinks : flattenMergedLinks(mergedByType);
   const cloudTypes = Array.isArray(options.cloudTypes) ? options.cloudTypes : DEFAULT_CLOUD_TYPES;
-  const allLinks = filterLinksByCloudTypes(rawLinks, cloudTypes);
+  const allLinks = sortCloudLinksByPriority(filterLinksByCloudTypes(rawLinks, cloudTypes));
   const limit = Number.isFinite(options.maxCandidates) ? options.maxCandidates : DEFAULT_MAX_CANDIDATES;
   const downloadLinks = allLinks.slice(0, limit).map((link, index) => normalizeDownloadLink(link, index + 1));
   const candidates = downloadLinks.map((link) => ({
