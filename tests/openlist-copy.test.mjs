@@ -214,3 +214,38 @@ function jsonResponse(body, options = {}) {
     }
   };
 }
+
+
+test("runOpenListCopy previews a missing destination without creating it", async () => {
+  const calls = [];
+  const result = await runOpenListCopy({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: {
+      srcDir: "/阿里云盘/影视库",
+      dstDir: "/本地存储/__NAS_RESOURCE_MANAGER_TEST__",
+      names: ["猫和老鼠：胡桃夹子传奇 (2007)"],
+      yes: false
+    },
+    fetchImpl: async (url, options) => {
+      const endpoint = String(url);
+      calls.push(endpoint);
+      if (endpoint.endsWith("/api/fs/list")) {
+        const body = JSON.parse(options.body);
+        if (body.path === "/阿里云盘/影视库") {
+          return jsonResponse({ code: 200, message: "success", data: { content: [{ name: "猫和老鼠：胡桃夹子传奇 (2007)", is_dir: true }] } });
+        }
+        if (body.path === "/本地存储/__NAS_RESOURCE_MANAGER_TEST__") {
+          return jsonResponse({ code: 500, message: "failed get objs: failed get dir: failed to get obj: object not found" });
+        }
+      }
+      throw new Error(`Unexpected request: ${endpoint}`);
+    }
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.dryRun, true);
+  assert.equal(result.destination.exists, false);
+  assert.equal(result.destination.created, false);
+  assert.equal(result.nextAction, "confirm_create_destination_and_copy");
+  assert.equal(calls.some((endpoint) => endpoint.endsWith("/api/fs/mkdir")), false);
+});
