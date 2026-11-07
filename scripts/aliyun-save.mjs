@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {
   parseJson,
   parseSelection,
+  sanitizeFileName,
 } from "./cloud-save-common.mjs";
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
