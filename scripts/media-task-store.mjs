@@ -247,9 +247,8 @@ function validateTransition(task, target, details) {
   if (target === "STAGED") {
     const evidence = details.verification;
     if (!evidence || evidence.passed !== true || evidence.transferCompleted !== true ||
-        String(evidence.openListTaskId || "") !== String(task.openListTaskId || "") ||
-        Number(evidence.stableChecks) < 2) {
-      throw new Error("必须确认关联的 OpenList 任务已成功完成，并通过至少两次稳定性检查，才能进入 STAGED。");
+        String(evidence.openListTaskId || "") !== String(task.openListTaskId || "")) {
+      throw new Error("必须确认关联的 OpenList 复制任务已明确成功，才能进入 STAGED。");
     }
     if (task.state !== "VERIFYING" && task.state !== "REVIEW_REQUIRED" && task.state !== "CONFLICT") {
       throw new Error("只能从 VERIFYING 或已解决的复核/冲突状态进入 STAGED。");
