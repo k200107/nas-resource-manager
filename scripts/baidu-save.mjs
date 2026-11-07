@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
+import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
 
@@ -284,13 +285,14 @@ async function prepareBaiduSave(args) {
 
   const items = normalizeBaiduShareItems(rows);
   const shareTitle = context.title || items[0]?.name || "";
-  const contextName = normalizeContextName(args.contextName || shareTitle);
-  const classification = classifyResource({
+  const resourceContext = resolveResourceContext({
     resourceType: args.resourceType,
-    contextName,
+    contextName: args.contextName || shareTitle,
     shareTitle,
     items
   });
+  const contextName = resourceContext.canonicalName;
+  const classification = resourceContext.classification;
   const selectedPreview = parseSelection(args.defaultSelection, items);
   const renamePlan = buildBaiduRenamePlanForSelection({
     args,
@@ -608,82 +610,29 @@ function buildBaiduTransferRequest({
 /** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildBaiduRenamePlanForSelection({ args, result, selectedItems }) {
   if (args.noRename) return [];
-  if (args.agentRenamePlan) {
-    return resolveBaiduRenamePlan({
-      selectedItems,
-      savePath: args.savePath,
-      agentRenamePlan: args.agentRenamePlan
-    });
-  }
   return buildBaiduRenamePlan({
-    resourceType: args.resourceType,
-    contextName: result.contextName || "",
-    shareTitle: result.shareTitle || "",
-    savePath: args.savePath,
-    selectedItems
+    resourceType: args.resourceType, contextName: result.contextName || "",
+    shareTitle: result.shareTitle || "", savePath: args.savePath,
+    selectedItems, agentRenamePlan: args.agentRenamePlan ?? null
   });
 }
 
-/** 为百度网盘候选文件生成建议名称和重命名计划。 */
-/** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
-function buildBaiduRenamePlan({ resourceType = "auto", contextName = "", shareTitle = "", savePath = "/", selectedItems = [] } = {}) {
-  const baseName = sanitizeFileName(contextName || shareTitle || "");
-  if (!baseName) return [];
-  const classification = classifyResource({ resourceType, contextName: baseName, shareTitle, items: selectedItems });
-  const plan = [];
-  selectedItems.forEach((item) => {
-    const suggestedName = suggestSavedName({
-      baseName,
-      item,
-      selectedCount: selectedItems.length,
-      isSeries: classification.isSeries
-    });
-    if (!suggestedName || suggestedName === item.name) return;
-    plan.push({
-      sourcePath: joinCloudPath(savePath, item.name),
-      originalName: item.name,
-      suggestedName,
-      reason: classification.isSeries ? "按上下文资源名修正剧集文件名" : "按上下文资源名修正保存名称"
-    });
-  });
-  return plan;
+function buildBaiduRenamePlan({
+  resourceType = "auto", contextName = "", shareTitle = "", savePath = "/",
+  selectedItems = [], agentRenamePlan = null
+} = {}) {
+  const neutralPlan = agentRenamePlan !== null
+    ? resolveAgentRenamePlan({ selectedItems, agentRenamePlan })
+    : buildResourceRenamePlan({ resourceType, contextName, shareTitle, selectedItems });
+  return neutralPlan.map((item) => ({
+    sourcePath: joinCloudPath(savePath, selectedItems[item.itemIndex].name),
+    originalName: item.originalName, suggestedName: item.suggestedName, reason: item.reason
+  }));
 }
 
-/** 根据资源信息和用户选择解析百度网盘重命名计划，不在此处执行修改。 */
-/** 解析并确认路径、配置或计划，供后续步骤使用。 */
 function resolveBaiduRenamePlan({ selectedItems = [], savePath = "/", agentRenamePlan = [] } = {}) {
-  if (!Array.isArray(agentRenamePlan)) {
-    throw new Error("Agent rename plan must be a JSON array");
-  }
-  const plan = [];
-  for (const decision of agentRenamePlan) {
-    const rank = Number(decision.rank ?? decision.index);
-    if (!Number.isFinite(rank) || rank < 1) {
-      throw new Error(`Agent rename plan item is missing a valid rank/index: ${JSON.stringify(decision)}`);
-    }
-    const selectedIndex = selectedItems.findIndex((item) => item.rank === rank);
-    const fallbackIndex = selectedItems[rank - 1] ? rank - 1 : -1;
-    const itemIndex = selectedIndex >= 0 ? selectedIndex : fallbackIndex;
-    if (itemIndex < 0) {
-      throw new Error(`Agent rename plan rank is not selected: ${rank}`);
-    }
-
-    const item = selectedItems[itemIndex];
-    const suggestedName = sanitizeFileName(decision.name || decision.suggestedName || "");
-    if (!suggestedName) {
-      throw new Error(`Agent rename plan item is missing name/suggestedName: ${JSON.stringify(decision)}`);
-    }
-    if (suggestedName === item.name) continue;
-    plan.push({
-      sourcePath: joinCloudPath(savePath, item.name),
-      originalName: item.name,
-      suggestedName,
-      reason: decision.reason || "Agent 指定重命名"
-    });
-  }
-  return plan;
+  return buildBaiduRenamePlan({ selectedItems, savePath, agentRenamePlan });
 }
-
 /** 将renderBaiduShareItemsTable相关结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 /** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function renderBaiduShareItemsTable({
