@@ -53,7 +53,7 @@ OpenList 复制状态按 task ID 判断：
 - 明确错误：FAILED。
 - task ID 缺失或任务在两个列表均找不到：UNKNOWN。
 
-默认不做文件 Hash、逐文件大小比对、重复目录刷新或多轮稳定性检查。任务处于 ACTIVE/UNKNOWN 时保留 task ID，用户询问时查询原任务；不得重新提交。
+默认不做文件 Hash、逐文件大小比对、重复目录刷新或多轮稳定性检查。任务处于 ACTIVE/UNKNOWN 时保留 task ID，用户询问时使用 npm run openlist-tasks -- get copy --id "$TASK_ID" --format json 查询原任务；不得重新提交。
 
 ## 媒体整理
 
