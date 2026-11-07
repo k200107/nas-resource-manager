@@ -603,7 +603,7 @@ export {
   requestAliyun,
   resolveAliyunFolder,
   saveAliyunSelectedItems,
-  validateAliyunRefreshToken
+  validateAliyunRefreshToken,
   buildAliyunCompactPreview,
   buildAliyunCompactSave,
 };
