@@ -1015,6 +1015,7 @@ export {
   normalizeContextName,
   parseQuarkFolderUrl,
   parseQuarkShareUrl,
+  parseArgs,
   parseSelection,
   resolveQuarkFolderPath,
   resolveRenamePlan,
