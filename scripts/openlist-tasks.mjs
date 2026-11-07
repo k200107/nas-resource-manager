@@ -62,6 +62,7 @@ function parseArgs(argv) {
     group: DEFAULT_GROUP,
     state: DEFAULT_STATE,
     ids: [],
+    taskId: "",
     match: "",
     provider: "",
     sourcePrefix: "",
@@ -78,7 +79,9 @@ function parseArgs(argv) {
       parsed.group = normalizeGroup(argv[++index] || DEFAULT_GROUP);
     } else if (arg === "--state") {
       parsed.state = normalizeState(argv[++index] || DEFAULT_STATE);
-    } else if (arg === "--ids" || arg === "--id") {
+    } else if (arg === "--id") {
+      parsed.taskId = argv[++index] || "";
+    } else if (arg === "--ids") {
       parsed.ids.push(...parseList(argv[++index] || ""));
     } else if (arg === "--match") {
       parsed.match = argv[++index] || "";
@@ -120,6 +123,24 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
   const state = normalizeState(args.state || DEFAULT_STATE);
   const action = normalizeAction(args.action || "list");
   const context = buildOpenListContext(env, args, fetchImpl);
+  if (action === "get") {
+    const taskId = String(args.taskId || args.ids?.[0] || "").trim();
+    if (!taskId) throw new Error("查询单个任务时必须提供 --id TASK_ID。");
+    const result = await lookupOpenListTaskById({ ...context, group, id: taskId });
+    return {
+      ok: result.status !== "FAILED",
+      tool: "openlist-tasks",
+      action: "get",
+      group,
+      taskId,
+      status: result.status,
+      nextAction: result.status === "ACTIVE" ? "wait_for_task"
+        : result.status === "SUCCEEDED" ? "report_complete"
+          : result.status === "FAILED" ? "report_failure" : "inspect_unknown",
+      task: result.task || null,
+      reason: result.reason || ""
+    };
+  }
   const listed = await listTasks({ ...context, group, state });
   const filteredTasks = filterTasks(listed.tasks, args);
   const baseResult = {
@@ -339,8 +360,8 @@ function parseList(value) {
 /** 规范化数据或参数，统一字段和格式，减少上游差异。 */
 function normalizeAction(value) {
   const action = String(value || "list").trim();
-  if (["list", "cancel"].includes(action)) return action;
-  throw new Error(`Unsupported action: ${value}. 可选值：list, cancel。`);
+  if (["list", "get", "cancel"].includes(action)) return action;
+  throw new Error(`Unsupported action: ${value}. 可选值：list, get, cancel。`);
 }
 
 /** 校验并规范化 OpenList 任务分组名称。 */
