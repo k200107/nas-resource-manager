@@ -324,6 +324,12 @@ async function prepareBaiduSave(args) {
 /** 根据用户明确选择的资源执行网盘保存；这是会修改个人网盘内容的操作。 */
 /** 仅对用户明确选中的资源执行网盘保存/转存；此流程会改变用户网盘内容。 */
 async function saveSelectedItems(args) {
+  const beforeRows = !args.noRename && args.renamePlan.length > 0
+    ? await listBaiduDir({
+        apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
+        cookie: args.cookie, bdstoken: args.share.bdstoken, dir: args.savePath
+      })
+    : [];
   const transferResponse = await transferBaiduShare({
     apiBase: args.apiBase,
     appId: args.appId,
@@ -337,17 +343,20 @@ async function saveSelectedItems(args) {
     selectedItems: args.selectedItems
   });
 
-  const renameResults = args.noRename || args.renamePlan.length === 0
-    ? []
-    : await applyBaiduRenamePlan({
-        apiBase: args.apiBase,
-        appId: args.appId,
-        timeoutMs: args.timeoutMs,
-        cookie: args.cookie,
-        bdstoken: args.share.bdstoken,
-        savePath: args.savePath,
-        renamePlan: args.renamePlan
-      });
+  let renameResults = [];
+  if (!args.noRename && args.renamePlan.length > 0) {
+    const afterRows = await listBaiduDir({
+      apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
+      cookie: args.cookie, bdstoken: args.share.bdstoken, dir: args.savePath
+    });
+    const beforeIds = new Set(beforeRows.map((row) => String(row.fsId)));
+    const newlyCreatedRows = afterRows.filter((row) => row.fsId && !beforeIds.has(String(row.fsId)));
+    renameResults = await applyBaiduRenamePlan({
+      apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
+      cookie: args.cookie, bdstoken: args.share.bdstoken,
+      targetRows: newlyCreatedRows, renamePlan: args.renamePlan
+    });
+  }
 
   return {
     ok: true,
@@ -978,39 +987,31 @@ async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }
 
 /** 按确认后的重命名计划调用百度接口修改网盘文件或目录名称。 */
 /** 处理 applyBaiduRenamePlan 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, savePath, renamePlan }) {
-  const targetRows = await listBaiduDir({
-    apiBase,
-    appId,
-    timeoutMs,
-    cookie,
-    bdstoken,
-    dir: savePath
-  });
+async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, targetRows = [], renamePlan }) {
   const results = [];
-
+  const usedIds = new Set();
   for (const item of renamePlan) {
+    const extension = path.posix.extname(item.originalName || "");
+    const stem = extension ? item.originalName.slice(0, -extension.length) : item.originalName;
+    const copyNamePattern = new RegExp("^" + escapeRegExp(stem) + "(?:\\s*\\(\\d+\\))?" + escapeRegExp(extension) + "$", "i");
+    const candidates = targetRows.filter((row) => row.fsId && !usedIds.has(String(row.fsId)) && copyNamePattern.test(row.name));
+    if (candidates.length !== 1) {
+      results.push({ ...item, ok: false, error: candidates.length
+        ? "检测到多个新建候选文件，无法唯一确认本次转存副本，已跳过重命名。"
+        : "未能从转存前后目录差异中唯一定位新建副本，已跳过重命名。" });
+      continue;
+    }
+    const matched = candidates[0];
+    usedIds.add(String(matched.fsId));
     try {
-      const matched = targetRows.find((row) => row.name === item.originalName);
-      const sourcePath = matched?.path || item.sourcePath;
-      const response = await renameBaiduPath({
-        apiBase,
-        appId,
-        timeoutMs,
-        cookie,
-        bdstoken,
-        sourcePath,
-        newName: item.suggestedName
-      });
-      results.push({ ...item, ok: true, response });
+      const response = await renameBaiduPath({ apiBase, appId, timeoutMs, cookie, bdstoken, sourcePath: matched.path, newName: item.suggestedName });
+      results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: true, response });
     } catch (error) {
-      results.push({ ...item, ok: false, error: error.message || String(error) });
+      results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: false, error: error.message || String(error) });
     }
   }
-
   return results;
 }
-
 /** 调用百度网盘接口重命名指定路径；该函数会改变网盘目录项。 */
 /** 处理 renameBaiduPath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 async function renameBaiduPath({ apiBase, appId, timeoutMs, cookie, bdstoken, sourcePath, newName }) {
