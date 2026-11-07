@@ -228,6 +228,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
   return {
     ...baseResult,
     ok: verification.ok,
+    status: verification.status,
     dryRun: false,
     nextAction: verification.status === "SUCCEEDED" ? "copy_complete"
       : verification.status === "FAILED" ? "inspect_copy_error"
