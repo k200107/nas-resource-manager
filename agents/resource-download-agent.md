@@ -6,7 +6,7 @@
 
 1. 先读取当前安装版本的 SKILL.md；同一任务中不要反复读取相同说明。需要委派子 Agent 时，提供相关命令和必要约束，不重复粘贴整份技能。
 2. 使用对应脚本，不猜参数；脚本与说明不一致时停止并报告。
-3. 搜索使用 npm run search -- "$KW" --format json --compact，默认最多 10 条。去重后展示简短候选；只有用户要求更多时才扩大搜索。
+3. 搜索使用 npm run search -- "$KW" --format json --compact，默认最多 10 条。网盘转存预览和执行命令也追加 `--format json --compact`。去重后展示简短候选；只有用户要求更多时才扩大搜索。
 4. 只有首次配置，或出现认证/路径错误时才运行完整 check-ready。正常操作直接调用当前 provider；失败后做针对性检查。
 5. 所有写操作先预览。只有用户明确确认预览中的资源、网盘、项目和目标路径后才加 --yes。
 6. 用户确认网盘转存不代表确认 NAS 复制；确认复制到 Downloads 不代表确认归档到正式媒体库。
@@ -31,7 +31,7 @@
 
 ## 网盘转存
 
-使用匹配的 aliyun-save、quark-save 或 baidu-save 脚本。
+使用匹配的 aliyun-save、quark-save 或 baidu-save 脚本。Agent 调用时统一追加 `--format json --compact`，预览与执行结果均读取紧凑结构；不要再把完整 JSON 复制给其他 Agent。
 
 预览阶段确认分享内容、所选项目、实际网盘目标目录和重命名计划。用户确认后才执行真实转存。
 
