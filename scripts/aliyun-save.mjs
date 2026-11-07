@@ -4,12 +4,9 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   classifyResource,
-  extractEpisodeLabel,
-  getExtension,
   parseJson,
   parseSelection,
   sanitizeFileName,
-  stripExtension,
   suggestSavedName
 } from "./cloud-save-common.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
