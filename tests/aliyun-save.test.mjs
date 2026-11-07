@@ -113,7 +113,7 @@ test("prepareAliyunSave uses mocked token, share, list and destination APIs", as
       assert.equal(body.check_name_mode, "refuse");
       return jsonResponse({ file_id: "saved-1", name: body.name });
     }
-    throw new Error(\`Unexpected endpoint: \${endpoint}\`);
+    throw new Error(`Unexpected endpoint: ${endpoint}`);
   };
 
   try {
@@ -163,7 +163,7 @@ test("saveAliyunSelectedItems never renames when copy response has no destinatio
       if (endpoint === "/adrive/v2/batch") {
         return jsonResponse({ responses: [{ id: "source-1", status: 202, body: {} }] });
       }
-      throw new Error(\`Unexpected endpoint: \${endpoint}\`);
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
     }
   };
   const saved = await saveAliyunSelectedItems({
