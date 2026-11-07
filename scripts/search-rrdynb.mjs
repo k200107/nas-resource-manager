@@ -157,7 +157,7 @@ function printUsage() {
   console.error("Usage: node scripts/search-rrdynb.mjs <title> [options]");
   console.error("Options:");
   console.error("  --api-base https://so.252035.xyz/api");
-  console.error("  --max-candidates 50");
+  console.error("  --max-candidates 10 (default)");
   console.error("  --res all|merge|results");
   console.error("  --src all|tg|plugin");
   console.error("  --channels tgsearchers4,Aliyun_4K_Movies");
