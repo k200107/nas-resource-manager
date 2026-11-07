@@ -61,7 +61,7 @@ test("runOpenListCopy previews source and destination before mutation", async ()
   assert.deepEqual(result.copyPlan.expectedPaths, ["/影视资源备份/影视/绿皮书"]);
 });
 
-test("runOpenListCopy verifies success through done task and refreshed target", async () => {
+test("runOpenListCopy uses one task snapshot and treats a clean done bucket as success", async () => {
   const calls = [];
   const result = await runOpenListCopy({
     env: {
@@ -89,11 +89,10 @@ test("runOpenListCopy verifies success through done task and refreshed target", 
           });
         }
         if (body.path === "/影视资源备份/影视") {
-          const copied = calls.includes("http://openlist.test/api/task/copy/done");
           return jsonResponse({
             code: 200,
             message: "success",
-            data: { content: copied ? [{ name: "绿皮书", is_dir: true }] : [] }
+            data: { content: [] }
           });
         }
       }
@@ -129,7 +128,8 @@ test("runOpenListCopy verifies success through done task and refreshed target", 
   assert.equal(result.dryRun, false);
   assert.equal(result.nextAction, "copy_complete");
   assert.equal(result.copyTask.id, "copy-1");
-  assert.equal(result.verification.targetFound, true);
+  assert.equal(result.verification.status, "SUCCEEDED");
+  assert.equal(calls.filter((url) => url.endsWith("/api/fs/list")).length, 2);
 });
 
 test("runOpenListCopy asks for confirmation when target already exists", async () => {
