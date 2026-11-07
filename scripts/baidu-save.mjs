@@ -1268,6 +1268,7 @@ export {
   normalizeBaiduShareItems,
   parseBaiduSavePath,
   parseBaiduShareUrl,
+  parseArgs,
   renderBaiduShareItemsTable,
   buildBaiduCompactPreview,
   buildBaiduCompactSave,
