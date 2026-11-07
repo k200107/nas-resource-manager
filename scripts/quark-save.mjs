@@ -672,8 +672,12 @@ function buildQuarkCompactPreview({ args = {}, result }) {
 }
 function buildQuarkCompactSave({ args = {}, saveResult }) {
   const failures = (saveResult.renameResults || []).filter((item) => !item.ok);
+  const taskStatus = Number(saveResult.task?.data?.status);
+  const transferSucceeded = taskStatus === 2;
+  const transferFailed = taskStatus === 3 || taskStatus === 4;
+  const status = transferSucceeded ? "SUCCEEDED" : transferFailed ? "FAILED" : "UNKNOWN";
   return {
-    ok: failures.length === 0, provider: "quark", mode: "saved", status: "SUCCEEDED",
+    ok: transferSucceeded && failures.length === 0, provider: "quark", mode: "saved", status,
     source: args.shareUrl || "", target: args.toUrl || "", taskId: saveResult.taskId || "",
     selectedCount: (saveResult.selectedItems || []).length,
     rename: {
