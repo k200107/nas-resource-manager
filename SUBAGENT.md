@@ -48,7 +48,7 @@ After confirmation:
 
     npm run openlist-copy -- "$SRC_DIR" "$DST_DIR" "$NAME" --yes --format json
 
-The copy helper checks the exact returned task ID once:
+For a later status check, use one command: npm run openlist-tasks -- get copy --id "$TASK_ID" --format json. The helper checks the exact task ID in both task lists:
 - undone: ACTIVE
 - done with no error: SUCCEEDED
 - explicit task error: FAILED
