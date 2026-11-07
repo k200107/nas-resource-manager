@@ -1018,7 +1018,7 @@ export {
   parseSelection,
   resolveQuarkFolderPath,
   resolveRenamePlan,
-  renderShareItemsTable
+  renderShareItemsTable,
   buildQuarkCompactPreview,
   buildQuarkCompactSave,
 };
