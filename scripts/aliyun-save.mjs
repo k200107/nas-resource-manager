@@ -3,12 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import {
-  classifyResource,
   parseJson,
   parseSelection,
   sanitizeFileName,
-  suggestSavedName
 } from "./cloud-save-common.mjs";
+import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
 
@@ -181,13 +180,14 @@ async function prepareAliyunSave(args = {}) {
     fetchImpl,
     timeoutMs: args.timeoutMs
   });
-  const contextName = String(args.contextName || shareInfo.share_name || shareInfo.share_title || "").trim();
-  const resource = classifyResource({
+  const resourceContext = resolveResourceContext({
     resourceType: args.resourceType || "auto",
-    contextName,
+    contextName: args.contextName || shareInfo.share_name || shareInfo.share_title || "",
     shareTitle: shareInfo.share_name || shareInfo.share_title || "",
     items
   });
+  const contextName = resourceContext.canonicalName;
+  const resource = resourceContext.classification;
   const selectedItems = parseSelection(args.selection || "all", items);
   const renamePlan = buildAliyunRenamePlan({
     resourceType: args.resourceType,
@@ -335,61 +335,18 @@ async function resolveAliyunFolder({ driveId, targetPath, accessToken, fetchImpl
 }
 
 function buildAliyunRenamePlan({
-  resourceType = "auto",
-  contextName = "",
-  shareTitle = "",
-  savePath = "/",
-  selectedItems = [],
-  agentRenamePlan = null,
-  noRename = false
+  resourceType = "auto", contextName = "", shareTitle = "", selectedItems = [],
+  agentRenamePlan = null, noRename = false
 } = {}) {
   if (noRename) return [];
-  if (agentRenamePlan !== null) {
-    if (!Array.isArray(agentRenamePlan)) throw new Error("Agent rename plan must be a JSON array");
-    const plan = [];
-    for (const decision of agentRenamePlan) {
-      const rank = Number(decision.rank ?? decision.index);
-      if (!Number.isFinite(rank) || rank < 1) throw new Error("Agent rename plan item is missing a valid rank/index");
-      const selectedIndex = selectedItems.findIndex((item) => item.rank === rank);
-      const fallbackIndex = selectedItems[rank - 1] ? rank - 1 : -1;
-      const itemIndex = selectedIndex >= 0 ? selectedIndex : fallbackIndex;
-      if (itemIndex < 0) throw new Error(`Agent rename plan rank is not selected: ${rank}`);
-      const item = selectedItems[itemIndex];
-      const suggestedName = sanitizeFileName(decision.name || decision.suggestedName || "");
-      if (!suggestedName) throw new Error("Agent rename plan item is missing name/suggestedName");
-      if (suggestedName === item.name) continue;
-      plan.push({
-        sourceFid: item.fid,
-        originalName: item.name,
-        suggestedName,
-        reason: decision.reason || "Agent 指定重命名"
-      });
-    }
-    return plan;
-  }
-
-  const baseName = sanitizeFileName(contextName || shareTitle || "");
-  if (!baseName) return [];
-  const classification = classifyResource({ resourceType, contextName: baseName, shareTitle, items: selectedItems });
-  const plan = [];
-  selectedItems.forEach((item) => {
-    const suggestedName = suggestSavedName({
-      baseName,
-      item,
-      selectedCount: selectedItems.length,
-      isSeries: classification.isSeries
-    });
-    if (!suggestedName || suggestedName === item.name) return;
-    plan.push({
-      sourceFid: item.fid,
-      originalName: item.name,
-      suggestedName,
-      reason: classification.isSeries ? "按上下文资源名修正剧集文件名" : "按上下文资源名修正保存名称"
-    });
+  const neutralPlan = agentRenamePlan !== null
+    ? resolveAgentRenamePlan({ selectedItems, agentRenamePlan })
+    : buildResourceRenamePlan({ resourceType, contextName, shareTitle, selectedItems });
+  return neutralPlan.flatMap((item) => {
+    const sourceFid = selectedItems[item.itemIndex]?.fid;
+    return sourceFid ? [{ ...item, sourceFid }] : [];
   });
-  return plan;
 }
-
 async function saveAliyunSelectedItems({ result, selectedItems, renamePlan = result.renamePlan || [] }) {
   if (!selectedItems?.length) {
     return { ok: true, transferOk: true, renameOk: true, savedCount: 0, results: [], renameResults: [] };

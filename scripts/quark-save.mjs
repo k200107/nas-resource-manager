@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, normalizeResourceType, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
+import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
 
@@ -227,13 +228,14 @@ async function prepareQuarkSave(args) {
   });
   const items = normalizeShareItems(detailResponse.data?.list || []);
   const shareTitle = tokenResponse.data?.title || "";
-  const contextName = normalizeContextName(args.contextName || shareTitle);
-  const classification = classifyResource({
+  const resourceContext = resolveResourceContext({
     resourceType: args.resourceType,
-    contextName,
-    shareTitle: tokenResponse.data?.title || "",
+    contextName: args.contextName || shareTitle,
+    shareTitle,
     items
   });
+  const contextName = resourceContext.canonicalName;
+  const classification = resourceContext.classification;
   const selectedItems = parseSelection(args.defaultSelection, items);
   const renamePlan = args.agentRenamePlan
     ? resolveRenamePlan({
@@ -529,66 +531,18 @@ function normalizeShareItems(rows) {
 /** 为候选资源生成建议名称和重命名计划。 */
 /** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildRenamePlan({ resourceType = "auto", contextName = "", shareTitle = "", selectedItems = [], savedFids = [] } = {}) {
-  const baseName = sanitizeFileName(contextName || shareTitle || "");
-  if (!baseName) return [];
-  const classification = classifyResource({ resourceType, contextName: baseName, shareTitle, items: selectedItems });
-  const plan = [];
-  selectedItems.forEach((item, index) => {
-    const savedFid = savedFids[index];
-    if (!savedFid) return;
-    const suggestedName = suggestSavedName({
-      baseName,
-      item,
-      selectedCount: selectedItems.length,
-      isSeries: classification.isSeries
-    });
-    if (!suggestedName || suggestedName === item.name) return;
-    plan.push({
-      fid: savedFid,
-      originalName: item.name,
-      suggestedName,
-      reason: classification.isSeries ? "按上下文资源名修正剧集文件名" : "按上下文资源名修正保存名称"
-    });
+  return buildResourceRenamePlan({ resourceType, contextName, shareTitle, selectedItems }).flatMap((item) => {
+    const fid = savedFids[item.itemIndex];
+    return fid ? [{ fid, originalName: item.originalName, suggestedName: item.suggestedName, reason: item.reason }] : [];
   });
-  return plan;
 }
 
-/** 根据资源信息和用户选择解析夸克网盘重命名计划，不在此处执行修改。 */
-/** 解析并确认路径、配置或计划，供后续步骤使用。 */
 function resolveRenamePlan({ selectedItems = [], savedFids = [], agentRenamePlan = [] } = {}) {
-  if (!Array.isArray(agentRenamePlan)) {
-    throw new Error("Agent rename plan must be a JSON array");
-  }
-  const plan = [];
-  for (const decision of agentRenamePlan) {
-    const rank = Number(decision.rank ?? decision.index);
-    if (!Number.isFinite(rank) || rank < 1) {
-      throw new Error(`Agent rename plan item is missing a valid rank/index: ${JSON.stringify(decision)}`);
-    }
-    const itemIndex = selectedItems.findIndex((item) => item.rank === rank);
-    const fallbackIndex = selectedItems[rank - 1] ? rank - 1 : -1;
-    const selectedIndex = itemIndex >= 0 ? itemIndex : fallbackIndex;
-    if (selectedIndex < 0) {
-      throw new Error(`Agent rename plan rank is not selected: ${rank}`);
-    }
-
-    const item = selectedItems[selectedIndex];
-    const savedFid = savedFids[selectedIndex];
-    const suggestedName = sanitizeFileName(decision.name || decision.suggestedName || "");
-    if (!suggestedName) {
-      throw new Error(`Agent rename plan item is missing name/suggestedName: ${JSON.stringify(decision)}`);
-    }
-    if (!savedFid || suggestedName === item.name) continue;
-    plan.push({
-      fid: savedFid,
-      originalName: item.name,
-      suggestedName,
-      reason: decision.reason || "Agent 指定重命名"
-    });
-  }
-  return plan;
+  return resolveAgentRenamePlan({ selectedItems, agentRenamePlan }).flatMap((item) => {
+    const fid = savedFids[item.itemIndex];
+    return fid ? [{ fid, originalName: item.originalName, suggestedName: item.suggestedName, reason: item.reason }] : [];
+  });
 }
-
 /** 根据资源类型和文件名信息生成建议保存名称，不直接修改原文件。 */
 /** 根据已有资源信息生成建议值，不直接修改原始资源。 */
 /** 从资源名中提取集数标签，供命名建议使用。 */
