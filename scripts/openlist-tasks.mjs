@@ -240,10 +240,8 @@ async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.f
   const errorText = String(task.error || "").trim();
   const statusText = String(task.status || "").trim().toLowerCase();
   if (errorText || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) return { id: taskId, group: normalizedGroup, status: "FAILED", bucket: "done", reason: errorText || task.status, task };
-  const progress = Number(task.progress);
-  const explicitSuccess = /(^|[^a-z])(success|succeeded|completed|complete|done)([^a-z]|$)/.test(statusText);
-  if ((Number.isFinite(progress) && progress >= 100) || explicitSuccess) return { id: taskId, group: normalizedGroup, status: "SUCCEEDED", bucket: "done", task };
-  return { id: taskId, group: normalizedGroup, status: "UNKNOWN", bucket: "done", reason: "done_bucket_without_success_evidence", task };
+  // OpenList 的 done 分组就是终态列表；部分版本的 status 文本仍显示 uploading。
+  return { id: taskId, group: normalizedGroup, status: "SUCCEEDED", bucket: "done", task };
 }
 
 /** 向 OpenList 请求取消匹配的后台任务；这是会改变远端任务状态的操作。 */
