@@ -5,19 +5,30 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  buildAliyunRenamePlan,
+  buildAliyunSubagentPreview,
   parseAliyunShareUrl,
   parseArgs,
   prepareAliyunSave,
   saveAliyunSelectedItems
 } from "../scripts/aliyun-save.mjs";
 
-test("parseArgs supports dry-run and explicit confirmation flags", () => {
-  const args = parseArgs(["https://www.alipan.com/s/share-id", "/Downloads", "--dry-run", "--format", "json"]);
+test("parseArgs supports dry-run, confirmation and rename options", () => {
+  const args = parseArgs([
+    "https://www.alipan.com/s/share-id",
+    "/Downloads",
+    "--dry-run",
+    "--format",
+    "json",
+    "--rename-plan-json",
+    '[{"rank":1,"name":"修正名称.mp4"}]'
+  ]);
   assert.equal(args.shareUrl, "https://www.alipan.com/s/share-id");
   assert.equal(args.targetPath, "/Downloads");
   assert.equal(args.dryRun, true);
   assert.equal(args.yes, false);
-  assert.equal(args.format, "json");
+  assert.equal(args.agentRenamePlan[0].name, "修正名称.mp4");
+  assert.equal(parseArgs(["url", "/Downloads", "--no-rename"]).noRename, true);
 });
 
 test("parseAliyunShareUrl extracts share id and password", () => {
@@ -30,6 +41,38 @@ test("parseAliyunShareUrl extracts share id and password", () => {
     { shareId: "another-id", passcode: "" }
   );
   assert.throws(() => parseAliyunShareUrl("https://pan.baidu.com/s/not-aliyun"), /不是阿里云盘/);
+});
+
+test("buildAliyunRenamePlan creates movie and series naming plans", () => {
+  const moviePlan = buildAliyunRenamePlan({
+    contextName: "猫和老鼠：胡桃夹子传奇 (2007)",
+    selectedItems: [{ fid: "f1", rank: 1, name: "video.mp4", isDir: false }]
+  });
+  assert.equal(moviePlan.length, 1);
+  assert.equal(moviePlan[0].suggestedName, "猫和老鼠：胡桃夹子传奇 (2007).mp4");
+  assert.equal(moviePlan[0].sourceFid, "f1");
+
+  const seriesPlan = buildAliyunRenamePlan({
+    resourceType: "series",
+    contextName: "测试剧集",
+    selectedItems: [
+      { fid: "f2", rank: 1, name: "EP1.mkv", isDir: false },
+      { fid: "f3", rank: 2, name: "EP2.mkv", isDir: false }
+    ]
+  });
+  assert.deepEqual(seriesPlan.map((item) => item.suggestedName), ["测试剧集 E01.mkv", "测试剧集 E02.mkv"]);
+});
+
+test("Agent rename plan is validated and no-rename disables it", () => {
+  const selectedItems = [{ fid: "f1", rank: 2, name: "old.mp4", isDir: false }];
+  const plan = buildAliyunRenamePlan({
+    selectedItems,
+    agentRenamePlan: [{ rank: 2, name: "new.mp4", reason: "Agent 核验" }]
+  });
+  assert.equal(plan[0].suggestedName, "new.mp4");
+  assert.equal(plan[0].reason, "Agent 核验");
+  assert.deepEqual(buildAliyunRenamePlan({ selectedItems, agentRenamePlan: [{ rank: 2, name: "new.mp4" }], noRename: true }), []);
+  assert.throws(() => buildAliyunRenamePlan({ selectedItems, agentRenamePlan: [{ rank: 3, name: "new.mp4" }] }), /not selected/);
 });
 
 test("prepareAliyunSave uses mocked token, share, list and destination APIs", async () => {
@@ -61,7 +104,14 @@ test("prepareAliyunSave uses mocked token, share, list and destination APIs", as
     if (endpoint === "/adrive/v2/batch") {
       assert.equal(options.headers.Authorization, "Bearer access-token");
       assert.equal(options.headers["x-share-token"], "share-token");
-      return jsonResponse({ responses: [{ id: "source-1", status: 202, body: { file_id: "saved-1" } }] });
+      return jsonResponse({ responses: [{ id: "source-1", status: 201, body: { file_id: "saved-1" } }] });
+    }
+    if (endpoint === "/adrive/v3/file/update") {
+      assert.equal(body.drive_id, "drive-1");
+      assert.equal(body.file_id, "saved-1");
+      assert.equal(body.name, "测试资源.mp4");
+      assert.equal(body.check_name_mode, "refuse");
+      return jsonResponse({ file_id: "saved-1", name: body.name });
     }
     throw new Error(`Unexpected endpoint: ${endpoint}`);
   };
@@ -77,16 +127,54 @@ test("prepareAliyunSave uses mocked token, share, list and destination APIs", as
     assert.equal(result.provider, "aliyun");
     assert.equal(result.targetFolderId, "folder-1");
     assert.equal(result.selectedItems[0].fid, "source-1");
+    assert.equal(result.renamePlan[0].suggestedName, "测试资源.mp4");
+
+    const preview = buildAliyunSubagentPreview({ args: { selection: "all" }, result });
+    assert.equal(preview.renamePlan.length, 1);
+    assert.equal(preview.confirmation.finalNaming[0].suggestedName, "测试资源.mp4");
+
     const saved = await saveAliyunSelectedItems({ result, selectedItems: result.selectedItems });
     assert.equal(saved.ok, true);
+    assert.equal(saved.transferOk, true);
+    assert.equal(saved.renameOk, true);
     assert.equal(saved.savedCount, 1);
+    assert.equal(saved.renameResults[0].fileId, "saved-1");
     assert.ok(calls.some((call) => call.endpoint === "/adrive/v2/batch"));
+    assert.ok(calls.some((call) => call.endpoint === "/adrive/v3/file/update"));
     const stored = JSON.parse(await fs.readFile(stateFile, "utf8"));
     assert.equal(stored.refresh_token, "rotated-refresh-token");
     assert.equal(typeof stored.source_fingerprint, "string");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("saveAliyunSelectedItems never renames when copy response has no destination file id", async () => {
+  const calls = [];
+  const result = {
+    shareId: "share-id",
+    targetFolderId: "folder-1",
+    driveId: "drive-1",
+    accessToken: "access-token",
+    shareToken: "share-token",
+    fetchImpl: async (url) => {
+      const endpoint = new URL(String(url)).pathname;
+      calls.push(endpoint);
+      if (endpoint === "/adrive/v2/batch") {
+        return jsonResponse({ responses: [{ id: "source-1", status: 202, body: {} }] });
+      }
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
+    }
+  };
+  const saved = await saveAliyunSelectedItems({
+    result,
+    selectedItems: [{ fid: "source-1" }],
+    renamePlan: [{ sourceFid: "source-1", originalName: "old.mp4", suggestedName: "new.mp4" }]
+  });
+  assert.equal(saved.transferOk, true);
+  assert.equal(saved.renameOk, false);
+  assert.match(saved.renameResults[0].error, /目标文件 ID/);
+  assert.equal(calls.includes("/adrive/v3/file/update"), false);
 });
 
 function jsonResponse(body, options = {}) {
