@@ -65,8 +65,8 @@ function buildResourceRenamePlan({
       originalName: item.name,
       suggestedName,
       reason: context.classification.isSeries
-        ? "按统一资源识别规则修正剧集文件名"
-        : "按统一资源识别规则修正保存名称"
+        ? "按上下文资源名修正剧集文件名"
+        : "按上下文资源名修正保存名称"
     }];
   });
 }
