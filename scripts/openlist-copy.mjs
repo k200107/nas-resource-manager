@@ -21,8 +21,6 @@ import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } f
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
-const DEFAULT_INTERVAL_MS = 2_000;
-const DEFAULT_POLL_TIMEOUT_MS = 120_000;
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
   if (isCliEntryPoint(import.meta.url)) {
@@ -61,8 +59,8 @@ function parseArgs(argv) {
     names: [],
     envFile: DEFAULT_ENV_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
-    intervalMs: DEFAULT_INTERVAL_MS,
-    pollTimeoutMs: DEFAULT_POLL_TIMEOUT_MS,
+    intervalMs: 2_000,
+    pollTimeoutMs: 120_000,
     poll: true,
     yes: false,
     format: "json",
@@ -215,7 +213,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
       ...baseResult,
       ok: true,
       dryRun: false,
-      nextAction: "verify_copy_result",
+      nextAction: "check_copy_progress",
       copyRequest: publicCopyResponse(copyResponse),
       copyTask
     };
@@ -223,20 +221,16 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
 
   const verification = await pollCopyCompletion({
     ...context,
-    srcDir,
-    dstDir,
-    names,
-    taskId: copyTask.id,
-    preExistingNames: existingTargetNames,
-    pollTimeoutMs: args.pollTimeoutMs || DEFAULT_POLL_TIMEOUT_MS,
-    intervalMs: args.intervalMs || DEFAULT_INTERVAL_MS
+    taskId: copyTask.id
   });
 
   return {
     ...baseResult,
     ok: verification.ok,
     dryRun: false,
-    nextAction: verification.ok ? "copy_complete" : "inspect_copy_error",
+    nextAction: verification.status === "SUCCEEDED" ? "copy_complete"
+      : verification.status === "FAILED" ? "inspect_copy_error"
+        : "check_copy_progress",
     copyRequest: publicCopyResponse(copyResponse),
     copyTask,
     verification
@@ -245,56 +239,36 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
 
 /** 轮询 OpenList 任务状态，直到成功、失败或达到等待上限。 */
 /** 轮询 OpenList 复制任务状态，直至成功、失败或达到等待上限。 */
-async function pollCopyCompletion({ baseUrl, token, fetchImpl, timeoutMs, srcDir, dstDir, names, taskId, preExistingNames, pollTimeoutMs, intervalMs }) {
-  const deadline = Date.now() + (pollTimeoutMs || DEFAULT_POLL_TIMEOUT_MS);
-  const preExistingSet = new Set(preExistingNames || []);
-  const allNamesPreExisting = names.every((name) => preExistingSet.has(name));
-  let lastSnapshot = {
-    targetFound: false,
-    undoneTasks: [],
-    doneTasks: [],
-    errors: []
-  };
-
-  while (Date.now() <= deadline) {
-    const undone = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" });
-    const done = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" });
-    const matchingUndone = undone.tasks.filter((task) => matchesCopyTask(task, { taskId, srcDir, dstDir, names }));
-    const matchingDone = done.tasks.filter((task) => matchesCopyTask(task, { taskId, srcDir, dstDir, names }));
-    const targetListing = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: dstDir, refresh: true });
-    const targetFound = names.every((name) => targetListing.items.some((item) => item.name === name));
-    const failedDone = matchingDone.filter((task) => task.error || String(task.status || "").toLowerCase().includes("fail"));
-
-    lastSnapshot = {
-      targetFound,
-      undoneTasks: matchingUndone,
-      doneTasks: matchingDone,
-      errors: failedDone.map((task) => ({ id: task.id, name: task.name, error: task.error || task.status }))
-    };
-
-    if (failedDone.length > 0) {
-      return {
-        ok: false,
-        state: "task_failed",
-        ...lastSnapshot
-      };
-    }
-    if (targetFound && (matchingDone.length > 0 || (!allNamesPreExisting && matchingUndone.length === 0))) {
-      return {
-        ok: true,
-        state: "target_visible",
-        ...lastSnapshot
-      };
-    }
-
-    await sleep(intervalMs || DEFAULT_INTERVAL_MS);
+async function pollCopyCompletion({ baseUrl, token, fetchImpl, timeoutMs, taskId }) {
+  if (!taskId) {
+    return { ok: true, status: "UNKNOWN", state: "task_id_missing", reason: "OpenList 未返回可追踪的 task ID。" };
   }
 
-  return {
-    ok: false,
-    state: "timeout",
-    ...lastSnapshot
-  };
+  const [undone, done] = await Promise.all([
+    listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" }),
+    listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" })
+  ]);
+  const active = undone.tasks.find((task) => task.id === taskId);
+  const completed = done.tasks.find((task) => task.id === taskId);
+
+  if (active && completed) {
+    return { ok: true, status: "UNKNOWN", state: "task_in_both_lists", taskId };
+  }
+  if (active) {
+    return { ok: true, status: "ACTIVE", state: "copying", taskId, task: active };
+  }
+  if (!completed) {
+    return { ok: true, status: "UNKNOWN", state: "task_not_found", taskId };
+  }
+
+  const errorText = String(completed.error || "").trim();
+  const statusText = String(completed.status || "").toLowerCase();
+  if (errorText || /fail|error|cancel/.test(statusText)) {
+    return { ok: false, status: "FAILED", state: "task_failed", taskId, task: completed, error: errorText || completed.status };
+  }
+
+  // OpenList 的 done 列表代表任务已进入终态；部分版本 status 文本仍显示 uploading。
+  return { ok: true, status: "SUCCEEDED", state: "task_done", taskId, task: completed };
 }
 
 /** 调用 OpenList fs/list 读取一个目录；只返回名称、类型、大小和修改时间等规划所需信息。 */
