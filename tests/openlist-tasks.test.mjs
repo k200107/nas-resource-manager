@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   filterTasks,
+  lookupOpenListTaskById,
   parseArgs,
   runOpenListTasks
 } from "../scripts/openlist-tasks.mjs";
@@ -43,6 +44,30 @@ test("runOpenListTasks lists tasks with injected fetch", async () => {
   assert.equal(result.ok, true);
   assert.equal(result.nextAction, "report_tasks");
   assert.equal(result.tasks[0].id, "task-1");
+});
+
+test("lookupOpenListTaskById trusts the done bucket even if status text remains uploading", async () => {
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test",
+    token: "token",
+    id: "copy-77",
+    fetchImpl: async (url) => {
+      const endpoint = String(url);
+      if (endpoint.endsWith("/api/task/copy/undone")) {
+        return jsonResponse({ code: 200, message: "success", data: [] });
+      }
+      if (endpoint.endsWith("/api/task/copy/done")) {
+        return jsonResponse({
+          code: 200,
+          message: "success",
+          data: [{ id: "copy-77", state: 2, status: "uploading", progress: 0.13, error: "" }]
+        });
+      }
+      throw new Error("Unexpected request: " + endpoint);
+    }
+  });
+  assert.equal(result.status, "SUCCEEDED");
+  assert.equal(result.bucket, "done");
 });
 
 test("runOpenListTasks previews cancel without yes", async () => {
