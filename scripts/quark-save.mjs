@@ -52,7 +52,7 @@ async function main() {
 
   if (args.dryRun) {
     if (jsonOutput) {
-      console.log(JSON.stringify(buildQuarkSubagentPreview({ args, result }), null, 2));
+      console.log(JSON.stringify(args.compact ? buildQuarkCompactPreview({ args, result }) : buildQuarkSubagentPreview({ args, result }), null, 2));
     } else {
       console.log(renderShareItemsTable(result));
       console.log("\n--dry-run 已启用：只预览资源和重命名建议，不会调用转存接口。");
@@ -94,7 +94,7 @@ async function main() {
   });
 
   if (jsonOutput) {
-    console.log(JSON.stringify(buildQuarkSubagentSave({ args, result, saveResult }), null, 2));
+    console.log(JSON.stringify(args.compact ? buildQuarkCompactSave({ args, result, saveResult }) : buildQuarkSubagentSave({ args, result, saveResult }), null, 2));
   } else {
     console.log(renderSaveSummary(saveResult));
   }
@@ -117,7 +117,8 @@ function parseArgs(argv) {
     yes: false,
     dryRun: false,
     noRename: false,
-    format: "markdown"
+    format: "markdown",
+    compact: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -148,6 +149,8 @@ function parseArgs(argv) {
       parsed.dryRun = true;
     } else if (arg === "--no-rename") {
       parsed.noRename = true;
+    } else if (arg === "--compact") {
+      parsed.compact = true;
     } else if (arg === "--json") {
       parsed.format = "json";
     } else if (arg === "--format") {
@@ -651,6 +654,40 @@ function renderSaveSummary(saveResult) {
 
 /** 生成供自动化代理展示的夸克资源预览，不执行保存。 */
 /** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
+
+function buildQuarkCompactPreview({ args = {}, result }) {
+  const selected = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
+  return {
+    ok: true, provider: "quark", mode: "preview", nextAction: "confirm_before_save",
+    source: args.shareUrl || "", target: args.toUrl || "",
+    resource: result.contextName || result.shareTitle || "",
+    type: result.classification?.type || "unknown",
+    selectedItems: selected.map((item) => ({
+      rank: item.rank, id: item.fid, name: item.name, isDir: item.isDir, size: item.size
+    })),
+    renamePlan: (result.renamePlan || []).map((item, index) => ({
+      rank: index + 1, originalName: item.originalName, suggestedName: item.suggestedName
+    }))
+  };
+}
+function buildQuarkCompactSave({ args = {}, saveResult }) {
+  const failures = (saveResult.renameResults || []).filter((item) => !item.ok);
+  const taskStatus = Number(saveResult.task?.data?.status);
+  const transferSucceeded = taskStatus === 2;
+  const transferFailed = taskStatus === 3 || taskStatus === 4;
+  const status = transferSucceeded ? "SUCCEEDED" : transferFailed ? "FAILED" : "UNKNOWN";
+  return {
+    ok: transferSucceeded && failures.length === 0, provider: "quark", mode: "saved", status,
+    source: args.shareUrl || "", target: args.toUrl || "", taskId: saveResult.taskId || "",
+    selectedCount: (saveResult.selectedItems || []).length,
+    rename: {
+      succeeded: (saveResult.renameResults || []).length - failures.length,
+      failed: failures.length,
+      failures: failures.map((item) => ({ name: item.originalName, error: item.error || "rename failed" }))
+    }
+  };
+}
+
 function buildQuarkSubagentPreview({ args = {}, result }) {
   const selectedItems = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
@@ -982,8 +1019,11 @@ export {
   normalizeContextName,
   parseQuarkFolderUrl,
   parseQuarkShareUrl,
+  parseArgs,
   parseSelection,
   resolveQuarkFolderPath,
   resolveRenamePlan,
-  renderShareItemsTable
+  renderShareItemsTable,
+  buildQuarkCompactPreview,
+  buildQuarkCompactSave,
 };
