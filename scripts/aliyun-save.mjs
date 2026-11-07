@@ -2,7 +2,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { classifyResource, parseSelection } from "./cloud-save-common.mjs";
+import {
+  classifyResource,
+  extractEpisodeLabel,
+  getExtension,
+  parseJson,
+  parseSelection,
+  sanitizeFileName,
+  stripExtension,
+  suggestSavedName
+} from "./cloud-save-common.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { isCliEntryPoint } from "./cli-utils.mjs";
 
@@ -55,16 +64,20 @@ async function main() {
 
   const saved = await saveAliyunSelectedItems({
     result,
-    selectedItems: result.selectedItems
+    selectedItems: result.selectedItems,
+    renamePlan: result.renamePlan
   });
   console.log(JSON.stringify({
     ok: saved.ok,
+    transferOk: saved.transferOk,
+    renameOk: saved.renameOk,
     provider: "aliyun",
     mode: "saved",
     source: result.shareUrl,
     target: result.targetPath,
     savedCount: saved.savedCount,
-    results: saved.results
+    results: saved.results,
+    renameResults: saved.renameResults
   }, null, 2));
 }
 
@@ -76,6 +89,8 @@ function parseArgs(argv) {
     contextName: "",
     resourceType: "auto",
     selection: "all",
+    agentRenamePlan: null,
+    noRename: false,
     envFile: DEFAULT_ENV_FILE,
     stateFile: DEFAULT_STATE_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -88,6 +103,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--dry-run") parsed.dryRun = true;
     else if (arg === "--yes") parsed.yes = true;
+    else if (arg === "--no-rename") parsed.noRename = true;
     else if (arg === "--json") parsed.format = "json";
     else if (arg === "--format") parsed.format = argv[++index] || "text";
     else if (arg === "--env-file" || arg === "--dotenv") parsed.envFile = argv[++index] || DEFAULT_ENV_FILE;
@@ -96,7 +112,8 @@ function parseArgs(argv) {
     else if (arg === "--context-name") parsed.contextName = argv[++index] || "";
     else if (arg === "--resource-type") parsed.resourceType = argv[++index] || "auto";
     else if (arg === "--select") parsed.selection = argv[++index] || "all";
-    else if (arg.startsWith("--")) throw new Error(`Unknown option: ${arg}`);
+    else if (arg === "--rename-plan-json") parsed.agentRenamePlan = parseJson(argv[++index], "--rename-plan-json");
+    else if (arg.startsWith("--")) throw new Error(\`Unknown option: \${arg}\`);
     else positionals.push(arg);
   }
   parsed.shareUrl = positionals[0] || "";
@@ -175,6 +192,15 @@ async function prepareAliyunSave(args = {}) {
     items
   });
   const selectedItems = parseSelection(args.selection || "all", items);
+  const renamePlan = buildAliyunRenamePlan({
+    resourceType: args.resourceType,
+    contextName,
+    shareTitle: shareInfo.share_name || shareInfo.share_title || "",
+    savePath: targetPath,
+    selectedItems,
+    agentRenamePlan: args.agentRenamePlan,
+    noRename: args.noRename
+  });
   return {
     provider: "aliyun",
     shareUrl: args.shareUrl,
@@ -190,6 +216,7 @@ async function prepareAliyunSave(args = {}) {
     resource,
     items,
     selectedItems,
+    renamePlan,
     fetchImpl,
     timeoutMs: args.timeoutMs
   };
@@ -249,7 +276,7 @@ async function refreshAliyunToken(refreshToken, options = {}) {
     timeoutMs: options.timeoutMs
   });
   if (!response.access_token || !response.default_drive_id) {
-    throw new Error(`阿里云盘登录态验证失败：${response.code || response.message || "响应缺少 access_token/default_drive_id"}。请重新获取 refresh_token。`);
+    throw new Error(\`阿里云盘登录态验证失败：\${response.code || response.message || "响应缺少 access_token/default_drive_id"}。请重新获取 refresh_token。\`);
   }
   return response;
 }
@@ -303,15 +330,73 @@ async function resolveAliyunFolder({ driveId, targetPath, accessToken, fetchImpl
       timeoutMs
     });
     const match = (response.items || []).find((item) => item.type === "folder" && item.name === segment);
-    if (!match) throw new Error(`阿里云盘保存目录不存在：${targetPath}（缺少目录：${segment}）。请先在阿里云盘中创建目录。`);
+    if (!match) throw new Error(\`阿里云盘保存目录不存在：\${targetPath}（缺少目录：\${segment}）。请先在阿里云盘中创建目录。\`);
     current = match;
     parentId = match.file_id;
   }
   return current;
 }
 
-async function saveAliyunSelectedItems({ result, selectedItems }) {
-  if (!selectedItems?.length) return { ok: true, savedCount: 0, results: [] };
+function buildAliyunRenamePlan({
+  resourceType = "auto",
+  contextName = "",
+  shareTitle = "",
+  savePath = "/",
+  selectedItems = [],
+  agentRenamePlan = null,
+  noRename = false
+} = {}) {
+  if (noRename) return [];
+  if (agentRenamePlan !== null) {
+    if (!Array.isArray(agentRenamePlan)) throw new Error("Agent rename plan must be a JSON array");
+    const plan = [];
+    for (const decision of agentRenamePlan) {
+      const rank = Number(decision.rank ?? decision.index);
+      if (!Number.isFinite(rank) || rank < 1) throw new Error("Agent rename plan item is missing a valid rank/index");
+      const selectedIndex = selectedItems.findIndex((item) => item.rank === rank);
+      const fallbackIndex = selectedItems[rank - 1] ? rank - 1 : -1;
+      const itemIndex = selectedIndex >= 0 ? selectedIndex : fallbackIndex;
+      if (itemIndex < 0) throw new Error(\`Agent rename plan rank is not selected: \${rank}\`);
+      const item = selectedItems[itemIndex];
+      const suggestedName = sanitizeFileName(decision.name || decision.suggestedName || "");
+      if (!suggestedName) throw new Error("Agent rename plan item is missing name/suggestedName");
+      if (suggestedName === item.name) continue;
+      plan.push({
+        sourceFid: item.fid,
+        originalName: item.name,
+        suggestedName,
+        reason: decision.reason || "Agent 指定重命名"
+      });
+    }
+    return plan;
+  }
+
+  const baseName = sanitizeFileName(contextName || shareTitle || "");
+  if (!baseName) return [];
+  const classification = classifyResource({ resourceType, contextName: baseName, shareTitle, items: selectedItems });
+  const plan = [];
+  selectedItems.forEach((item) => {
+    const suggestedName = suggestSavedName({
+      baseName,
+      item,
+      selectedCount: selectedItems.length,
+      isSeries: classification.isSeries
+    });
+    if (!suggestedName || suggestedName === item.name) return;
+    plan.push({
+      sourceFid: item.fid,
+      originalName: item.name,
+      suggestedName,
+      reason: classification.isSeries ? "按上下文资源名修正剧集文件名" : "按上下文资源名修正保存名称"
+    });
+  });
+  return plan;
+}
+
+async function saveAliyunSelectedItems({ result, selectedItems, renamePlan = result.renamePlan || [] }) {
+  if (!selectedItems?.length) {
+    return { ok: true, transferOk: true, renameOk: true, savedCount: 0, results: [], renameResults: [] };
+  }
   const requests = selectedItems.map((item) => ({
     body: {
       file_id: item.fid,
@@ -341,11 +426,59 @@ async function saveAliyunSelectedItems({ result, selectedItems }) {
     message: item.body?.message || ""
   }));
   const okCount = results.filter((item) => item.ok).length;
+  const transferOk = results.length === selectedItems.length && okCount === selectedItems.length;
+
+  const renameResults = [];
+  for (const plan of renamePlan) {
+    const copied = results.find((item) => item.id === plan.sourceFid && item.ok);
+    if (!copied) {
+      renameResults.push({ ...plan, ok: false, error: "转存未成功，跳过重命名。" });
+      continue;
+    }
+    if (!copied.fileId) {
+      renameResults.push({ ...plan, ok: false, error: "转存响应未提供目标文件 ID，无法安全定位副本，已跳过重命名。" });
+      continue;
+    }
+    try {
+      const renameResponse = await renameAliyunFile({
+        driveId: result.driveId,
+        fileId: copied.fileId,
+        newName: plan.suggestedName,
+        accessToken: result.accessToken,
+        fetchImpl: result.fetchImpl || globalThis.fetch,
+        timeoutMs: result.timeoutMs
+      });
+      renameResults.push({ ...plan, fileId: copied.fileId, ok: true, response: renameResponse });
+    } catch (error) {
+      renameResults.push({ ...plan, fileId: copied.fileId, ok: false, error: error.message || String(error) });
+    }
+  }
+
+  const renameOk = renameResults.every((item) => item.ok);
   return {
-    ok: results.length === selectedItems.length && okCount === selectedItems.length,
+    ok: transferOk && renameOk,
+    transferOk,
+    renameOk,
     savedCount: okCount,
-    results
+    results,
+    renameResults
   };
+}
+
+async function renameAliyunFile({ driveId, fileId, newName, accessToken, fetchImpl, timeoutMs }) {
+  const safeName = sanitizeFileName(newName);
+  if (!safeName) throw new Error("新文件名不能为空。");
+  return requestAliyun("/adrive/v3/file/update", {
+    body: {
+      drive_id: driveId,
+      file_id: fileId,
+      name: safeName,
+      check_name_mode: "refuse"
+    },
+    accessToken,
+    fetchImpl,
+    timeoutMs
+  });
 }
 
 async function requestAliyun(endpoint, options = {}) {
@@ -355,9 +488,9 @@ async function requestAliyun(endpoint, options = {}) {
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || DEFAULT_TIMEOUT_MS);
   try {
     const headers = { ...COMMON_HEADERS };
-    if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
+    if (options.accessToken) headers.Authorization = \`Bearer \${options.accessToken}\`;
     if (options.shareToken) headers["x-share-token"] = options.shareToken;
-    const response = await fetchImpl(`${API_BASE}${endpoint}`, {
+    const response = await fetchImpl(\`\${API_BASE}\${endpoint}\`, {
       method: "POST",
       headers,
       body: JSON.stringify(options.body || {}),
@@ -368,11 +501,11 @@ async function requestAliyun(endpoint, options = {}) {
     try {
       json = text ? JSON.parse(text) : {};
     } catch {
-      throw new Error(`阿里云盘接口返回非 JSON：${text.slice(0, 160)}`);
+      throw new Error(\`阿里云盘接口返回非 JSON：\${text.slice(0, 160)}\`);
     }
-    if (!response.ok) throw new Error(`阿里云盘接口 HTTP ${response.status}：${json.message || json.code || "request failed"}`);
+    if (!response.ok) throw new Error(\`阿里云盘接口 HTTP \${response.status}：\${json.message || json.code || "request failed"}\`);
     if (json.code && !["200", "0"].includes(String(json.code))) {
-      throw new Error(`阿里云盘接口错误 ${json.code}：${json.message || json.error || "unknown error"}`);
+      throw new Error(\`阿里云盘接口错误 \${json.code}：\${json.message || json.error || "unknown error"}\`);
     }
     return json;
   } finally {
@@ -386,14 +519,14 @@ async function readAuthState(filePath) {
     return { refresh_token: String(value.refresh_token || ""), source_fingerprint: String(value.source_fingerprint || "") };
   } catch (error) {
     if (error.code === "ENOENT") return {};
-    throw new Error(`读取阿里云盘本地授权状态失败：${error.message}`);
+    throw new Error(\`读取阿里云盘本地授权状态失败：\${error.message}\`);
   }
 }
 
 async function persistAuthState(filePath, state) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  const tempPath = \`\${filePath}.\${process.pid}.tmp\`;
+  await fs.writeFile(tempPath, \`\${JSON.stringify(state, null, 2)}\n\`, { mode: 0o600 });
   await fs.rename(tempPath, filePath);
   try { await fs.chmod(filePath, 0o600); } catch {}
 }
@@ -406,6 +539,7 @@ function buildAliyunSubagentPreview({ args, result }) {
     isDir: item.isDir,
     size: item.size
   }));
+  const renamePlan = result.renamePlan || [];
   return {
     ok: true,
     provider: "aliyun",
@@ -426,12 +560,16 @@ function buildAliyunSubagentPreview({ args, result }) {
       selectedRanks: selectedItems.map((item) => item.rank),
       selectedItems
     },
-    renamePlan: [],
+    renamePlan,
     confirmation: {
       source: result.shareUrl,
       selectedItems,
       target: { provider: "aliyun", pathOrUrl: result.targetPath },
-      finalNaming: [],
+      finalNaming: renamePlan.map((item) => ({
+        originalName: item.originalName,
+        suggestedName: item.suggestedName,
+        reason: item.reason
+      })),
       commandHint: "After the user confirms this preview, rerun the same command with --yes --format json."
     }
   };
@@ -441,18 +579,24 @@ function renderPreview(preview) {
   const lines = [
     "### 阿里云盘转存预览",
     "",
-    `- 分享：${preview.source.shareUrl}`,
-    `- 保存目录：${preview.target.pathOrUrl}`,
-    `- 资源类型：${preview.resource.label}（${preview.resource.reason}）`,
-    `- 已选项目：${preview.selection.selectedItems.length}`,
+    \`- 分享：\${preview.source.shareUrl}\`,
+    \`- 保存目录：\${preview.target.pathOrUrl}\`,
+    \`- 资源类型：\${preview.resource.label}（\${preview.resource.reason}）\`,
+    \`- 已选项目：\${preview.selection.selectedItems.length}\`,
     "",
     "| 序号 | 名称 | 类型 | 大小 |",
     "|---:|---|---|---:|"
   ];
   for (const item of preview.selection.selectedItems) {
-    lines.push(`| ${item.rank} | ${String(item.name).replaceAll("|", " ")} | ${item.isDir ? "文件夹" : "文件"} | ${item.size || "-"} |`);
+    lines.push(\`| \${item.rank} | \${String(item.name).replaceAll("|", " ")} | \${item.isDir ? "文件夹" : "文件"} | \${item.size || "-"} |\`);
   }
-  lines.push("", "预览模式不会执行转存。确认后再使用 --yes。");
+  if (preview.renamePlan.length) {
+    lines.push("", "建议转存后重命名：", "", "| 原名称 | 建议名称 | 原因 |", "|---|---|---|");
+    for (const item of preview.renamePlan) {
+      lines.push(\`| \${item.originalName.replaceAll("|", " ")} | \${item.suggestedName.replaceAll("|", " ")} | \${item.reason} |\`);
+    }
+  }
+  lines.push("", "预览模式不会执行转存或重命名。确认后再使用 --yes。");
   return lines.join("\n");
 }
 
@@ -465,6 +609,7 @@ function normalizeCloudPath(value) {
 
 export {
   authenticateAliyun,
+  buildAliyunRenamePlan,
   buildAliyunSubagentPreview,
   checkAliyunSaveTarget,
   listAliyunShareItems,
@@ -472,6 +617,7 @@ export {
   parseArgs,
   prepareAliyunSave,
   refreshAliyunToken,
+  renameAliyunFile,
   requestAliyun,
   resolveAliyunFolder,
   saveAliyunSelectedItems,
