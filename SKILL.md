@@ -29,7 +29,8 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Quark preview | npm run quark-save -- "$URL" "$DEST" --dry-run --format json --compact |
 | Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json --compact |
 | OpenList copy preview | npm run openlist-copy -- "$SRC" "$DST" "$NAME" --format json |
-| OpenList copy after confirmation | Same command with --yes --format json --compact |
+| Provider save after confirmation | Same provider command with --yes --format json --compact |
+| OpenList copy after confirmation | Same command with --yes --format json |
 | Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
 
 ## Minimal workflow
