@@ -30,7 +30,7 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json |
 | OpenList copy preview | npm run openlist-copy -- "$SRC" "$DST" "$NAME" --format json |
 | OpenList copy after confirmation | Same command with --yes --format json |
-| Inspect copy tasks | npm run openlist-tasks -- list copy undone --format json or list copy done |
+| Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
 
 ## Minimal workflow
 
