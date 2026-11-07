@@ -49,11 +49,21 @@ test("Quark compact preview keeps selected resource and omits repeated payloads"
 test("Quark compact save returns task ID and terminal status only", () => {
   const compact = buildQuarkCompactSave({
     args: { shareUrl: "share", toUrl: "/影视库" },
-    saveResult: { taskId: "task-1", selectedItems: [{ fid: "q1" }], renameResults: [] }
+    saveResult: { taskId: "task-1", task: { data: { status: 2 } }, selectedItems: [{ fid: "q1" }], renameResults: [] }
   });
   assert.equal(compact.status, "SUCCEEDED");
+  assert.equal(compact.ok, true);
   assert.equal(compact.taskId, "task-1");
   assert.equal("savedFids" in compact, false);
+});
+
+test("Quark compact save never infers success without a terminal task status", () => {
+  const compact = buildQuarkCompactSave({
+    args: { shareUrl: "share", toUrl: "/影视库" },
+    saveResult: { taskId: "task-pending", task: { data: { status: 1 } }, selectedItems: [{ fid: "q1" }], renameResults: [] }
+  });
+  assert.equal(compact.status, "UNKNOWN");
+  assert.equal(compact.ok, false);
 });
 
 test("Baidu compact preview keeps exact selected item and rename target", () => {
