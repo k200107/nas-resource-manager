@@ -27,6 +27,28 @@ test("filterTasks can select Baidu copy tasks", () => {
   assert.deepEqual(filterTasks(tasks, { provider: "quark" }).map((task) => task.id), ["b"]);
 });
 
+test("runOpenListTasks gets one task status with a single command", async () => {
+  const endpoints = [];
+  const result = await runOpenListTasks({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: { action: "get", group: "copy", taskId: "copy-77" },
+    fetchImpl: async (url) => {
+      const endpoint = String(url);
+      endpoints.push(endpoint);
+      if (endpoint.endsWith("/api/task/copy/undone")) {
+        return jsonResponse({ code: 200, message: "success", data: [] });
+      }
+      if (endpoint.endsWith("/api/task/copy/done")) {
+        return jsonResponse({ code: 200, message: "success", data: [{ id: "copy-77", state: 2, status: "uploading", progress: 0.13, error: "" }] });
+      }
+      throw new Error("Unexpected request: " + endpoint);
+    }
+  });
+  assert.equal(result.status, "SUCCEEDED");
+  assert.equal(result.taskId, "copy-77");
+  assert.equal(endpoints.length, 2);
+});
+
 test("runOpenListTasks lists tasks with injected fetch", async () => {
   const result = await runOpenListTasks({
     env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
