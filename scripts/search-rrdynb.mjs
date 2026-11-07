@@ -18,7 +18,7 @@ import { sortCloudLinksByPriority } from "./provider-priority.mjs";
 
 
 const DEFAULT_API_BASE = "https://so.252035.xyz/api";
-const DEFAULT_MAX_CANDIDATES = 50;
+const DEFAULT_MAX_CANDIDATES = 10;
 const DEFAULT_RESULT_TYPE = "all";
 const DEFAULT_SOURCE_TYPE = "all";
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -66,7 +66,7 @@ async function main() {
     searchResult.linkChecks = await checkSearchResultLinks(args, searchResult.downloadLinks);
   }
 
-  console.log(formatSearchResult(searchResult, args.format));
+  console.log(formatSearchResult(searchResult, args.format, args.compact));
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
@@ -91,7 +91,8 @@ function parseArgs(argv) {
     checkLinks: false,
     viewToken: "",
     proxyUrl: "",
-    format: "markdown"
+    format: "markdown",
+    compact: false
   };
   const positionals = [];
 
@@ -133,6 +134,8 @@ function parseArgs(argv) {
       parsed.proxyUrl = argv[++index] || "";
     } else if (arg === "--format") {
       parsed.format = argv[++index] || "markdown";
+    } else if (arg === "--compact") {
+      parsed.compact = true;
     } else if (arg === "--json") {
       parsed.format = "json";
     } else if (arg === "--markdown") {
@@ -168,10 +171,29 @@ function printUsage() {
 
 /** 将formatSearchResult相关结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 /** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
-function formatSearchResult(searchResult, format = "markdown") {
-  if (format === "json") return JSON.stringify(searchResult, null, 2);
+function formatSearchResult(searchResult, format = "markdown", compact = false) {
+  if (format === "json") return JSON.stringify(compact ? toCompactAgentResult(searchResult) : searchResult, null, 2);
   if (format === "markdown") return renderMarkdownTable(searchResult);
   throw new Error(`Unsupported format: ${format}`);
+}
+
+function toCompactAgentResult(result) {
+  return {
+    ok: result.ok,
+    query: result.selectedQuery || result.inputTitle || "",
+    total: result.availableTotal || 0,
+    returnedCount: result.returnedCount || 0,
+    providerCounts: result.providerCounts || {},
+    results: (result.downloadLinks || []).map((link, index) => ({
+      rank: index + 1,
+      title: link.note || link.label || result.inputTitle || "未命名资源",
+      provider: link.provider || link.diskType || "",
+      url: link.url || "",
+      password: link.extractionCode || "",
+      source: link.source || "",
+      updatedAt: link.datetime || ""
+    }))
+  };
 }
 
 /** 处理searchPanSou相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
