@@ -212,6 +212,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
     return {
       ...baseResult,
       ok: true,
+      status: "SUBMITTED",
       dryRun: false,
       nextAction: "check_copy_progress",
       copyRequest: publicCopyResponse(copyResponse),
