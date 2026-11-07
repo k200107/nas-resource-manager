@@ -49,7 +49,7 @@ test("buildAliyunRenamePlan creates movie and series naming plans", () => {
     selectedItems: [{ fid: "f1", rank: 1, name: "video.mp4", isDir: false }]
   });
   assert.equal(moviePlan.length, 1);
-  assert.equal(moviePlan[0].suggestedName, "猫和老鼠 胡桃夹子传奇 (2007).mp4");
+  assert.equal(moviePlan[0].suggestedName, "猫和老鼠：胡桃夹子传奇 (2007).mp4");
   assert.equal(moviePlan[0].sourceFid, "f1");
 
   const seriesPlan = buildAliyunRenamePlan({
