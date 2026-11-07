@@ -62,7 +62,7 @@ test("enforces OpenList task completion before STAGED without file stability che
   assert.equal(verifying.state, "VERIFYING");
   await assert.rejects(() => transitionTask(task.id, "STAGED", {
     verification: { passed: true, transferCompleted: false, openListTaskId: "openlist-77", stableChecks: 2 }
-  }, options), /OpenList 任务已成功完成/);
+  }, options), /OpenList 复制任务已明确成功/);
   const staged = await transitionTask(task.id, "STAGED", {
     verification: { passed: true, transferCompleted: true, openListTaskId: "openlist-77" }
   }, options);
