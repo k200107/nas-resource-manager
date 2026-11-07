@@ -25,11 +25,11 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Search for user display | npm run search -- "片名" --max-candidates 10 |
 | Readiness (first setup or after auth/path error) | npm run check-ready |
 | Focused env check | npm run check-env -- --json |
-| Aliyun preview | npm run aliyun-save -- "$URL" "$DEST" --dry-run --format json |
-| Quark preview | npm run quark-save -- "$URL" "$DEST" --dry-run --format json |
-| Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json |
+| Aliyun preview | npm run aliyun-save -- "$URL" "$DEST" --dry-run --format json --compact |
+| Quark preview | npm run quark-save -- "$URL" "$DEST" --dry-run --format json --compact |
+| Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json --compact |
 | OpenList copy preview | npm run openlist-copy -- "$SRC" "$DST" "$NAME" --format json |
-| OpenList copy after confirmation | Same command with --yes --format json |
+| OpenList copy after confirmation | Same command with --yes --format json --compact |
 | Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
 
 ## Minimal workflow
@@ -49,7 +49,7 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 
 ## Token-efficient rules
 
-- For Agent search, use --format json --compact. This returns one flat row per result without duplicate nested candidate/download-link structures.
+- For Agent search and all provider save previews/results, use --format json --compact. Compact provider output omits duplicated confirmation payloads and raw task metadata while retaining source, target, selected items, rename plan, task ID, and status. This returns one flat row per result without duplicate nested candidate/download-link structures.
 - Default to 10 candidates. Expand only on request.
 - Do not call --check-links unless the user asks for link verification or the result set is unusually uncertain.
 - Run full check-ready only on first setup or after an authentication/path failure. During normal use, let the selected provider/OpenList call report a concrete error; then run only the relevant focused check.
