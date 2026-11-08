@@ -427,6 +427,7 @@ function parseBaiduShareUrl(value) {
 function extractBaiduShareContextFromHtml(html) {
   const text = String(html || "");
   const mergedContext = mergeBaiduShareContexts([
+    extractEmbeddedShareIds(text),
     extractYunDataContext(text),
     extractLocalsMsetContext(text),
     extractJsonLoginContext(text)
@@ -438,6 +439,22 @@ function extractBaiduShareContextFromHtml(html) {
   }
 
   throw new Error("无法解析百度分享页中的分享上下文。");
+}
+
+/** 验证提取码后的分享页会把 yunData 写成变量引用模板，真实 ID 只存在于页面内嵌 JSON 中。 */
+function extractEmbeddedShareIds(text) {
+  const body = String(text || "");
+  const shareId = body.match(/["']?shareid["']?\s*:\s*["']?(\d{5,})["']?/);
+  const shareUk = body.match(/["']?share_uk["']?\s*:\s*["']?(\d{5,})["']?/);
+  if (!shareId || !shareUk) return null;
+  return {
+    bdstoken: "",
+    shareId: shareId[1],
+    shareUk: shareUk[1],
+    title: "",
+    rootPath: "",
+    files: []
+  };
 }
 
 /** 从页面内嵌 JSON 中提取登录/分享上下文。 */
@@ -503,7 +520,10 @@ function extractJsObjectProperty(body, key) {
   const pattern = new RegExp(`(?:^|,)\\s*${escapeRegExp(key)}\\s*:\\s*(?:"([^"]*)"|'([^']*)'|([^,}]+))`, "s");
   const match = String(body || "").match(pattern);
   if (!match) return "";
-  return String(match[1] ?? match[2] ?? match[3] ?? "").trim();
+  const value = String(match[1] ?? match[2] ?? match[3] ?? "").trim();
+  // 未加引号且含成员访问、运算等特征时，这是页面模板代码而非真实数据。
+  if (match[1] === undefined && match[2] === undefined && /[^0-9A-Za-z_-]/.test(value)) return "";
+  return value;
 }
 
 /** 合并页面不同位置提取到的分享上下文。 */
@@ -602,6 +622,17 @@ function normalizeBaiduShareItems(rows) {
   });
 }
 
+/** share/verify 返回的 randsk 已 URL 编码，交给 URLSearchParams 前需先解码，避免二次编码。 */
+function decodeBaiduSekey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 /** 构造百度分享转存接口所需参数。 */
 /** 构造百度分享转存接口所需的请求数据。 */
 function buildBaiduTransferRequest({
@@ -623,7 +654,7 @@ function buildBaiduTransferRequest({
     shareid: shareId,
     from: shareUk,
     bdstoken,
-    sekey,
+    sekey: decodeBaiduSekey(sekey),
     ondup: "newcopy"
   };
   for (const [key, value] of Object.entries(query)) {

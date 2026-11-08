@@ -99,6 +99,28 @@ locals.mset({"bdstoken":"bd-token","share_uk":"987654321","shareid":12345678901,
   assert.equal(context.files[0].server_filename, "暗影蜘蛛");
 });
 
+test("extractBaiduShareContextFromHtml ignores yunData template references after passcode verification", () => {
+  const context = extractBaiduShareContextFromHtml(`
+<script>
+window.yunData = {
+  skinName: data.skinName,
+  bdstoken: data.bdstoken,
+  uk: data.uk,
+  shareid: data.shareid,
+  share_uk: data.share_uk
+};
+</script>
+<script type="application/json" id="locals-data">
+{"share_uk":"3716169814","shareid":11955819949,"bdstoken":"real-token"}
+</script>
+`);
+
+  assert.equal(context.shareId, "11955819949");
+  assert.equal(context.shareUk, "3716169814");
+  assert.notEqual(context.shareId, "data.shareid");
+  assert.notEqual(context.shareUk, "data.share_uk");
+});
+
 test("normalizeBaiduShareItems maps share rows into confirmable resources", () => {
   const items = normalizeBaiduShareItems([
     {
@@ -197,6 +219,22 @@ test("buildBaiduTransferRequest forwards sekey for passcode-protected shares", (
   assert.equal(request.url.searchParams.get("bdstoken"), "bd-token");
   assert.equal(request.body.get("path"), "/影视库");
   assert.equal(request.body.get("fsidlist"), "[111]");
+});
+
+test("buildBaiduTransferRequest does not double-encode the verify randsk", () => {
+  const randsk = "qOxamhf8exUJ2A%2BMYSpk3fKNU74nTlVEbQ%2BU26yx144%3D";
+  const request = buildBaiduTransferRequest({
+    bdstoken: "bd-token",
+    shareId: "12345",
+    shareUk: "67890",
+    savePath: "/影视库",
+    sekey: randsk,
+    selectedItems: [{ fsId: 111 }]
+  });
+
+  assert.equal(request.url.searchParams.get("sekey"), decodeURIComponent(randsk));
+  assert.equal(request.url.search.includes("%252B"), false);
+  assert.equal(request.url.search.includes("%2B"), true);
 });
 
 test("renderBaiduShareItemsTable outputs a confirmation table", () => {
