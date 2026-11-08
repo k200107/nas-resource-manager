@@ -10,6 +10,7 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 - Deduplicate identical shares and interleave results across providers, so one drive cannot take every candidate slot.
 - Report structured failures on stdout in `--format json` mode instead of failing silently.
 - All CLI commands share the same failure reporter (`failCli` in `scripts/cli-utils.mjs`): JSON mode exposes `{ ok: false, error }` on stdout, other modes keep it on stderr.
+- Cloud-drive save commands report missing target folders as `willCreateDirectories` in the preview and create them only after an explicit `--yes`; existing folders are reused, never overwritten. `--no-create-dir` restores the fail-fast behaviour.
 - Preserve download links, extraction codes, provider names, source notes, and timestamps.
 - Preview Aliyun, Quark, and Baidu share contents before saving.
 - Validate Aliyun web-session refresh tokens and Quark/Baidu Cookies before real saves.
@@ -252,6 +253,7 @@ npm test
 - Do not move, rename, delete, or overwrite files while a cloud save, transfer, copy, or verification task is active, paused, failed, or in an unknown state.
 - Automatic archive is not enabled yet. The media archive executor does not currently enforce the internal task-state machine's transfer-completion gate; before running it, an operator must confirm the exact OpenList transfer is complete and staged files are stable. Ambiguous identity requires review; exact destination conflicts are paused and never overwritten.
 - Ambiguous media classification should remain in staging for manual review.
+- Automatic directory creation is limited to the configured cloud-drive save path. `--dry-run`, `check-ready`, and all readiness checks never create directories. Provider create-folder endpoints are exercised only after the user confirms the exact preview.
 - The media planner may create missing configured Movies/TVShows root directories (and missing parent directories) through OpenList `fs/mkdir`; it reports every created path. It does not move, rename, copy, or delete media files. Destination subfolders for individual titles/seasons are created only by the separate archive executor after explicit `--yes`. The executor rechecks source and destination immediately before each item, uses resource locks and an idempotency ledger, stops at the first uncertain error, verifies the resulting destination, and never calls copy or delete APIs. It does not yet consult transfer task state, so do not run it against the real Movies/TVShows libraries until the isolated test workspace has passed and the transfer-completion gate has been integrated.
 
 ## Repository Layout

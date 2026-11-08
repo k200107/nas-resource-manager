@@ -3,6 +3,7 @@ import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownT
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint as isCli } from "./cli-utils.mjs";
+import { directoryPlanFields, resolveCloudDirectory, resolveDirectoryMode } from "./cloud-directory.mjs";
 
 /**
  * 解析百度分享资源、展示候选项并按明确选择转存到用户网盘；转存和重命名属于远端写操作。
@@ -39,6 +40,7 @@ const USER_AGENT =
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
   const args = applyEnvDefaults(parseArgs(cliArgs()));
+  args.directoryMode = resolveDirectoryMode(args);
   if (!args.shareUrl || !args.savePath) {
     printUsage();
     process.exit(2);
@@ -121,6 +123,7 @@ function parseArgs(argv) {
     yes: false,
     dryRun: false,
     noRename: false,
+    noCreateDir: false,
     format: "markdown",
     compact: false
   };
@@ -157,6 +160,8 @@ function parseArgs(argv) {
       parsed.dryRun = true;
     } else if (arg === "--no-rename") {
       parsed.noRename = true;
+    } else if (arg === "--no-create-dir") {
+      parsed.noCreateDir = true;
     } else if (arg === "--compact") {
       parsed.compact = true;
     } else if (arg === "--json") {
@@ -209,6 +214,7 @@ function printUsage() {
   console.error("  --yes                          跳过确认，直接使用 --select");
   console.error("  --dry-run                      只列资源和命名建议，不转存");
   console.error("  --no-rename                    转存后不执行重命名修正");
+  console.error("  --no-create-dir                不自动创建缺失的保存目录，保持旧行为");
 }
 
 /** 解析百度分享资源并生成可供人工选择的预览；此阶段以读取和准备为主。 */
@@ -299,9 +305,24 @@ async function prepareBaiduSave(args) {
     selectedItems: selectedPreview
   });
 
+  // strict 保持旧行为，不额外检查目录（由转存接口自行校验）。
+  // preview 只列出将创建的路径；create 只会在用户 --yes 确认后被推导出来。
+  const directoryPlan = args.directoryMode && args.directoryMode !== "strict"
+    ? await planBaiduDirectory({
+        apiBase: args.apiBase,
+        appId: args.appId,
+        timeoutMs: args.timeoutMs,
+        cookie,
+        bdstoken: context.bdstoken,
+        savePath: args.savePath,
+        mode: args.directoryMode
+      })
+    : null;
+
   return {
     ok: true,
     cookie,
+    directoryPlan,
     share: {
       ...share,
       bdstoken: context.bdstoken,
@@ -719,6 +740,7 @@ function buildBaiduCompactPreview({ args = {}, result }) {
   const selected = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
     ok: true, provider: "baidu", mode: "preview", nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.directoryPlan),
     source: args.shareUrl || "", target: result.savePath || args.savePath || "",
     resource: result.contextName || result.shareTitle || "",
     type: result.classification?.type || "unknown",
@@ -755,6 +777,7 @@ function buildBaiduSubagentPreview({ args = {}, result }) {
     provider: "baidu",
     mode: "preview",
     nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.directoryPlan),
     source: {
       shareUrl: args.shareUrl || "",
       shareId: result.share?.featureStr || "",
@@ -992,6 +1015,68 @@ async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, 
 
 /** 读取百度网盘目标目录内容，不执行目录修改。 */
 /** 通过对应服务接口读取列表数据，不修改远端内容。 */
+/**
+ * 逐级检查百度保存目录；缺失时按 mode 决定只列出还是创建。
+ *
+ * 只有"明确的目录不存在"错误才视为缺失，凭据、网络等其它异常一律上抛，
+ * 避免因为一次偶发故障而误建目录。
+ */
+async function planBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, savePath, mode = "preview" }) {
+  if (!cookie) return null;
+  const segments = parseBaiduSavePath(savePath || "/").split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+  return resolveCloudDirectory({
+    segments,
+    mode: mode === "create" ? "create" : "preview",
+    providerLabel: "百度网盘",
+    joinPath: (parentPath, segment) => `${String(parentPath).replace(/\/+$/, "")}/${segment}`,
+    placeholder: (parent, segment, pendingPath) => ({ id: null, name: segment, path: pendingPath, pendingCreate: true }),
+    listSegment: async (parent, segment) => {
+      const dirPath = `${String(parent.path).replace(/\/+$/, "")}/${segment}`;
+      try {
+        await listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir: dirPath });
+        return { id: dirPath, name: segment, path: dirPath };
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (/Baidu API error (-9|31066)\b|目录不存在|does not exist/i.test(message)) return null;
+        throw error;
+      }
+    },
+    createSegment: async (parent, segment, pendingPath) => {
+      await createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath: pendingPath });
+      return { id: pendingPath, name: segment, path: pendingPath };
+    }
+  });
+}
+
+/** 在百度网盘创建单个目录；仅由 create 模式调用。 */
+async function createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath }) {
+  const url = new URL("/api/create", normalizeApiBase(apiBase));
+  const query = {
+    a: "commit",
+    app_id: appId || DEFAULT_APP_ID,
+    channel: "chunlei",
+    web: "1",
+    clienttype: "0",
+    bdstoken: bdstoken || ""
+  };
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  const body = new URLSearchParams();
+  body.set("path", dirPath);
+  body.set("isdir", "1");
+  body.set("block_list", "[]");
+  await fetchBaiduJson(url, {
+    method: "POST",
+    body,
+    timeoutMs,
+    cookie,
+    referer: normalizeApiBase(apiBase)
+  });
+  return { path: dirPath };
+}
+
 async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }) {
   const url = new URL("/api/list", normalizeApiBase(apiBase));
   const query = {
@@ -1261,10 +1346,12 @@ export {
   buildBaiduSubagentSave,
   buildBaiduTransferRequest,
   extractBaiduShareContextFromHtml,
+  getBaiduBdstoken,
   normalizeBaiduShareItems,
   parseBaiduSavePath,
   parseBaiduShareUrl,
   parseArgs,
+  planBaiduDirectory,
   renderBaiduShareItemsTable,
   buildBaiduCompactPreview,
   buildBaiduCompactSave,

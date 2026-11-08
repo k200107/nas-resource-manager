@@ -3,6 +3,7 @@ import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownT
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint as isCli } from "./cli-utils.mjs";
+import { directoryPlanFields, resolveCloudDirectory, resolveDirectoryMode } from "./cloud-directory.mjs";
 
 /**
  * 解析夸克分享资源、展示候选项并按明确选择保存到用户网盘；保存和重命名属于远端写操作。
@@ -37,6 +38,7 @@ const USER_AGENT =
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
   const args = applyEnvDefaults(parseArgs(cliArgs()));
+  args.directoryMode = resolveDirectoryMode(args);
   if (!args.shareUrl || !args.toUrl) {
     printUsage();
     process.exit(2);
@@ -113,6 +115,7 @@ function parseArgs(argv) {
     yes: false,
     dryRun: false,
     noRename: false,
+    noCreateDir: false,
     format: "markdown",
     compact: false
   };
@@ -145,6 +148,8 @@ function parseArgs(argv) {
       parsed.dryRun = true;
     } else if (arg === "--no-rename") {
       parsed.noRename = true;
+    } else if (arg === "--no-create-dir") {
+      parsed.noCreateDir = true;
     } else if (arg === "--compact") {
       parsed.compact = true;
     } else if (arg === "--json") {
@@ -195,6 +200,7 @@ function printUsage() {
   console.error("  --yes                          跳过确认，直接使用 --select");
   console.error("  --dry-run                      只列资源和命名建议，不转存");
   console.error("  --no-rename                    转存后不执行重命名修正");
+  console.error("  --no-create-dir                不自动创建缺失的保存目录，保持旧行为");
 }
 
 /** 解析夸克分享资源并生成可供人工选择的预览；此阶段以读取和准备为主。 */
@@ -205,7 +211,8 @@ async function prepareQuarkSave(args) {
     apiBase: args.apiBase,
     timeoutMs: args.timeoutMs,
     cookie: args.cookie,
-    value: args.toUrl
+    value: args.toUrl,
+    mode: args.directoryMode || "strict"
   });
   const tokenResponse = await getShareToken({
     apiBase: args.apiBase,
@@ -376,44 +383,66 @@ function parseQuarkFolderUrl(value) {
 
 /** 解析用户配置的夸克保存目标，确认可用于后续保存操作。 */
 /** 解析并确认路径、配置或计划，供后续步骤使用。 */
-async function resolveQuarkDestination({ apiBase, timeoutMs, cookie, value }) {
+async function resolveQuarkDestination({ apiBase, timeoutMs, cookie, value, mode = "strict" }) {
   const parsed = parseQuarkFolderUrl(value);
-  if (!parsed.needsResolution) return parsed;
-  if (!cookie) return parsed;
-  const resolved = await resolveQuarkFolderPath({
+  if (!parsed.needsResolution) return { ...parsed, directoryPlan: null };
+  if (!cookie) return { ...parsed, directoryPlan: null };
+  const plan = await resolveQuarkFolderPath({
     apiBase,
     timeoutMs,
     cookie,
-    targetPath: parsed.path
+    targetPath: parsed.path,
+    mode
   });
   return {
     ...parsed,
-    ...resolved,
-    needsResolution: false
+    ...plan.folder,
+    needsResolution: false,
+    directoryPlan: plan
   };
 }
 
 /** 逐层读取夸克目录并解析目标路径对应的文件夹 ID。 */
 /** 解析并确认路径、配置或计划，供后续步骤使用。 */
-async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath }) {
-  const normalizedPath = normalizeCloudDrivePath(targetPath);
-  const segments = splitCloudDrivePath(normalizedPath);
-  let pdirFid = "0";
-  let current = { fid: "0", name: "/", path: "/" };
-  for (const segment of segments) {
-    const items = await listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid });
-    const match = items.find((item) => item.isDir && item.name === segment);
-    if (!match) {
-      throw new Error(`夸克目录不存在：${joinCloudPath(current.path, segment)}。请先在夸克网盘创建该目录，或改用完整文件夹 URL。`);
+async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath, mode = "strict" }) {
+  const segments = splitCloudDrivePath(normalizeCloudDrivePath(targetPath));
+  return resolveCloudDirectory({
+    segments,
+    mode,
+    providerLabel: "夸克网盘",
+    joinPath: (parentPath, segment) => joinCloudPath(parentPath, segment),
+    placeholder: (parent, segment, pendingPath) => ({
+      id: null, fid: null, name: segment, path: pendingPath, pendingCreate: true
+    }),
+    listSegment: async (parent, segment) => {
+      const items = await listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid: parent.fid || "0" });
+      const match = items.find((item) => item.isDir && item.name === segment);
+      if (!match) return null;
+      return {
+        id: match.fid,
+        fid: match.fid,
+        name: match.name,
+        path: joinCloudPath(parent.path || "/", match.name)
+      };
+    },
+    createSegment: async (parent, segment, pendingPath) => {
+      const response = await fetchQuarkJson(`${normalizeApiBase(apiBase)}/1/clouddrive/file`, {
+        method: "POST",
+        timeoutMs,
+        cookie,
+        query: { pr: "ucpro", fr: "pc", uc_param_str: "" },
+        body: {
+          pdir_fid: parent.fid || "0",
+          file_name: segment,
+          dir_path: "",
+          dir_init_lock: false
+        }
+      });
+      const fid = response?.data?.fid;
+      if (!fid) throw new Error(`夸克创建目录未返回 fid：${pendingPath}`);
+      return { id: fid, fid, name: segment, path: pendingPath };
     }
-    current = {
-      fid: match.fid,
-      name: match.name,
-      path: joinCloudPath(current.path, match.name)
-    };
-    pdirFid = match.fid;
-  }
-  return current;
+  });
 }
 
 /** 读取夸克网盘指定文件夹的项目列表。 */
@@ -655,6 +684,7 @@ function buildQuarkCompactPreview({ args = {}, result }) {
   const selected = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
     ok: true, provider: "quark", mode: "preview", nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.destination?.directoryPlan),
     source: args.shareUrl || "", target: args.toUrl || "",
     resource: result.contextName || result.shareTitle || "",
     type: result.classification?.type || "unknown",
@@ -691,6 +721,7 @@ function buildQuarkSubagentPreview({ args = {}, result }) {
     provider: "quark",
     mode: "preview",
     nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.destination?.directoryPlan),
     source: {
       shareUrl: args.shareUrl || "",
       shareId: result.share?.pwdId || "",
