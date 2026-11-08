@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 /**
  * 组合检查环境变量、网盘 Cookie、OpenList 目标目录和网盘保存目录的只读连通性。
@@ -23,15 +23,12 @@ const QUARK_API_BASE = "https://drive-pc.quark.cn";
 const BAIDU_API_BASE = "https://pan.baidu.com";
 
 if (isCli(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const loaded = loadEnvFile(args.envFile);
   const env = mergeEnvValues(loaded.values, process.env);
   const result = await validateReadyConfig(env, {

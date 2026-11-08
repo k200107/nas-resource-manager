@@ -9,7 +9,7 @@ import {
 } from "./cloud-save-common.mjs";
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 
 const API_BASE = "https://api.aliyundrive.com";
 const DEFAULT_ENV_FILE = ".env";
@@ -25,14 +25,11 @@ const COMMON_HEADERS = {
 };
 
 if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const loaded = loadEnvFile(args.envFile);
   const env = mergeEnvValues(loaded.values, process.env);
   const refreshToken = String(env.ALIYUN_REFRESH_TOKEN || "").trim();

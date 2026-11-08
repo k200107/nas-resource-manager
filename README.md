@@ -7,6 +7,9 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 ## Features
 
 - Search PanSou and return ranked Aliyun/Quark/Baidu resource links as Markdown or JSON.
+- Deduplicate identical shares and interleave results across providers, so one drive cannot take every candidate slot.
+- Report structured failures on stdout in `--format json` mode instead of failing silently.
+- All CLI commands share the same failure reporter (`failCli` in `scripts/cli-utils.mjs`): JSON mode exposes `{ ok: false, error }` on stdout, other modes keep it on stderr.
 - Preserve download links, extraction codes, provider names, source notes, and timestamps.
 - Preview Aliyun, Quark, and Baidu share contents before saving.
 - Validate Aliyun web-session refresh tokens and Quark/Baidu Cookies before real saves.
@@ -59,6 +62,8 @@ git --version
 ```
 
 Node.js 22 or 24 is recommended. The test suite uses Node's built-in test runner. It does not require a live NAS connection and should not modify NAS files.
+
+> Windows + Git Bash: MSYS2 rewrites arguments beginning with `/` (for example `/影视库`) into a Windows path such as `C:/.../PortableGit/影视库`. All CLIs read arguments through `cliArgs()` in `scripts/cli-utils.mjs`, which detects this and restores the original absolute path, printing a `[路径修正]` notice on stderr. PowerShell, `MSYS_NO_PATHCONV=1`, or `MSYS2_ARG_CONV_EXCL='*'` avoid the conversion entirely.
 
 To update an existing clone to the latest version of this development branch:
 

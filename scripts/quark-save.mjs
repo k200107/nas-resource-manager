@@ -2,7 +2,7 @@
 import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, normalizeResourceType, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint as isCli } from "./cli-utils.mjs";
 
 /**
  * 解析夸克分享资源、展示候选项并按明确选择保存到用户网盘；保存和重命名属于远端写操作。
@@ -30,17 +30,13 @@ const USER_AGENT =
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
   if (isCli(import.meta.url)) {
-  main().catch((error) => {
-    const message = error && error.message ? error.message : String(error);
-    console.error(JSON.stringify({ ok: false, error: message }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
-  const args = applyEnvDefaults(parseArgs(process.argv.slice(2)));
+  const args = applyEnvDefaults(parseArgs(cliArgs()));
   if (!args.shareUrl || !args.toUrl) {
     printUsage();
     process.exit(2);

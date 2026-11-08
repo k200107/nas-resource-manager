@@ -17,7 +17,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
@@ -32,16 +32,13 @@ const VIDEO_EXTENSIONS = new Set([".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv"
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
   if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const sourcePath = normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
   const moviesPath = normalizeOpenListPath(args.moviesPath || env.MEDIA_MOVIES_PATH);

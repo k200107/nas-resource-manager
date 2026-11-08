@@ -11,6 +11,7 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 
 - Search provider order: Aliyun → Quark → Baidu. Only choose a provider listed as usable by the relevant readiness check.
 - Search returns 10 candidates by default. Use --max-candidates 30 only when the user asks for more.
+- Search already deduplicates by share link and interleaves providers, so the 10 rows normally span several providers. Check `providerAvailable` before concluding a provider has no results.
 - Cloud-drive save folder: provider-specific save path, default /影视库.
 - Media copy staging folder: /本地存储/Downloads.
 - Final libraries: /本地存储/Movies and /本地存储/TVShows.
@@ -36,6 +37,7 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 ## Minimal workflow
 
 1. Search: use compact JSON for Agent decisions. Deduplicate by provider + share URL. Show a short list (normally 5–10) with title, provider, link, extraction code, and relevant quality hints.
+   Compact output already deduplicates and reports `providerAvailable`; only re-check for duplicates when a provider appears twice with the same share id.
 2. Select: ask the user to select a resource when multiple plausible candidates exist. Confirmation applies only to the selected resource and stated operation.
 3. Preview save: run the provider dry-run. Show selected items and actual destination before a write.
 4. Save: after explicit confirmation, rerun with --yes. Interpret provider results:

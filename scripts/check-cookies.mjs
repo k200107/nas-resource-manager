@@ -10,7 +10,7 @@
 
 import { maskSecret } from "./check-env.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { validateAliyunRefreshToken } from "./aliyun-save.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -59,15 +59,12 @@ const PROVIDERS = {
 };
 
 if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const fileEnv = loadEnvFile(args.envFile);
   const env = mergeEnvValues(fileEnv.values, process.env);
   const result = await validateCookieConfig(env, {

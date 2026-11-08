@@ -311,3 +311,75 @@ test("renderMarkdownTable outputs ranked clickable resource rows", () => {
   assert.match(markdown, /\| 1 \| 蜘蛛侠：纵横宇宙 \| 夸克网盘 \| \[打开\]\(https:\/\/pan\.quark\.cn\/s\/quark-id\) \| - \| plugin:wanou \| 2026-01-01 \|/);
   assert.match(markdown, /\| 2 \| 蜘蛛侠合集 \| 百度网盘 \| \[打开\]\(https:\/\/pan\.baidu\.com\/s\/baidu-id\?pwd=8888\) \| 8888 \| tg:movies \| 2025-01-01 \|/);
 });
+
+test("normalizePanSouSearchResponse does not let one provider occupy every candidate slot", () => {
+  const aliyun = Array.from({ length: 12 }, (_, index) => ({
+    type: "aliyun",
+    url: `https://www.alipan.com/s/aliyun-${index}`,
+    work_title: `阿里结果 ${index}`
+  }));
+  const others = [
+    { type: "quark", url: "https://pan.quark.cn/s/quark-0", work_title: "夸克结果 0" },
+    { type: "quark", url: "https://pan.quark.cn/s/quark-1", work_title: "夸克结果 1" },
+    { type: "baidu", url: "https://pan.baidu.com/s/baidu-0?pwd=1111", work_title: "百度结果 0" }
+  ];
+
+  const normalized = normalizePanSouSearchResponse(
+    { data: { total: 15, results: [{ title: "合集", links: [...aliyun, ...others] }] } },
+    { title: "蜘蛛侠", maxCandidates: 6 }
+  );
+
+  const providers = new Set(normalized.candidates.map((candidate) => candidate.diskType));
+  assert.ok(providers.has("quark"), "夸克候选不应被阿里云结果挤出候选名额");
+  assert.ok(providers.has("baidu"), "百度候选不应被阿里云结果挤出候选名额");
+  assert.equal(normalized.returnedCount, 6);
+});
+
+test("normalizePanSouSearchResponse deduplicates the same share across domains and pwd variants", () => {
+  const normalized = normalizePanSouSearchResponse(
+    {
+      data: {
+        total: 3,
+        results: [
+          {
+            title: "重复分享",
+            links: [
+              { type: "aliyun", url: "https://www.alipan.com/s/SAMEID", work_title: "阿里云盘 重复分享" },
+              { type: "aliyun", url: "https://www.aliyundrive.com/s/SAMEID", work_title: "阿里云盘 重复分享" },
+              { type: "baidu", url: "https://pan.baidu.com/s/OTHER?pwd=1234", work_title: "百度结果" }
+            ]
+          }
+        ]
+      }
+    },
+    { title: "蜘蛛侠", maxCandidates: 10 }
+  );
+
+  assert.equal(normalized.returnedCount, 2);
+  assert.equal(normalized.dedupeRemoved, 1);
+  assert.equal(normalized.candidateTotal, 2);
+  assert.deepEqual(normalized.providerAvailable, { aliyun: 1, baidu: 1 });
+});
+
+test("normalizePanSouSearchResponse ranks title matches ahead of unrelated links", () => {
+  const normalized = normalizePanSouSearchResponse(
+    {
+      data: {
+        total: 3,
+        results: [
+          {
+            title: "混合结果",
+            links: [
+              { type: "aliyun", url: "https://www.alipan.com/s/noise", work_title: "哲学电子书合集" },
+              { type: "quark", url: "https://pan.quark.cn/s/hit", work_title: "肖申克的救赎 1994 1080p" }
+            ]
+          }
+        ]
+      }
+    },
+    { title: "肖申克的救赎", maxCandidates: 1 }
+  );
+
+  assert.equal(normalized.candidates[0].diskType, "quark");
+  assert.match(normalized.candidates[0].name, /肖申克的救赎/);
+});

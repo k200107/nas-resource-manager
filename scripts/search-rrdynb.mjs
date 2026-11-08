@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { isCliEntryPoint } from "./cli-utils.mjs";
-import { sortCloudLinksByPriority } from "./provider-priority.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
+import { interleaveByProviderPriority } from "./provider-priority.mjs";
 
 /**
  * 通过 PanSou API 搜索资源、规范化网盘链接并输出结果；搜索及链接检查不执行网盘转存。
@@ -44,18 +44,14 @@ const PROVIDER_LABELS = {
 const CHECKABLE_TYPES = new Set(["baidu", "aliyun", "quark", "tianyi", "uc", "mobile", "115", "xunlei", "123"]);
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
-  if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    const message = error && error.message ? error.message : String(error);
-    console.error(JSON.stringify({ ok: false, error: message }, null, 2));
-    process.exit(1);
-  });
+if (isCliEntryPoint(import.meta.url)) {
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   if (!args.title) {
     printUsage();
     process.exit(2);
@@ -184,6 +180,10 @@ function toCompactAgentResult(result) {
     total: result.availableTotal || 0,
     returnedCount: result.returnedCount || 0,
     providerCounts: result.providerCounts || {},
+    // 暴露去重后各网盘的真实可用量：调用方据此判断是否值得换 provider 或扩大 --max-candidates。
+    candidateTotal: result.candidateTotal || 0,
+    providerAvailable: result.providerAvailable || {},
+    dedupeRemoved: result.dedupeRemoved || 0,
     results: (result.downloadLinks || []).map((link, index) => ({
       rank: index + 1,
       title: link.note || link.label || result.inputTitle || "未命名资源",
@@ -259,9 +259,14 @@ function normalizePanSouSearchResponse(response, options = {}) {
   const mergedByType = data.merged_by_type || groupResultsByType(data.results || []);
   const rawLinks = rankedLinks.length > 0 ? rankedLinks : flattenMergedLinks(mergedByType);
   const cloudTypes = Array.isArray(options.cloudTypes) ? options.cloudTypes : DEFAULT_CLOUD_TYPES;
-  const allLinks = sortCloudLinksByPriority(filterLinksByCloudTypes(rawLinks, cloudTypes));
+  const allowedLinks = filterLinksByCloudTypes(rawLinks, cloudTypes);
+  // 先按分享链接去重，再决定截断；否则同一条分享的多次出现会占满候选名额。
+  const { links: uniqueLinks, removedCount } = dedupeLinks(allowedLinks);
   const limit = Number.isFinite(options.maxCandidates) ? options.maxCandidates : DEFAULT_MAX_CANDIDATES;
-  const downloadLinks = allLinks.slice(0, limit).map((link, index) => normalizeDownloadLink(link, index + 1));
+  // 截断前按“相关性分层 + 网盘轮转”排序，避免单一网盘独占全部名额。
+  const downloadLinks = rankLinksForSelection(uniqueLinks, options.title)
+    .slice(0, limit)
+    .map((link, index) => normalizeDownloadLink(link, index + 1));
   const candidates = downloadLinks.map((link) => ({
     rank: link.rank,
     name: link.note || link.label || options.title || "未命名资源",
@@ -294,7 +299,12 @@ function normalizePanSouSearchResponse(response, options = {}) {
     ok: true,
     inputTitle: options.title || "",
     selectedQuery: options.selectedQuery || options.title || "",
-    availableTotal: Number(data.total || allLinks.length || 0),
+    availableTotal: Number(data.total || uniqueLinks.length || 0),
+    // candidateTotal / providerAvailable / dedupeRemoved 用于诊断“为什么只看到某个网盘”：
+    // providerCounts 仍只描述本次返回的候选，providerAvailable 描述去重后各网盘的真实可用量。
+    candidateTotal: uniqueLinks.length,
+    providerAvailable: countBy(uniqueLinks, "diskType"),
+    dedupeRemoved: removedCount,
     returnedCount: downloadLinks.length,
     total: downloadLinks.length,
     providerCounts: countBy(downloadLinks, "diskType"),
@@ -405,6 +415,75 @@ function filterLinksByCloudTypes(links, cloudTypes = []) {
   return links.filter((link) => allowed.has(link.diskType));
 }
 
+/**
+ * 生成分享链接去重键。
+ *
+ * 同一条分享常以不同域名（alipan.com / aliyundrive.com）或附带 pwd 参数的形态出现，
+ * 因此按网盘 + 分享路径归一化，避免重复结果占用候选名额。
+ */
+function shareLinkKey(link) {
+  const diskType = String(link?.diskType || "others").toLowerCase();
+  const rawUrl = String(link?.url || "").trim();
+  if (!rawUrl) return `${diskType}|note:${link?.note || ""}`;
+  try {
+    const parsed = new URL(rawUrl);
+    if (!/^https?:$/i.test(parsed.protocol)) return `${diskType}|${rawUrl.toLowerCase()}`;
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const path = parsed.pathname.replace(/\/+$/, "");
+    if (/^alipan\.com$|^aliyundrive\.com$/.test(host)) return `aliyun|${path}`;
+    if (host === "pan.quark.cn") return `quark|${path}`;
+    if (/baidu\.com$/.test(host)) return `baidu|${path}`;
+    return `${diskType}|${host}${path}`;
+  } catch {
+    return `${diskType}|${rawUrl.toLowerCase()}`;
+  }
+}
+
+/** 按去重键保留首次出现的链接，返回去重结果与被移除的数量。 */
+function dedupeLinks(links = []) {
+  const seen = new Set();
+  const unique = [];
+  for (const link of links) {
+    const key = shareLinkKey(link);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(link);
+  }
+  return { links: unique, removedCount: links.length - unique.length };
+}
+
+/** 归一化用于标题匹配的文本：小写并去掉空白、标点与符号。 */
+function normalizeMatchText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+/** 判断候选标题是否包含查询词；仅用于提权排序，不用于丢弃结果。 */
+function isTitleRelevant(link, query) {
+  const needle = normalizeMatchText(query);
+  if (!needle) return false;
+  return normalizeMatchText(link?.note || link?.title || "").includes(needle);
+}
+
+/**
+ * 选出用于展示的候选顺序。
+ *
+ * 两步处理，缺一不可：
+ * 1. 按“标题是否命中查询词”分为相关层与兜底层，相关层优先，保证截断时先丢无关结果；
+ * 2. 各层内部按网盘优先级轮转交替，保证截断后仍能覆盖多个网盘。
+ *
+ * 直接按网盘优先级整体排序再截断会让排在第一位的网盘独占全部名额。
+ */
+function rankLinksForSelection(links = [], query = "") {
+  const relevant = [];
+  const fallback = [];
+  for (const link of links) {
+    (isTitleRelevant(link, query) ? relevant : fallback).push(link);
+  }
+  return [...interleaveByProviderPriority(relevant), ...interleaveByProviderPriority(fallback)];
+}
+
 /** 检查或分类checkSearchResultLinks相关输入，返回明确状态供主流程决定下一步动作。 */
 /** 处理 checkSearchResultLinks 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 async function checkSearchResultLinks(args, downloadLinks) {
@@ -457,6 +536,9 @@ async function fetchJson(url, options = {}) {
     } catch (error) {
       lastError = error;
       if (attempt === retries) break;
+      // 重试必须可见：否则上游变慢或抖动时，调用方要静默等待数分钟才看到失败。
+      const reason = error && error.message ? error.message : String(error);
+      process.stderr.write(`第 ${attempt + 1} 次请求失败，正在重试（${attempt + 1}/${retries}）：${reason}\n`);
       await delay(500 * (attempt + 1));
     }
   }
@@ -485,7 +567,12 @@ async function fetchJsonOnce(url, options = {}) {
     try {
       json = text ? JSON.parse(text) : {};
     } catch {
-      throw new Error(`Expected JSON from ${url}, got: ${text.slice(0, 200)}`);
+      // 上游限流或风控拦截时返回的是 HTML 页面而不是 JSON；直接报“不是 JSON”会掩盖真实原因。
+      const looksLikeHtml = /^\s*<(?:!doctype|html)/i.test(text);
+      const reason = looksLikeHtml
+        ? "上游返回 HTML 页面（常见于限流或风控拦截），请稍后重试"
+        : "响应不是合法 JSON";
+      throw new Error(`Expected JSON from ${url}, got: ${text.slice(0, 200)}（${reason}）`);
     }
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} from ${url}: ${JSON.stringify(json).slice(0, 300)}`);
