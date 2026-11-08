@@ -360,6 +360,7 @@ async function saveSelectedItems(args) {
     shareId: args.share.shareId,
     shareUk: args.share.shareUk,
     savePath: args.savePath,
+    sekey: args.share.sekey || "",
     selectedItems: args.selectedItems
   });
 
@@ -610,6 +611,7 @@ function buildBaiduTransferRequest({
   shareId,
   shareUk,
   savePath,
+  sekey = "",
   selectedItems = []
 }) {
   const url = new URL("/share/transfer", normalizeApiBase(apiBase));
@@ -621,6 +623,7 @@ function buildBaiduTransferRequest({
     shareid: shareId,
     from: shareUk,
     bdstoken,
+    sekey,
     ondup: "newcopy"
   };
   for (const [key, value] of Object.entries(query)) {
@@ -991,7 +994,7 @@ async function listBaiduShareFiles({ apiBase, appId, timeoutMs, cookie, shareId,
 
 /** 向百度网盘提交分享文件转存请求；该操作会在用户网盘中新增文件。 */
 /** 向百度网盘提交分享转存请求；该操作会在用户网盘中新增文件。 */
-async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, bdstoken, shareId, shareUk, savePath, selectedItems }) {
+async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, bdstoken, shareId, shareUk, savePath, sekey = "", selectedItems }) {
   if (!bdstoken) {
     throw new Error("缺少百度 bdstoken，无法调用 share/transfer。请确认 BAIDU_COOKIE 有效且已登录百度网盘。");
   }
@@ -1002,6 +1005,7 @@ async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, 
     shareId,
     shareUk,
     savePath,
+    sekey,
     selectedItems
   });
   return fetchBaiduJson(request.url, {

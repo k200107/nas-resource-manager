@@ -180,6 +180,23 @@ test("buildBaiduTransferRequest normalizes Baidu folder URL save path", () => {
   });
 
   assert.equal(request.body.get("path"), "/NAS资源下载");
+  assert.equal(request.url.searchParams.has("sekey"), false);
+});
+
+test("buildBaiduTransferRequest forwards sekey for passcode-protected shares", () => {
+  const request = buildBaiduTransferRequest({
+    bdstoken: "bd-token",
+    shareId: "12345",
+    shareUk: "67890",
+    savePath: "/影视库",
+    sekey: "rand-sk",
+    selectedItems: [{ fsId: 111 }]
+  });
+
+  assert.equal(request.url.searchParams.get("sekey"), "rand-sk");
+  assert.equal(request.url.searchParams.get("bdstoken"), "bd-token");
+  assert.equal(request.body.get("path"), "/影视库");
+  assert.equal(request.body.get("fsidlist"), "[111]");
 });
 
 test("renderBaiduShareItemsTable outputs a confirmation table", () => {
