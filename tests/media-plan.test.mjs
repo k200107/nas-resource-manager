@@ -167,6 +167,28 @@ test("recognizes a known homophone alias as a candidate requiring user confirmat
   assert.equal(result.requiresReview, true);
 });
 
+test("recognizes a noisy Chinese Shawshank filename as a reviewable movie candidate", () => {
+  const plan = buildMediaPlan({
+    sourcePath: "/本地存储/Downloads",
+    items: [{
+      name: "申克的救赎BD1280高清中英双字.mp4",
+      path: "/本地存储/Downloads/申克的救赎BD1280高清中英双字.mp4",
+      parentPath: "/本地存储/Downloads",
+      isDir: false
+    }],
+    moviesPath: "/本地存储/Movies",
+    tvShowsPath: "/本地存储/TVShows"
+  });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].resourceType, "movie");
+  assert.equal(plan[0].resourceName, "肖申克的救赎");
+  assert.equal(plan[0].year, 1994);
+  assert.equal(plan[0].confidence, "medium");
+  assert.equal(plan[0].status, "review_required");
+  assert.equal(plan[0].target, "/本地存储/Movies/肖申克的救赎 (1994)/肖申克的救赎 (1994).mp4");
+  assert.equal(plan[0].titleMatch.matchType, "alias");
+});
+
 test("does not mistake resolution suffixes or title letters for episode numbers", () => {
   assert.equal(extractResolution("Example.1080p.mkv").value, "1080p");
   assert.equal(extractEpisode("Example.1080p.mkv").episode, null);
