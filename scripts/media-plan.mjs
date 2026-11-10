@@ -41,6 +41,7 @@ async function main() {
   const args = parseArgs(cliArgs());
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const sourceFile = args.sourceFile ? normalizeOpenListPath(args.sourceFile) : "";
+  if (args.sourceFile && !sourceFile) throw new Error("--file 必须是有效的 OpenList 绝对文件路径。");
   const sourcePath = sourceFile
     ? parentOpenListPath(sourceFile)
     : normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
@@ -59,7 +60,6 @@ async function main() {
     timeoutMs: args.timeoutMs
   };
   // 规划阶段严格只读；目标目录由归档执行器在用户确认后按需创建。
-  const createdTargetDirectories = [];
   // 指定单文件时只读取其父目录并选中该文件；未指定文件时才递归扫描整个暂存目录。
   const scanned = sourceFile
     ? await scanSingleFile({ ...context, filePath: sourceFile })
@@ -77,9 +77,8 @@ async function main() {
   const result = {
     ok: true,
     tool: "media-plan",
-    mode: createdTargetDirectories.length ? "prepare-target-roots-and-read-only-plan" : "read-only-dry-run",
-    mutated: createdTargetDirectories.length > 0,
-    createdTargetDirectories,
+    mode: "read-only-dry-run",
+    mutated: false,
     source: { path: sourceFile || sourcePath, scope: sourceFile ? "single-file" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
     targets: { movies: moviesPath, tvShows: tvShowsPath },
     summary: summarizePlan(plan),
@@ -213,46 +212,6 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
   allRows.truncated = truncated;
   return allRows;
 }
-/**
- * 确保配置的目标根目录存在。逐级检查路径；缺少目录时通过 OpenList fs/mkdir 创建，
- * 若同名路径是文件或创建后无法回读，则停止，避免把异常误判为“空目录”。
- */
-async function ensureTargetDirectories({ baseUrl, token, fetchImpl, timeoutMs, paths }) {
-  const createdDirectories = [];
-  for (const targetPath of [...new Set(paths)]) {
-    const segments = String(targetPath).split("/").filter(Boolean);
-    let current = "/";
-    for (const segment of segments) {
-      const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
-      const existing = rows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
-      const next = joinOpenListPath(current, segment);
-      if (existing) {
-        if (!existing.isDir) throw new Error(`目标目录路径中存在同名文件：${next}`);
-      } else {
-        const response = await fetchImpl(`${String(baseUrl).replace(/\/+$/g, "")}/api/fs/mkdir`, {
-          method: "POST",
-          headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: token },
-          body: JSON.stringify({ path: next }),
-          signal: AbortSignal.timeout(timeoutMs || DEFAULT_TIMEOUT_MS)
-        });
-        const raw = await response.text();
-        let json;
-        try { json = raw ? JSON.parse(raw) : {}; }
-        catch { throw new Error(`OpenList 创建目录返回非 JSON：${raw.slice(0, 120)}`); }
-        if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) {
-          throw new Error(`OpenList 创建目标目录失败（${next}）：${json.message || response.status}`);
-        }
-        const verifyRows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
-        const created = verifyRows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
-        if (!created || !created.isDir) throw new Error(`目标目录创建后验证失败：${next}`);
-        createdDirectories.push(next);
-      }
-      current = next;
-    }
-  }
-  return createdDirectories;
-}
-
 /**
  * 仅沿着计划目标的目录链检查目标文件是否存在。
  * 不遍历整个 Movies/TVShows 库；所有读取均通过 OpenList fs/list。
@@ -624,7 +583,6 @@ export {
   resolveMediaTitle,
   scanTargetConflicts,
   scanTree,
-  ensureTargetDirectories
 };/** 读取可选的本地片名别名表；文件不存在时使用内置示例，格式错误时中止而不是静默忽略。 */
 function loadTitleAliases(filePath) {
   if (!filePath) return DEFAULT_TITLE_ALIASES;
