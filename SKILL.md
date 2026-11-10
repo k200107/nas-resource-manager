@@ -27,11 +27,11 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Search for user display | npm run search -- "片名" --max-candidates 10 |
 | Readiness (first setup or after auth/path error) | npm run check-ready |
 | Focused env check | npm run check-env -- --json |
-| Aliyun preview | npm run aliyun-save -- "$URL" "$DEST" --dry-run --format json --compact |
+| Aliyun preview | npm run aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json --compact |
 | Quark preview | npm run quark-save -- "$URL" "$DEST" --dry-run --format json --compact |
 | Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json --compact |
 | OpenList copy preview | npm run openlist-copy -- "$SRC" "$DST" "$NAME" --format json |
-| Provider save after confirmation | Same provider command with --yes --format json --compact |
+| Provider save after confirmation | Same provider command with --yes --format json --compact (retain --context-name and --resource-type) |
 | OpenList copy after confirmation | Same command with --yes --format json |
 | Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
 
@@ -41,7 +41,8 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
    Compact output already deduplicates and reports `providerAvailable`; only re-check for duplicates when a provider appears twice with the same share id.
 2. Select: ask the user to select a resource when multiple plausible candidates exist. Confirmation applies only to the selected resource and stated operation.
 3. Preview save: run the provider dry-run. Show selected items and actual destination before a write.
-4. Save: after explicit confirmation, rerun with --yes. Interpret provider results:
+4. Save preview naming: when the selected resource came from search, pass the clean canonical title from that search result explicitly with `--context-name "$CANONICAL_TITLE"`; do not derive the final name from a noisy share/folder name. For a movie, also pass `--resource-type movie` when the type is known. Before asking for confirmation, compare the selected folder/file name with the canonical title and inspect `renamePlan`. If a noisy folder should be renamed but `renamePlan` is empty, do not run `--yes`; rerun the preview with the canonical `--context-name` (or a validated `--rename-plan-json`). Renaming a selected folder changes only that folder's name; it does not rename files inside it.
+5. Save: after explicit confirmation, rerun with --yes. Interpret provider results:
    - Documented synchronous terminal success = SUCCEEDED.
    - Accepted response or task ID = ACTIVE until the provider task reports terminal success.
    - Explicit API error = FAILED.
