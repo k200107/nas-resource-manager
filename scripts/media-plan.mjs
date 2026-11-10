@@ -19,7 +19,7 @@ import fs from "node:fs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
-import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
+import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES, DEFAULT_TITLE_YEARS } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -299,14 +299,17 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }
 
     const rawName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
-    const year = extractExplicitYear(rawName) || entry.parentYear || null;
+    const explicitYear = extractExplicitYear(rawName) || entry.parentYear || null;
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
       .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
-      .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|2048|4k|2k|uhd|fhd)/ig, "")
+      .replace(/(?:BD(?:Rip|Remux)?\s*\d{3,4}|Blu[ ._-]?ray|WEB[ ._-]?DL|WEBRip|HDRip|DVDRip)/ig, "")
+      .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|1280|1920|2048|4k|2k|uhd|fhd)/ig, "")
+      .replace(/(?:高清|超清|蓝光|藍光|中英双字|中英字幕|中文字幕|英文字幕|双语字幕|双字|中字|国粤双语|国语|粤语)/g, " ")
       .replace(/[()[\]{}（）【】]/g, " ")
       .replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
     const identity = resolveMediaTitle(identityInput, aliases);
+    const year = explicitYear || DEFAULT_TITLE_YEARS[identity.canonicalTitle] || null;
     const resourceName = sanitizeName(identity.canonicalTitle || rawName);
     const relativeFiles = videoFiles.map((file) => ({
       ...file,
@@ -317,9 +320,11 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     // 明确季集优先于年份；年份父目录作为明确年份线索，不把年份本身当成片名。
     const classification = detectedClassification.type === "series"
       ? detectedClassification
-      : year
+      : explicitYear || entry.parentYear
         ? { type: "movie", confidence: "high", reason: "资源目录或其年份父目录包含明确年份，按电影候选处理。" }
-        : detectedClassification;
+        : identity.matchType === "alias" || identity.candidates?.length > 0
+          ? { type: "movie", confidence: "medium", reason: "片名命中已知电影别名；规范片名和年份仅作为候选，需人工确认。" }
+          : detectedClassification;
     const aliasNeedsReview = identity.matchType === "alias" || identity.candidates?.length > 0;
     const base = classification.type === "movie" ? moviesPath : classification.type === "series" ? tvShowsPath : "";
     const videoPlans = [];
