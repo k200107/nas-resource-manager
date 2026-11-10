@@ -230,12 +230,15 @@ async function runMediaArchive({
 }
 
 function isArchiveEligible(item) {
+  if (item?.conflict === true) return false;
   if (item?.status === "auto_archive_candidate") return true;
-  if (item?.status !== "review_required" || item.userConfirmed !== true || item.conflict === true) return false;
+  if (item?.status !== "review_required" || item.userConfirmed !== true) return false;
   const confirmation = item.confirmation;
   if (!confirmation || confirmation.scope !== "move-and-rename") return false;
-  if (confirmation.resourceType !== item.resourceType || confirmation.target !== item.target) return false;
-  if (confirmation.year != null && Number(confirmation.year) !== Number(item.year)) return false;
+  if (confirmation.source !== item.source || confirmation.target !== item.target) return false;
+  if (confirmation.resourceType !== item.resourceType || confirmation.resourceName !== item.resourceName) return false;
+  if (item.year != null && Number(confirmation.year) !== Number(item.year)) return false;
+  if (item.year == null && confirmation.year != null) return false;
   return ["movie", "series"].includes(item.resourceType);
 }
 
