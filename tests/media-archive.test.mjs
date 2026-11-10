@@ -73,7 +73,9 @@ test("explicitly confirmed review item is executable without falsifying its orig
     userConfirmed: true,
     confirmation: {
       scope: "move-and-rename",
+      source: plan[0].source,
       resourceType: "movie",
+      resourceName: plan[0].resourceName,
       year: 2024,
       target: plan[0].target
     }
@@ -100,7 +102,7 @@ test("review item without a complete confirmation record remains skipped", async
     ...plan[0],
     status: "review_required",
     userConfirmed: true,
-    confirmation: { scope: "move-and-rename", resourceType: "movie" }
+    confirmation: { scope: "move-and-rename", source: plan[0].source, resourceType: "movie", resourceName: plan[0].resourceName, target: plan[0].target }
   };
   const result = await runMediaArchive({
     plan: [invalid], ...roots,
