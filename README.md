@@ -22,7 +22,24 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 - Analyze movie/series identity, title aliases, years, season/episode markers, and resolution tags.
 - Generate Emby-style movie/season folders and multi-resolution filenames.
 - Detect exact destination collisions and route ambiguous identities to one-time user review.
-- Generate a read-only media plan, then use a separate OpenList archive executor for explicitly confirmed move/rename operations; destination collisions are blocked and review-required items are skipped.
+- Generate strictly read-only media plans for either one named file or a staging directory, with compact Agent-facing JSON output.
+- Use a separate OpenList archive executor for explicitly confirmed move/rename operations; reviewed items require a matching human-confirmation record while retaining their original confidence, and destination collisions are always blocked.
+
+## Media archive workflow
+
+Plan one explicitly named file without recursively scanning Downloads:
+
+```bash
+npm run --silent media-plan -- --file "/Downloads/Movie.mkv" --format json --compact
+```
+
+Plan a directory only when the user asks to review multiple resources:
+
+```bash
+npm run --silent media-plan -- --source-dir "/Downloads" --format json --compact
+```
+
+Planning never creates destination directories or changes files. After reviewing and confirming the exact source and target, run the archive executor first without `--yes` for preflight, then with `--yes` only after the preflight is confirmed. A `review_required` item must carry a matching `userConfirmed` record; its original confidence and review status must not be rewritten to simulate automatic confidence.
 
 ## Requirements
 
