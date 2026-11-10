@@ -65,13 +65,9 @@ async function main() {
     ? await scanSingleFile({ ...context, filePath: sourceFile })
     : await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
-  const basePlan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases, sourceScanComplete: !scanned.truncated });
-  // 只检查计划涉及的目标父目录，不递归扫描整个媒体库；目标目录读取不完整时保守转人工复核。
-  const collisionIndex = await scanTargetConflicts({ ...context, plan: basePlan, moviesPath, tvShowsPath });
+  // 规划只负责识别与命名；目标冲突由归档预检统一检查，执行前还会再次检查。
   const plan = buildMediaPlan({
     sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
-    existingPaths: collisionIndex.existingPaths,
-    destinationScanComplete: collisionIndex.complete,
     sourceScanComplete: !scanned.truncated
   });
   const result = {
@@ -486,7 +482,6 @@ function summarizePlan(plan) {
     movies: plan.filter((item) => item.resourceType === "movie").length,
     series: plan.filter((item) => item.resourceType === "series").length,
     autoArchiveCandidates: plan.filter((item) => item.status === "auto_archive_candidate").length,
-    conflicts: plan.filter((item) => item.status === "conflict").length,
     reviewRequired: plan.filter((item) => item.status === "review_required").length,
     lowConfidence: plan.filter((item) => item.confidence === "low").length
   };
