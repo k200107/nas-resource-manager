@@ -21,7 +21,7 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 - Create shared media-ingest task records with guarded state transitions, idempotency keys, and resource locks.
 - Analyze movie/series identity, title aliases, years, season/episode markers, and resolution tags.
 - Generate Emby-style movie/season folders and multi-resolution filenames.
-- Detect exact destination collisions and route ambiguous identities to one-time user review.
+- Detect destination collisions during archive preflight and route ambiguous identities to one-time user review.
 - Generate strictly read-only media plans for either one named file or a staging directory, with compact Agent-facing JSON output.
 - Use a separate OpenList archive executor for explicitly confirmed move/rename operations; reviewed items require a matching human-confirmation record while retaining their original confidence, and destination collisions are always blocked.
 
@@ -39,7 +39,7 @@ Plan a directory only when the user asks to review multiple resources:
 npm run --silent media-plan -- --source-dir "/Downloads" --format json --compact
 ```
 
-Planning never creates destination directories or changes files. Run the archive executor without `--yes` to preflight the exact source and target first. After the user confirms that preview, add a matching `userConfirmed` record to any `review_required` item, then execute the same plan with `--yes`; the executor repeats preflight immediately before mutation. A reviewed item's original confidence and status must never be rewritten to simulate automatic confidence.
+Planning never queries destination directories, creates directories, or changes files. Run the archive executor without `--yes` and with `--compact` to check source existence and exact target collisions. After the user confirms that preview, add a matching `userConfirmed` record to any `review_required` item, then execute the same plan with `--yes --compact`; the executor repeats preflight immediately before mutation. A reviewed item's original confidence and status must never be rewritten to simulate automatic confidence.
 
 ## Requirements
 
@@ -211,7 +211,7 @@ Preview the staging directory and proposed media destinations (read-only):
 npm run media-plan -- --format text
 ```
 
-The planner reads the staging directory and checks only the relevant destination parent directories in Movies/TVShows through OpenList. It proposes Emby-style names, resolution variants, and exact-path collision results. It also associates subtitles, NFO metadata, and conventional artwork with the corresponding movie, series, episode, or resolution version. A year parent folder such as `2024/Example/Example.mkv` is treated as a year hint, not as the movie title. The planner may create missing configured Movies/TVShows roots and their parent directories through OpenList `fs/mkdir`; it does not move, rename, copy, or delete media files. If a sidecar's owner cannot be identified, the title is an alias/possible homophone, season/episode data is incomplete, a destination collision exists, or destination scanning is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
+The planner reads the staging directory and proposes Emby-style names and resolution variants. It also associates subtitles, NFO metadata, and conventional artwork with the corresponding movie, series, episode, or resolution version. A year parent folder such as `2024/Example/Example.mkv` is treated as a year hint, not as the movie title. Planning is read-only and does not query or create destination directories. Exact-path collisions and missing sources are checked by the archive executor's preflight; execution performs a fresh check immediately before mutation. If a sidecar's owner cannot be identified, the title is an alias/possible homophone, or season/episode data is incomplete, the item is held for review. Configure the staging and library paths only after checking the OpenList mount.
 
 To maintain confirmed title aliases, copy `config/media-title-aliases.example.json` to `config/media-title-aliases.json`, add aliases only after confirming the canonical title, and set `MEDIA_TITLE_ALIASES_FILE` in `.env`. The local alias file is git-ignored. Offline recognition cannot guarantee all Chinese homophones without a comprehensive catalog or external metadata provider.
 
@@ -271,7 +271,7 @@ npm test
 - Automatic archive is not enabled yet. The media archive executor does not currently enforce the internal task-state machine's transfer-completion gate; before running it, an operator must confirm the exact OpenList transfer is complete and staged files are stable. Ambiguous identity requires review; exact destination conflicts are paused and never overwritten.
 - Ambiguous media classification should remain in staging for manual review.
 - Automatic directory creation is limited to the configured cloud-drive save path. `--dry-run`, `check-ready`, and all readiness checks never create directories. Provider create-folder endpoints are exercised only after the user confirms the exact preview.
-- The media planner may create missing configured Movies/TVShows root directories (and missing parent directories) through OpenList `fs/mkdir`; it reports every created path. It does not move, rename, copy, or delete media files. Destination subfolders for individual titles/seasons are created only by the separate archive executor after explicit `--yes`. The executor rechecks source and destination immediately before each item, uses resource locks and an idempotency ledger, stops at the first uncertain error, verifies the resulting destination, and never calls copy or delete APIs. It does not yet consult transfer task state, so do not run it against the real Movies/TVShows libraries until the isolated test workspace has passed and the transfer-completion gate has been integrated.
+- The media planner is strictly read-only and does not create or inspect destination directories. The archive executor creates missing destination folders only after explicit `--yes`, after preflight and a fresh source/target check. The executor rechecks source and destination immediately before each item, uses resource locks and an idempotency ledger, stops at the first uncertain error, verifies the resulting destination, and never calls copy or delete APIs. It does not yet consult transfer task state, so do not run it against the real Movies/TVShows libraries until the isolated test workspace has passed and the transfer-completion gate has been integrated.
 
 ## Repository Layout
 
