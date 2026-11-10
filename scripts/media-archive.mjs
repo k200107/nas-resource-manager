@@ -37,14 +37,15 @@ async function main() {
     storePath: env.MEDIA_TASK_STORE_PATH,
     lockDir: env.MEDIA_TASK_LOCK_DIR
   });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(args.compact ? JSON.stringify(compactArchiveResult(result)) : JSON.stringify(result, null, 2));
 }
 
 function parseArgs(argv) {
-  const args = { planFile: "", envFile: ".env", baseUrl: "", token: "", moviesPath: "", tvShowsPath: "", yes: false, timeoutMs: DEFAULT_TIMEOUT_MS };
+  const args = { planFile: "", envFile: ".env", baseUrl: "", token: "", moviesPath: "", tvShowsPath: "", yes: false, compact: false, timeoutMs: DEFAULT_TIMEOUT_MS };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--yes" || arg === "-y") args.yes = true;
+    else if (arg === "--compact") args.compact = true;
     else if (arg === "--plan-file") args.planFile = argv[++i] || "";
     else if (arg === "--env-file") args.envFile = argv[++i] || ".env";
     else if (arg === "--base-url") args.baseUrl = argv[++i] || "";
@@ -246,6 +247,31 @@ async function runMediaArchive({
   };
 }
 
+
+/** Agent-facing output: keep decisions and execution evidence, omit verbose safety prose. */
+function compactArchiveResult(result) {
+  const pick = (item, keys) => Object.fromEntries(keys
+    .filter((key) => item?.[key] !== undefined && item[key] !== "")
+    .map((key) => [key, item[key]]));
+  const compact = {
+    ok: result.ok,
+    tool: result.tool,
+    mode: result.mode,
+    mutated: result.mutated,
+    eligible: result.eligible,
+    skipped: result.skipped,
+    awaitingUserConfirmation: result.awaitingUserConfirmation,
+    alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
+    preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "missingDirectories", "reason"])),
+    executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "verified", "error"])),
+    nextAction: result.nextAction
+  };
+  for (const key of ["confirmedReviewCount", "error"]) {
+    if (result[key] !== undefined) compact[key] = result[key];
+  }
+  return compact;
+}
+
 function isPreflightCandidate(item) {
   return Boolean(
     item && ["auto_archive_candidate", "review_required"].includes(item.status) &&
@@ -331,4 +357,4 @@ function basename(value) { return value.split("/").filter(Boolean).at(-1) || "";
 function join(dir, name) { return dir === "/" ? "/" + name : dir.replace(/\/+$/g, "") + "/" + name; }
 function sameName(a, b) { return String(a).toLocaleLowerCase("zh-CN") === String(b).toLocaleLowerCase("zh-CN"); }
 
-export { isArchiveEligible, isPreflightCandidate, parseArgs, runMediaArchive, validatePlanItem };
+export { compactArchiveResult, isArchiveEligible, isPreflightCandidate, parseArgs, runMediaArchive, validatePlanItem };
