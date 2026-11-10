@@ -100,7 +100,8 @@ async function validateReadyConfig(env = {}, options = {}) {
       cookie: env.BAIDU_COOKIE,
       target: env.BAIDU_DEFAULT_SAVE_PATH,
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-      fetchImpl
+      fetchImpl,
+      createMissingDirectories: true
     }));
   }
 
