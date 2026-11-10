@@ -404,7 +404,7 @@ async function resolveQuarkDestination({ apiBase, timeoutMs, cookie, value, mode
 
 /** 逐层读取夸克目录并解析目标路径对应的文件夹 ID。 */
 /** 解析并确认路径、配置或计划，供后续步骤使用。 */
-async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath, mode = "strict" }) {
+async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath, mode = "strict", fetchImpl }) {
   const segments = splitCloudDrivePath(normalizeCloudDrivePath(targetPath));
   return resolveCloudDirectory({
     segments,
@@ -430,6 +430,7 @@ async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath, 
         method: "POST",
         timeoutMs,
         cookie,
+        fetchImpl,
         query: { pr: "ucpro", fr: "pc", uc_param_str: "" },
         body: {
           pdir_fid: parent.fid || "0",
@@ -971,7 +972,7 @@ async function fetchQuarkJson(url, options = {}) {
     };
     if (options.method === "POST") headers["Content-Type"] = "application/json";
     if (options.cookie) headers.Cookie = options.cookie;
-    const response = await fetch(requestUrl, {
+    const response = await (options.fetchImpl || fetch)(requestUrl, {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
