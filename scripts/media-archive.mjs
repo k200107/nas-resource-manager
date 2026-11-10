@@ -58,8 +58,8 @@ function parseArgs(argv) {
 }
 
 /**
- * Plan contract: each item has source, target, resourceType and status.
- * Only auto_archive_candidate entries are eligible. No delete/copy endpoint is used.
+ * Plan contract: automatic candidates and proposed review items with source/target/type are preflighted.
+ * Review items are executable only after a matching explicit confirmation record is added. No delete/copy endpoint is used.
  */
 async function runMediaArchive({
   plan, baseUrl, token, moviesPath, tvShowsPath, yes = false,
