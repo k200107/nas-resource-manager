@@ -34,6 +34,10 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Provider save after confirmation | Same provider command with --yes --format json --compact (retain --context-name and --resource-type) |
 | OpenList copy after confirmation | Same command with --yes --format json |
 | Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
+| Plan one downloaded file | npm run --silent media-plan -- --file "$FILE" --format json --compact |
+| Plan a staging directory | npm run --silent media-plan -- --source-dir "$DIR" --format json --compact |
+| Archive preflight | npm run --silent media-archive -- --plan-file "$PLAN_FILE" |
+| Execute reviewed archive | Same archive command with --yes after the exact plan is confirmed |
 
 ## Minimal workflow
 
@@ -50,7 +54,14 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
    Do not re-list every saved file after clear terminal success. Do not treat generic HTTP 200/202 or accepted as terminal success when the provider uses asynchronous tasks.
 6. Copy to NAS: preview source, exact item name, destination, and conflicts. After confirmation, run fs/copy through openlist-copy.
 7. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
-8. Organize: only when requested. Plan destination and conflicts first. Moving/renaming into Movies or TVShows requires separate explicit confirmation.
+8. Organize: only when requested.
+   - If the user names one file, use `media-plan --file "$FILE" --format json --compact`; do not scan the whole Downloads directory. Use `--source-dir` only when the user asks to organize/check a directory or multiple resources.
+   - Planning is strictly read-only: never create Movies/TVShows roots or resource folders during `media-plan`. Missing/unreadable destination roots are not proof of a conflict-free target; route affected items to review.
+   - Generate one plan and preserve it. Do not manually rebuild the same plan or reread executor source to discover its contract.
+   - Automatic candidates can be executed only after the exact source/target preview is confirmed. For a `review_required` item, preserve its original `confidence` and `status`; after the user confirms the identity, year, target and move/rename scope, annotate that same item with `userConfirmed: true` and `confirmation: { "scope": "move-and-rename", "resourceType": "<movie|series>", "year": <confirmed year or null>, "target": "<exact target>" }`. Never change low/medium confidence to high to bypass review.
+   - The archive executor accepts a reviewed item only when the confirmation record matches its resource type, target and optional year. Conflicts are never made eligible by confirmation.
+   - Run archive preflight against the preserved plan. After the user confirms the exact preflight, execute that same plan with `--yes`; do not regenerate or broaden it.
+   - The executor creates missing target directories only during confirmed execution, then moves/renames, checks the resulting target, and records the idempotency ledger. Do not repeat destination scans or hash/size checks after a verified success.
 
 ## Token-efficient rules
 
@@ -60,6 +71,8 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 - Run full check-ready only on first setup or after an authentication/path failure. During normal use, let the selected provider/OpenList call report a concrete error; then run only the relevant focused check.
 - Do not re-read SKILL, SUBAGENT, and all provider instructions repeatedly within one task. Read the applicable workflow once; load provider details only when needed.
 - Do not repeat a verification merely to produce a more detailed report. Report API/task status and its evidence.
+- For a named archive file, plan only that file. Use `--compact` for Agent-facing media-plan output; do not pass full formatted plan JSON when compact output contains the execution contract.
+- Read the applicable skill workflow once. Do not inspect implementation source unless a real command failure or missing documented contract requires it.
 
 ## Safety
 
