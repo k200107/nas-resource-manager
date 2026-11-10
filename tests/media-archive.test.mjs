@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runMediaArchive, parseArgs, validatePlanItem } from "../scripts/media-archive.mjs";
+import { compactArchiveResult, runMediaArchive, parseArgs, validatePlanItem } from "../scripts/media-archive.mjs";
 
 const roots = { moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" };
 const plan = [{
@@ -161,9 +161,25 @@ test("archive rejects targets outside configured library root", () => {
   assert.throws(() => validatePlanItem({ ...plan[0], target: "/other/file.mkv" }, roots), /不在对应媒体库根目录内/);
 });
 
-test("parseArgs requires explicit confirmation flag to enable mutations", () => {
-  assert.equal(parseArgs(["--plan-file", "plan.json"]).yes, false);
+test("parseArgs supports compact output without changing execution confirmation", () => {
+  assert.equal(parseArgs(["--plan-file", "plan.json", "--compact"]).compact, true);
+  assert.equal(parseArgs(["--plan-file", "plan.json", "--compact"]).yes, false);
   assert.equal(parseArgs(["--plan-file", "plan.json", "--yes"]).yes, true);
+});
+
+test("compact archive output retains decisions and errors but omits verbose safety metadata", () => {
+  const output = compactArchiveResult({
+    ok: false, tool: "media-archive", mode: "read-only-dry-run", mutated: false,
+    eligible: 2, skipped: 1, awaitingUserConfirmation: 1,
+    preflight: [{ source: "/Downloads/a.mkv", target: "/Movies/a.mkv", ok: false, conflict: true, reason: "目标已存在", debug: "omit" }],
+    executed: [], alreadyArchived: [], nextAction: "resolve_conflicts_or_missing_sources",
+    safety: { overwrite: false, verbose: "omit" }
+  });
+  assert.equal(output.preflight[0].conflict, true);
+  assert.equal(output.preflight[0].reason, "目标已存在");
+  assert.equal("debug" in output.preflight[0], false);
+  assert.equal("safety" in output, false);
+  assert.equal(output.awaitingUserConfirmation, 1);
 });
 
 function fakeOpenList(calls, listings, { verifyTarget = false } = {}) {
