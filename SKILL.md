@@ -5,96 +5,92 @@ description: Search media resources, save Aliyun/Quark/Baidu shares, copy them t
 
 # Resource 2 NAS
 
-Use this skill for media search, cloud-drive share saving, OpenList task inspection/copy, and media organization.
+This is the canonical workflow for media search, cloud-drive saves, OpenList copy/tasks, and media organization. Sub-agent documents contain delegation constraints only; do not duplicate this workflow.
 
 ## Defaults
 
-- Search provider order: Aliyun → Quark → Baidu. Only choose a provider listed as usable by the relevant readiness check.
-- Search returns 10 candidates by default. Use --max-candidates 30 only when the user asks for more.
-- Search already deduplicates by share link and interleaves providers, so the 10 rows normally span several providers. Check `providerAvailable` before concluding a provider has no results.
-- Cloud-drive save folder: provider-specific save path, default /影视库.
-- Media copy staging folder: /本地存储/Downloads.
-- Final libraries: /本地存储/Movies and /本地存储/TVShows.
-- Generic copy fallback: /本地存储.
-- Cloud-drive /影视库 and OpenList /本地存储/... are different storage systems.
-- Missing cloud-drive save folders appear in `willCreateDirectories` during preview. Folders are created only after the user confirms the exact preview and the command reruns with `--yes`; existing folders are reused, never overwritten. `--no-create-dir` restores the fail-fast behaviour.
+- Provider order: Aliyun → Quark → Baidu. Use only providers reported usable.
+- Search defaults to 10 candidates; expand only when requested. Results are deduplicated by share URL and interleaved; check `providerAvailable` before saying a provider has no results.
+- Cloud save default: `/影视库`. OpenList staging: `/本地存储/Downloads`. Libraries: `/本地存储/Movies`, `/本地存储/TVShows`. Generic copy fallback: `/本地存储`.
+- Cloud-drive `/影视库` and OpenList `/本地存储/...` are different storage systems.
+- Missing cloud save folders appear in preview and are created only after confirmation plus `--yes`; existing folders are reused, never overwritten. `--no-create-dir` restores fail-fast behavior.
 
 ## Commands
 
 | Task | Command |
 |---|---|
-| Search for agent | npm run search -- "片名" --format json --compact |
-| Search for user display | npm run search -- "片名" --max-candidates 10 |
-| Readiness (first setup or after auth/path error) | npm run check-ready |
-| Focused env check | npm run check-env -- --json |
-| Aliyun preview | npm run aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json --compact |
-| Quark preview | npm run quark-save -- "$URL" "$DEST" --dry-run --format json --compact |
-| Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json --compact |
-| OpenList copy preview | npm run openlist-copy -- "$SRC" "$DST" "$NAME" --format json |
-| Provider save after confirmation | Same provider command with --yes --format json --compact (retain --context-name and --resource-type) |
-| OpenList copy after confirmation | Same command with --yes --format json |
-| Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
-| Plan one downloaded file | npm run --silent media-plan -- --file "$FILE" --format json --compact |
-| Plan a staging directory | npm run --silent media-plan -- --source-dir "$DIR" --format json --compact |
-| Archive preflight | npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact |
-| Execute reviewed archive | Same archive command with --yes --compact after the exact plan is confirmed |
+| Agent search | `npm run --silent search -- "片名" --format json --compact` |
+| User-facing search | `npm run --silent search -- "片名" --max-candidates 10` |
+| Readiness (first setup/auth/path error) | `npm run --silent check-ready` |
+| Focused env check | `npm run --silent check-env -- --json` |
+| Aliyun preview | `npm run --silent aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json --compact` |
+| Quark preview | `npm run --silent quark-save -- "$URL" "$DEST" --dry-run --format json --compact` |
+| Baidu preview | `npm run --silent baidu-save -- "$URL" "$DEST" --dry-run --format json --compact` |
+| OpenList copy preview | `npm run --silent openlist-copy -- "$SRC" "$DST" "$NAME" --format json` |
+| Provider save after confirmation | Same provider command with `--yes`, retaining naming arguments and compact JSON |
+| OpenList copy after confirmation | Same copy command with `--yes` |
+| Inspect copy task | `npm run --silent openlist-tasks -- get copy --id "$TASK_ID" --format json` |
+| Plan one file | `npm run --silent media-plan -- --file "$FILE" --format json --compact` |
+| Plan a directory | `npm run --silent media-plan -- --source-dir "$DIR" --format json --compact` |
+| Archive preflight | `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact` |
+| Execute reviewed archive | Same archive command with `--yes --compact` after confirmation |
 
-## Minimal workflow
+## Workflow
 
-1. Search: use compact JSON for Agent decisions. Deduplicate by provider + share URL. Show a short list (normally 5–10) with title, provider, link, extraction code, and relevant quality hints.
-   Compact output already deduplicates and reports `providerAvailable`; only re-check for duplicates when a provider appears twice with the same share id.
-2. Select: ask the user to select a resource when multiple plausible candidates exist. Confirmation applies only to the selected resource and stated operation.
-3. Preview save: run the provider dry-run. Show selected items and actual destination before a write.
-4. Save preview naming: when the selected resource came from search, pass the clean canonical title from that search result explicitly with `--context-name "$CANONICAL_TITLE"`; do not derive the final name from a noisy share/folder name. For a movie, also pass `--resource-type movie` when the type is known. Before asking for confirmation, compare the selected folder/file name with the canonical title and inspect `renamePlan`. If a noisy folder should be renamed but `renamePlan` is empty, do not run `--yes`; rerun the preview with the canonical `--context-name` (or a validated `--rename-plan-json`). Renaming a selected folder changes only that folder's name; it does not rename files inside it.
-5. Save: after explicit confirmation, rerun with --yes. Interpret provider results:
-   - Documented synchronous terminal success = SUCCEEDED.
-   - Accepted response or task ID = ACTIVE until the provider task reports terminal success.
-   - Explicit API error = FAILED.
-   - Missing/ambiguous task evidence = UNKNOWN.
-   Do not re-list every saved file after clear terminal success. Do not treat generic HTTP 200/202 or accepted as terminal success when the provider uses asynchronous tasks.
-6. Copy to NAS: preview source, exact item name, destination, and conflicts. After confirmation, run fs/copy through openlist-copy.
-7. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
-8. Organize: only when requested.
-   - If the user names one file, use `media-plan --file "$FILE" --format json --compact`; do not scan the whole Downloads directory. Use `--source-dir` only when the user asks to organize/check a directory or multiple resources.
-   - Planning is strictly read-only and only identifies media/names/targets; it does not query Movies/TVShows for conflicts or create directories. Conflict checking belongs to `media-archive` preflight, which checks source existence and exact target collisions. This avoids repeating destination reads in both planner and executor.
-   - Generate one plan and preserve it. Do not manually rebuild the same plan or reread executor source to discover its contract.
-   - If a review-required item has no target, propose its canonical title, resource type, year and target in that same plan, but keep its original `confidence` and `status: "review_required"`. Run archive preflight against the single preserved plan before asking for confirmation. The executor preflights both automatic candidates and `review_required` items that have a proposed source, resource type and target; review items remain non-executable and are reported in `awaitingUserConfirmation`. Use `--compact` for both preflight and execution output.
-   - After the user confirms the exact source/target preview and preflight, automatic candidates can execute. For each confirmed `review_required` item, preserve its original `confidence` and `status`; annotate that same item with `userConfirmed: true` and `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed canonical title>", "year": <confirmed year or null>, "target": "<exact target>" }`. Never change low/medium confidence to high to bypass review.
-   - The archive executor accepts a reviewed item for execution only when the confirmation record matches its exact source, resource type, canonical title, target and year. Conflicts are never made eligible by confirmation.
-   - Execute that same plan with `--yes`; the executor repeats the source/target preflight immediately before mutation. Do not regenerate or broaden the plan, and do not ask for a second confirmation of an unchanged preview.
-   - The executor creates missing target directories only during confirmed execution, then moves/renames, checks the resulting target, and records the idempotency ledger. Do not repeat destination scans or hash/size checks after a verified success.
+### Search and select
+1. Search with compact JSON. Normally show 5–10 candidates with title, provider, original share URL, extraction code, and useful quality hints.
+2. Preserve original URLs/codes. Do not call link checks unless requested or materially needed.
+3. Ask the user to select when multiple plausible candidates exist. Selection and confirmation apply only to the selected resource and operation.
 
-## Token-efficient rules
+### Cloud-drive save
+1. Preview every write. Show selected items, provider, actual destination, and rename plan.
+2. For a search result, pass its clean title as `--context-name "$CANONICAL_TITLE"`; pass `--resource-type movie` when known. Never derive the canonical title from a noisy share/folder name.
+3. Compare selected names with the canonical title. If cleanup is needed but `renamePlan` is empty, do not save; correct the context name or provide a validated rename plan and preview again. Renaming a folder does not rename its children.
+4. Execute with `--yes` only after confirmation of exact resource, items, provider, and destination.
+5. Status: documented synchronous terminal success = SUCCEEDED; accepted/task ID = ACTIVE until terminal task status; explicit error = FAILED; ambiguous evidence = UNKNOWN. HTTP 200/202 or accepted is not terminal success for asynchronous providers.
+6. Do not relist after clear terminal success. For asynchronous providers, query the original task; never blindly resubmit.
 
-- For Agent search and all provider save previews/results, use --format json --compact. Compact provider output omits duplicated confirmation payloads and raw task metadata while retaining source, target, selected items, rename plan, task ID, and status. This returns one flat row per result without duplicate nested candidate/download-link structures.
-- Default to 10 candidates. Expand only on request.
-- Do not call --check-links unless the user asks for link verification or the result set is unusually uncertain.
-- Run full check-ready only on first setup or after an authentication/path failure. During normal use, let the selected provider/OpenList call report a concrete error; then run only the relevant focused check.
-- Do not re-read SKILL, SUBAGENT, and all provider instructions repeatedly within one task. Read the applicable workflow once; load provider details only when needed.
-- Do not repeat a verification merely to produce a more detailed report. Report API/task status and its evidence.
-- For a named archive file, plan only that file. Use `--compact` for both media-plan and media-archive; do not pass full formatted JSON when compact output contains the execution contract and outcome evidence.
-- Read the applicable skill workflow once. Do not inspect implementation source unless a real command failure or missing documented contract requires it.
+### OpenList copy
+1. Preview exact source, item name, destination, and conflicts. Execute only after confirmation.
+2. Check the exact task ID once: undone = ACTIVE; done with no error = SUCCEEDED; explicit error = FAILED; absent from both lists = UNKNOWN.
+3. Do not repeatedly poll, refresh destination, enumerate files, compare sizes, or hash by default. For ACTIVE/UNKNOWN, retain the task ID and query that same task when progress is requested. Never resubmit blindly.
+
+### Media organization
+1. Organize only when requested. One named file uses `--file`; `--source-dir` is only for a requested directory/batch.
+2. Planning is read-only: identify media, names, and targets only. It does not scan Movies/TVShows for conflicts or create directories. Archive preflight checks source existence and exact target collisions.
+3. Generate and preserve one plan. Do not rebuild it, broaden its scope, or read executor source to rediscover its contract.
+4. Run archive preflight against that plan and show exact source/target and conflicts before confirmation.
+5. A `review_required` item may have a proposed title/type/year/target, but retain original confidence and status. Preflight it; it remains non-executable until confirmed.
+6. After confirmation of the exact source/target, annotate only that item with `userConfirmed: true` and matching `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed title>", "year": <year or null>, "target": "<exact target>" }`. Never raise confidence or change `review_required`. Every field must match exactly; conflicts remain ineligible.
+7. Execute the same plan with `--yes`. The executor repeats preflight immediately before mutation, creates missing target directories only during confirmed execution, then moves/renames, verifies the target, and records the idempotency ledger.
+8. Do not regenerate plans, rescan destinations, or repeat hash/size checks after verified success. Preserve multi-season structure; never overwrite same-name targets.
+
+## Token and output discipline
+
+- Read this workflow once per task. Do not repeatedly reread SKILL, SUBAGENT, or provider instructions.
+- Routine CLI usage comes from this document, not `scripts/`. Inspect source only for an explicit debugging request or a reproducible failure the docs cannot explain.
+- Use compact JSON for search/provider saves and compact media-plan/archive output. Do not print or forward full JSON when compact output contains the needed fields.
+- Capture command output directly. Avoid temporary-file-plus-`head` round trips; save full logs only when output must be retained for debugging, and inspect only relevant excerpts.
+- Keep reports to decision/status essentials: resource, provider, source/destination, task ID, status, next action. Do not narrate internal reasoning, repeat command output, or summarize every successful step.
+- Durable notes contain only resource, original link, destination, task ID/status, and unresolved next action—not command transcripts or routine details.
 
 ## Safety
 
-- Never print, commit, or request raw credentials, cookies, or authorization headers. .env and .state/ must remain uncommitted.
-- Never use --yes before the user or supervising Agent confirms the exact preview payload, source, destination, and selected items.
-- Confirmation is scoped: confirming cloud save does not authorize NAS copy; confirming Downloads copy does not authorize archive into Movies/TVShows.
-- Never overwrite or delete existing files, or modify the formal media library without a separate preview and confirmation.
-- Automatic directory creation is scoped to the configured save path. A dry-run and every readiness check stay read-only.
-- Do not create background retries, monitoring, cron jobs, or recurring tasks unless requested.
-- Do not retry a mutation blindly after timeout or unknown status. Query the original task first.
-- OPENLIST_DEFAULT_COPY_DST_PATH is the generic copy fallback; OPENLIST_STAGING_PATH is the media staging folder. Do not interchange them.
-- Use OPENLIST_BASE_URL and OPENLIST_TOKEN for OpenList requests.
+- Never print, commit, or request credentials, cookies, or authorization headers. Keep `.env` and `.state/` uncommitted.
+- Never use `--yes` before confirmation of the exact preview, source, destination, and selected items.
+- Confirmation is operation-scoped: cloud save ≠ NAS copy; Downloads copy ≠ formal-library archive.
+- Never overwrite/delete existing files or alter the formal library without a separate preview and confirmation.
+- Readiness checks and dry-runs are read-only. Directory creation is limited to the configured cloud save path or confirmed archive target.
+- Do not create retries, monitoring, cron jobs, or recurring tasks unless requested.
+- On timeout/unknown mutation status, query the original task before considering retry.
+- `OPENLIST_DEFAULT_COPY_DST_PATH` is generic copy fallback; `OPENLIST_STAGING_PATH` is staging. Do not interchange them. OpenList uses `OPENLIST_BASE_URL` and `OPENLIST_TOKEN`.
 
 ## Result vocabulary
 
-Use only these states in user reports:
-
-- SUBMITTED: write request accepted, no terminal task result yet.
-- ACTIVE: task is still running.
-- SUCCEEDED: provider/OpenList task has a clear terminal success result.
+- SUBMITTED: write accepted, no terminal task result.
+- ACTIVE: task still running.
+- SUCCEEDED: clear terminal success.
 - FAILED: explicit terminal failure.
-- UNKNOWN: no reliable terminal status is available.
+- UNKNOWN: no reliable terminal status.
 
-Never call a task complete based only on a request being accepted or a destination directory being visible.
+Never call a task complete based only on request acceptance or destination visibility.
