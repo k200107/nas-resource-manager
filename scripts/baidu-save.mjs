@@ -973,12 +973,13 @@ async function verifyBaiduShare({ apiBase, timeoutMs, cookie, bdstoken, verifySu
 
 /** 从百度网盘只读接口获取后续请求所需的 bdstoken。 */
 /** 通过只读接口获取百度后续请求需要的 bdstoken。 */
-async function getBaiduBdstoken({ apiBase, timeoutMs, cookie }) {
+async function getBaiduBdstoken({ apiBase, timeoutMs, cookie, fetchImpl }) {
   const url = new URL("/api/gettemplatevariable", normalizeApiBase(apiBase));
   url.searchParams.set("fields", '["bdstoken"]');
   const response = await fetchBaiduJson(url, {
     timeoutMs,
     cookie,
+    fetchImpl,
     referer: normalizeApiBase(apiBase)
   });
   return response.result?.bdstoken || response.bdstoken || "";
@@ -1056,7 +1057,7 @@ async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, 
  * 只有"明确的目录不存在"错误才视为缺失，凭据、网络等其它异常一律上抛，
  * 避免因为一次偶发故障而误建目录。
  */
-async function planBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, savePath, mode = "preview" }) {
+async function planBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, savePath, mode = "preview", fetchImpl }) {
   if (!cookie) return null;
   const segments = parseBaiduSavePath(savePath || "/").split("/").filter(Boolean);
   if (segments.length === 0) return null;
@@ -1069,7 +1070,7 @@ async function planBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken,
     listSegment: async (parent, segment) => {
       const dirPath = `${String(parent.path).replace(/\/+$/, "")}/${segment}`;
       try {
-        await listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir: dirPath });
+        await listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir: dirPath, fetchImpl });
         return { id: dirPath, name: segment, path: dirPath };
       } catch (error) {
         const message = String(error?.message || error);
@@ -1078,14 +1079,14 @@ async function planBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken,
       }
     },
     createSegment: async (parent, segment, pendingPath) => {
-      await createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath: pendingPath });
+      await createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath: pendingPath, fetchImpl });
       return { id: pendingPath, name: segment, path: pendingPath };
     }
   });
 }
 
 /** 在百度网盘创建单个目录；仅由 create 模式调用。 */
-async function createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath }) {
+async function createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath, fetchImpl }) {
   const url = new URL("/api/create", normalizeApiBase(apiBase));
   const query = {
     a: "commit",
@@ -1107,12 +1108,13 @@ async function createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoke
     body,
     timeoutMs,
     cookie,
+    fetchImpl,
     referer: normalizeApiBase(apiBase)
   });
   return { path: dirPath };
 }
 
-async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }) {
+async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir, fetchImpl }) {
   const url = new URL("/api/list", normalizeApiBase(apiBase));
   const query = {
     app_id: appId || DEFAULT_APP_ID,
@@ -1133,6 +1135,7 @@ async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }
   const response = await fetchBaiduJson(url, {
     timeoutMs,
     cookie,
+    fetchImpl,
     referer: normalizeApiBase(apiBase)
   });
   return normalizeBaiduShareItems(response.list || []);
@@ -1251,7 +1254,7 @@ async function fetchWithTimeout(url, options = {}) {
     }
     if (options.cookie) headers.Cookie = options.cookie;
     if (options.referer) headers.Referer = options.referer;
-    const response = await fetch(requestUrl, {
+    const response = await (options.fetchImpl || fetch)(requestUrl, {
       method: options.method || "GET",
       headers,
       body: options.body,
