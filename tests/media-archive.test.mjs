@@ -69,13 +69,14 @@ test("explicitly confirmed review item is executable without falsifying its orig
     ...plan[0],
     status: "review_required",
     confidence: "low",
+    resourceName: "Example",
     year: 2024,
     userConfirmed: true,
     confirmation: {
       scope: "move-and-rename",
       source: plan[0].source,
       resourceType: "movie",
-      resourceName: plan[0].resourceName,
+      resourceName: "Example",
       year: 2024,
       target: plan[0].target
     }
