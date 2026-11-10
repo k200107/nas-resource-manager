@@ -63,6 +63,54 @@ test("confirmed archive creates directory, moves and renames, then verifies", as
   assert.equal(result.executed[0].verified, true);
 });
 
+test("explicitly confirmed review item is executable without falsifying its original confidence", async () => {
+  const calls = [];
+  const reviewed = {
+    ...plan[0],
+    status: "review_required",
+    confidence: "low",
+    year: 2024,
+    userConfirmed: true,
+    confirmation: {
+      scope: "move-and-rename",
+      resourceType: "movie",
+      year: 2024,
+      target: plan[0].target
+    }
+  };
+  const result = await runMediaArchive({
+    plan: [reviewed], ...roots, yes: true,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    }, { verifyTarget: true })
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.confirmedReviewCount, 1);
+  assert.equal(reviewed.confidence, "low");
+  assert.equal(reviewed.status, "review_required");
+  assert.equal(result.executed[0].verified, true);
+});
+
+test("review item without a complete confirmation record remains skipped", async () => {
+  const invalid = {
+    ...plan[0],
+    status: "review_required",
+    userConfirmed: true,
+    confirmation: { scope: "move-and-rename", resourceType: "movie" }
+  };
+  const result = await runMediaArchive({
+    plan: [invalid], ...roots,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: async () => { throw new Error("unconfirmed review item must not call OpenList"); }
+  });
+  assert.equal(result.eligible, 0);
+  assert.equal(result.skipped, 1);
+});
+
 test("archive skips review-required entries", async () => {
   const result = await runMediaArchive({
     plan: [{ ...plan[0], status: "review_required" }], ...roots,
