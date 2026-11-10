@@ -247,16 +247,16 @@ async function validateAliyunRefreshToken(options = {}) {
   };
 }
 
-async function checkAliyunSaveTarget({ refreshToken, targetPath, stateFile = DEFAULT_STATE_FILE, fetchImpl = globalThis.fetch, timeoutMs }) {
+async function checkAliyunSaveTarget({ refreshToken, targetPath, stateFile = DEFAULT_STATE_FILE, fetchImpl = globalThis.fetch, timeoutMs, createMissingDirectories = false }) {
   const { token } = await authenticateAliyun({ refreshToken, stateFile, fetchImpl, timeoutMs });
   const normalizedPath = normalizeCloudPath(targetPath);
-  // 就绪检查必须保持只读：不传 mode，沿用 strict，绝不创建目录。
   const plan = await resolveAliyunFolder({
     driveId: token.default_drive_id,
     targetPath: normalizedPath,
     accessToken: token.access_token,
     fetchImpl,
-    timeoutMs
+    timeoutMs,
+    mode: createMissingDirectories ? "create" : "strict"
   });
   return {
     provider: "aliyun",
@@ -265,7 +265,10 @@ async function checkAliyunSaveTarget({ refreshToken, targetPath, stateFile = DEF
     state: "reachable",
     targetPath: normalizedPath,
     folderId: plan.folder.file_id,
-    message: "阿里云盘默认保存目录可访问。"
+    createdDirectories: plan.createdDirectories || [],
+    message: plan.createdDirectories?.length
+      ? `阿里云盘默认保存目录已自动创建：${plan.createdDirectories.join("、")}。`
+      : "阿里云盘默认保存目录可访问。"
   };
 }
 
