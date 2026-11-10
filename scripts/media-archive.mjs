@@ -71,7 +71,7 @@ async function runMediaArchive({
   if (!moviesPath || !tvShowsPath || moviesPath === "/" || tvShowsPath === "/") throw new Error("必须提供有效的 Movies 和 TVShows 根目录。");
   if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境不支持 fetch，请使用 Node.js 20 或更新版本。");
 
-  const eligible = plan.filter((item) => item?.status === "auto_archive_candidate" && item.source && item.target);
+  const eligible = plan.filter((item) => isArchiveEligible(item) && item.source && item.target);
   const skipped = plan.length - eligible.length;
   const allValidated = eligible.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
   const alreadyArchived = [];
@@ -224,8 +224,19 @@ async function runMediaArchive({
     mutated: executed.some((entry) => entry.ok), eligible: eligible.length, skipped, alreadyArchived,
     preflight, executed,
     safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
+    confirmedReviewCount: validated.filter((item) => item.confirmedReview).length,
     nextAction: success ? "archive_complete" : "inspect_partial_execution_before_retry"
   };
+}
+
+function isArchiveEligible(item) {
+  if (item?.status === "auto_archive_candidate") return true;
+  if (item?.status !== "review_required" || item.userConfirmed !== true || item.conflict === true) return false;
+  const confirmation = item.confirmation;
+  if (!confirmation || confirmation.scope !== "move-and-rename") return false;
+  if (confirmation.resourceType !== item.resourceType || confirmation.target !== item.target) return false;
+  if (confirmation.year != null && Number(confirmation.year) !== Number(item.year)) return false;
+  return ["movie", "series"].includes(item.resourceType);
 }
 
 function validatePlanItem(item, roots) {
@@ -234,10 +245,16 @@ function validatePlanItem(item, roots) {
   if (!source || !target || source === "/" || target === "/") throw new Error("计划中存在无效源路径或目标路径。");
   const root = item.resourceType === "movie" ? roots.moviesPath : item.resourceType === "series" ? roots.tvShowsPath : "";
   if (!root || !(target.startsWith(root + "/"))) throw new Error(`目标路径不在对应媒体库根目录内：${target}`);
+  if (item.status === "review_required" && !isArchiveEligible(item)) {
+    throw new Error("人工复核条目缺少完整确认信息；必须保留原始置信度并记录用户确认的类型、目标和操作范围。");
+  }
   const sourceName = basename(source);
   const targetName = basename(target);
   if (!sourceName || !targetName) throw new Error("计划路径缺少文件名。");
-  return { ...item, source, target, sourceDir: parent(source), sourceName, targetDir: parent(target), targetName };
+  return {
+    ...item, source, target, sourceDir: parent(source), sourceName, targetDir: parent(target), targetName,
+    confirmedReview: item.status === "review_required" && isArchiveEligible(item)
+  };
 }
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
@@ -289,4 +306,4 @@ function basename(value) { return value.split("/").filter(Boolean).at(-1) || "";
 function join(dir, name) { return dir === "/" ? "/" + name : dir.replace(/\/+$/g, "") + "/" + name; }
 function sameName(a, b) { return String(a).toLocaleLowerCase("zh-CN") === String(b).toLocaleLowerCase("zh-CN"); }
 
-export { parseArgs, runMediaArchive, validatePlanItem };
+export { isArchiveEligible, parseArgs, runMediaArchive, validatePlanItem };
