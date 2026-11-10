@@ -48,9 +48,9 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
    - Explicit API error = FAILED.
    - Missing/ambiguous task evidence = UNKNOWN.
    Do not re-list every saved file after clear terminal success. Do not treat generic HTTP 200/202 or accepted as terminal success when the provider uses asynchronous tasks.
-5. Copy to NAS: preview source, exact item name, destination, and conflicts. After confirmation, run fs/copy through openlist-copy.
-6. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
-7. Organize: only when requested. Plan destination and conflicts first. Moving/renaming into Movies or TVShows requires separate explicit confirmation.
+6. Copy to NAS: preview source, exact item name, destination, and conflicts. After confirmation, run fs/copy through openlist-copy.
+7. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
+8. Organize: only when requested. Plan destination and conflicts first. Moving/renaming into Movies or TVShows requires separate explicit confirmation.
 
 ## Token-efficient rules
 
