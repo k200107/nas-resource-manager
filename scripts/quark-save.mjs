@@ -415,7 +415,7 @@ async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath, 
       id: null, fid: null, name: segment, path: pendingPath, pendingCreate: true
     }),
     listSegment: async (parent, segment) => {
-      const items = await listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid: parent.fid || "0" });
+      const items = await listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid: parent.fid || "0", fetchImpl });
       const match = items.find((item) => item.isDir && item.name === segment);
       if (!match) return null;
       return {
@@ -448,11 +448,12 @@ async function resolveQuarkFolderPath({ apiBase, timeoutMs, cookie, targetPath, 
 
 /** 读取夸克网盘指定文件夹的项目列表。 */
 /** 通过对应服务接口读取列表数据，不修改远端内容。 */
-async function listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid }) {
+async function listQuarkFolderItems({ apiBase, timeoutMs, cookie, pdirFid, fetchImpl }) {
   const response = await fetchQuarkJson(`${normalizeApiBase(apiBase)}/1/clouddrive/file/sort`, {
     method: "GET",
     timeoutMs,
     cookie,
+    fetchImpl,
     query: {
       pr: "ucpro",
       fr: "pc",
