@@ -26,7 +26,8 @@ test("validateReadyConfig passes with Baidu-only provider and OpenList target", 
       fetchImpl: async (url) => {
         const text = String(url);
         if (text.includes("/xpan/nas")) return jsonResponse({ errno: 0, username: "tester" });
-        if (text.includes("/xpan/file")) return jsonResponse({ errno: 0, list: [] });
+        if (text.includes("/api/gettemplatevariable")) return jsonResponse({ result: { bdstoken: "bdstoken" } });
+        if (text.includes("/api/list")) return jsonResponse({ errno: 0, list: [{ fs_id: 1, server_filename: "NAS资源下载", isdir: 1 }] });
         if (text.includes("/api/fs/list")) return jsonResponse({ code: 200, message: "success", data: { content: [] } });
         throw new Error(`Unexpected URL: ${text}`);
       }
@@ -141,6 +142,52 @@ test("validateReadyConfig automatically creates a missing Aliyun save folder", a
   assert.ok(calls.some((call) => call.endpoint === "/adrive/v2/file/createWithFolders"));
 });
 
+
+test("validateReadyConfig automatically creates a missing Quark save folder", async () => {
+  const calls = [];
+  const result = await validateReadyConfig({
+    QUARK_COOKIE: "quark-cookie", QUARK_DEFAULT_SAVE_URL: "/影视库/电影",
+    OPENLIST_TOKEN: "openlist-token", OPENLIST_BASE_URL: "http://openlist.test",
+    OPENLIST_DEFAULT_COPY_DST_PATH: "/影视资源备份/影视"
+  }, {
+    fetchImpl: async (url, options = {}) => {
+      const endpoint = new URL(String(url)).pathname;
+      const query = new URL(String(url)).searchParams;
+      const body = options.body ? JSON.parse(options.body) : {};
+      calls.push({ endpoint, query, body });
+      if (endpoint === "/1/clouddrive/file/sort") return jsonResponse({ code: 0, data: { list: [] } });
+      if (endpoint === "/1/clouddrive/file" && options.method === "POST") return jsonResponse({ code: 0, data: { fid: "created-quark-folder" } });
+      if (endpoint === "/api/fs/list") return jsonResponse({ code: 200, message: "success", data: { content: [] } });
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+  assert.equal(result.providerTargets[0].ok, true);
+  assert.deepEqual(result.providerTargets[0].createdDirectories, ["/影视库", "/影视库/电影"]);
+  assert.equal(calls.filter((call) => call.endpoint === "/1/clouddrive/file" && call.body.file_name).length, 2);
+});
+
+test("validateReadyConfig automatically creates a missing Baidu save folder", async () => {
+  const calls = [];
+  const result = await validateReadyConfig({
+    BAIDU_COOKIE: "baidu-cookie", BAIDU_DEFAULT_SAVE_PATH: "/影视库",
+    OPENLIST_TOKEN: "openlist-token", OPENLIST_BASE_URL: "http://openlist.test",
+    OPENLIST_DEFAULT_COPY_DST_PATH: "/影视资源备份/影视"
+  }, {
+    fetchImpl: async (url, options = {}) => {
+      const endpoint = new URL(String(url)).pathname;
+      const body = options.body instanceof URLSearchParams ? Object.fromEntries(options.body.entries()) : {};
+      calls.push({ endpoint, body });
+      if (endpoint === "/api/gettemplatevariable") return jsonResponse({ result: { bdstoken: "bdstoken" } });
+      if (endpoint === "/api/list") return jsonResponse({ errno: -9, list: [] });
+      if (endpoint === "/api/create") return jsonResponse({ errno: 0, info: [{ path: "/影视库" }] });
+      if (endpoint === "/api/fs/list") return jsonResponse({ code: 200, message: "success", data: { content: [] } });
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+  assert.equal(result.providerTargets[0].ok, true);
+  assert.deepEqual(result.providerTargets[0].createdDirectories, ["/影视库"]);
+  assert.ok(calls.some((call) => call.endpoint === "/api/create" && call.body.path === "/影视库"));
+});
 test("validateReadyConfig fails when no provider is complete", async () => {
   const result = await validateReadyConfig(
     {
