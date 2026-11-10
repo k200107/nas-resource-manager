@@ -39,7 +39,7 @@ Plan a directory only when the user asks to review multiple resources:
 npm run --silent media-plan -- --source-dir "/Downloads" --format json --compact
 ```
 
-Planning never creates destination directories or changes files. After reviewing and confirming the exact source and target, run the archive executor first without `--yes` for preflight, then with `--yes` only after the preflight is confirmed. A `review_required` item must carry a matching `userConfirmed` record; its original confidence and review status must not be rewritten to simulate automatic confidence.
+Planning never creates destination directories or changes files. Run the archive executor without `--yes` to preflight the exact source and target first. After the user confirms that preview, add a matching `userConfirmed` record to any `review_required` item, then execute the same plan with `--yes`; the executor repeats preflight immediately before mutation. A reviewed item's original confidence and status must never be rewritten to simulate automatic confidence.
 
 ## Requirements
 
