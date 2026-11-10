@@ -100,6 +100,47 @@ test("validateReadyConfig passes with Aliyun-only provider and existing save fol
   assert.equal(result.providerTargets[0].folderId, "downloads-id");
 });
 
+test("validateReadyConfig automatically creates a missing Aliyun save folder", async () => {
+  const calls = [];
+  const result = await validateReadyConfig(
+    {
+      ALIYUN_REFRESH_TOKEN: "aliyun-refresh-token",
+      ALIYUN_DEFAULT_SAVE_PATH: "/影视库",
+      OPENLIST_TOKEN: "openlist-token",
+      OPENLIST_BASE_URL: "http://openlist.test",
+      OPENLIST_DEFAULT_COPY_DST_PATH: "/影视资源备份/影视"
+    },
+    {
+      aliyunStateFile: "/tmp/aliyun-check-ready-create-test/auth.json",
+      fetchImpl: async (url, options = {}) => {
+        const text = String(url);
+        const endpoint = new URL(text).pathname;
+        const body = options.body ? JSON.parse(options.body) : {};
+        calls.push({ endpoint, body });
+        if (endpoint === "/v2/account/token") {
+          return jsonResponse({ access_token: "access-token", refresh_token: "rotated", default_drive_id: "drive-1" });
+        }
+        if (endpoint === "/adrive/v3/file/list") return jsonResponse({ items: [] });
+        if (endpoint === "/adrive/v2/file/createWithFolders") {
+          assert.equal(body.name, "影视库");
+          assert.equal(body.parent_file_id, "root");
+          return jsonResponse({ file_id: "created-folder-id" });
+        }
+        if (endpoint === "/api/fs/list") {
+          return jsonResponse({ code: 200, message: "success", data: { content: [] } });
+        }
+        throw new Error(`Unexpected URL: ${text}`);
+      }
+    }
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.nextAction, "ready");
+  assert.equal(result.providerTargets[0].folderId, "created-folder-id");
+  assert.deepEqual(result.providerTargets[0].createdDirectories, ["/影视库"]);
+  assert.ok(calls.some((call) => call.endpoint === "/adrive/v2/file/createWithFolders"));
+});
+
 test("validateReadyConfig fails when no provider is complete", async () => {
   const result = await validateReadyConfig(
     {
