@@ -177,6 +177,7 @@ test("validateReadyConfig automatically creates a missing Baidu save folder", as
       const endpoint = new URL(String(url)).pathname;
       const body = options.body instanceof URLSearchParams ? Object.fromEntries(options.body.entries()) : {};
       calls.push({ endpoint, body });
+      if (endpoint === "/rest/2.0/xpan/nas") return jsonResponse({ errno: 0, username: "tester" });
       if (endpoint === "/api/gettemplatevariable") return jsonResponse({ result: { bdstoken: "bdstoken" } });
       if (endpoint === "/api/list") return jsonResponse({ errno: -9, list: [] });
       if (endpoint === "/api/create") return jsonResponse({ errno: 0, info: [{ path: "/影视库" }] });
