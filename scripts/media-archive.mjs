@@ -139,7 +139,8 @@ async function runMediaArchive({
     return {
       ok: false, tool: "media-archive", mode: yes ? "execution-blocked" : "read-only-dry-run",
       mutated: false, eligible: eligible.length, skipped, alreadyArchived,
-      preflight, executed: [], nextAction: "resolve_conflicts_or_missing_sources"
+      preflight, executed: [], awaitingUserConfirmation,
+      nextAction: "resolve_conflicts_or_missing_sources"
     };
   }
 
@@ -178,7 +179,8 @@ async function runMediaArchive({
     return {
       ok: false, tool: "media-archive", mode: "execution-blocked", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived, preflight, executed: [],
-      error: error.message || String(error), nextAction: "resolve_resource_lock"
+      error: error.message || String(error), awaitingUserConfirmation,
+      nextAction: "resolve_resource_lock"
     };
   }
 
@@ -239,6 +241,7 @@ async function runMediaArchive({
     preflight, executed,
     safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
     confirmedReviewCount: validated.filter((item) => item.confirmedReview).length,
+    awaitingUserConfirmation,
     nextAction: success ? "archive_complete" : "inspect_partial_execution_before_retry"
   };
 }
