@@ -24,11 +24,11 @@ Show a concise, deduplicated shortlist. Preserve original share URLs and extract
 
 Use the matching adapter only:
 
-- Aliyun: npm run aliyun-save -- "$URL" "$DEST" --dry-run --format json
+- Aliyun: npm run aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json
 - Quark: npm run quark-save -- "$URL" "$DEST" --dry-run --format json
 - Baidu: npm run baidu-save -- "$URL" "$DEST" --dry-run --format json
 
-Inspect the preview, classify movie/series/collection, and state the actual provider-side destination. After confirmation, rerun with --yes --format json.
+Inspect the preview, classify movie/series/collection, and state the actual provider-side destination. When the URL came from search, pass the clean search-result title via --context-name (and the known --resource-type); never assume the share's folder name is canonical. If a selected folder needs cleanup but renamePlan is empty, do not save: correct the context name or provide a validated rename plan, then preview again. Renaming a folder only changes the folder name, not its children. After confirmation, rerun with --yes --format json, retaining the same naming arguments.
 
 Status interpretation:
 - Synchronous API terminal success: SUCCEEDED.
