@@ -87,7 +87,7 @@ async function main() {
     safety: {
       executed: false,
       fileOperations: false,
-      note: "仅在配置的 Movies/TVShows 根目录或其上级目录不存在时通过 OpenList mkdir 创建；不复制、移动、重命名或删除任何文件。"
+      note: "规划阶段严格只读；不创建目录、不复制、不移动、不重命名、不删除任何文件。目标目录仅在用户确认后的归档执行阶段按需创建。"
     },
     nextAction: "review_plan"
   };
@@ -127,6 +127,7 @@ function parseArgs(argv) {
     else if (!parsed.sourcePath) parsed.sourcePath = arg;
     else throw new Error(`Unexpected positional argument: ${arg}`);
   }
+  if (parsed.sourceFile && parsed.sourcePath) throw new Error("--file 与 --source-dir 不能同时使用。");
   if (!["json", "text"].includes(parsed.format)) throw new Error("--format 只支持 json 或 text。");
   return parsed;
 }
@@ -577,7 +578,7 @@ function normalizeOpenListPath(value) {
 /** 在 OpenList 路径规则下拼接父目录和子路径。 */
 /** 处理 joinOpenListPath 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
 function parentOpenListPath(value) {
-  const normalized = String(value || "").replace(/\\/g, "/").replace(/\\/+$/g, "");
+  const normalized = String(value || "").replace(/\\/g, "/").replace(/\/+$/g, "");
   const index = normalized.lastIndexOf("/");
   return index <= 0 ? "/" : normalized.slice(0, index);
 }
