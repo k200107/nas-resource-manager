@@ -5,15 +5,15 @@ import { cliArgs, failCli, isCliEntryPoint as isCli, parseEnvCliArgs } from "./c
 /**
  * 组合检查环境变量、网盘 Cookie、OpenList 目标目录和网盘保存目录。
  *
- * 阿里云盘默认保存目录缺失时自动创建；其他检查保持原有行为。凭证不得明文输出。
+ * 三家网盘默认保存目录缺失时自动创建；凭证不得明文输出。
  */
 
 
-import { parseBaiduSavePath } from "./baidu-save.mjs";
+import { getBaiduBdstoken, parseBaiduSavePath, planBaiduDirectory } from "./baidu-save.mjs";
 import { checkAliyunSaveTarget } from "./aliyun-save.mjs";
 import { validateSkillEnv } from "./check-env.mjs";
 import { validateCookieConfig } from "./check-cookies.mjs";
-import { parseQuarkFolderUrl } from "./quark-save.mjs";
+import { parseQuarkFolderUrl, resolveQuarkFolderPath } from "./quark-save.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -91,7 +91,8 @@ async function validateReadyConfig(env = {}, options = {}) {
       cookie: env.QUARK_COOKIE,
       target: env.QUARK_DEFAULT_SAVE_URL,
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-      fetchImpl
+      fetchImpl,
+      createMissingDirectories: true
     }));
   }
   if (validProviders.includes("baidu")) {
@@ -182,93 +183,49 @@ async function checkOpenListTarget({ baseUrl, token, targetPath, timeoutMs, fetc
   }
 }
 
-/** 通过百度目录列表接口只读检查默认保存目录。 */
-async function checkBaiduSaveTarget({ cookie, target, timeoutMs, fetchImpl }) {
+/** 检查百度默认保存目录；缺失时自动逐级创建，已有目录直接复用。 */
+async function checkBaiduSaveTarget({ cookie, target, timeoutMs, fetchImpl, createMissingDirectories = false }) {
+  let targetPath = target || "";
   try {
-    const targetPath = parseBaiduSavePath(target);
-    const url = new URL(`${BAIDU_API_BASE}/rest/2.0/xpan/file`);
-    url.searchParams.set("method", "list");
-    url.searchParams.set("app_id", DEFAULT_BAIDU_APP_ID);
-    url.searchParams.set("dir", targetPath);
-    url.searchParams.set("page", "1");
-    url.searchParams.set("num", "1");
-    const response = await fetchJsonWithTimeout(url, {
-      fetchImpl,
-      timeoutMs,
-      headers: {
-        Accept: "application/json, text/plain, */*",
-        Cookie: cookie
-      }
+    targetPath = parseBaiduSavePath(target);
+    const bdstoken = await getBaiduBdstoken({ apiBase: BAIDU_API_BASE, timeoutMs, cookie });
+    if (!bdstoken) throw new Error("无法获取百度 bdstoken，不能检查或创建保存目录。");
+    const plan = await planBaiduDirectory({
+      apiBase: BAIDU_API_BASE, appId: DEFAULT_BAIDU_APP_ID, timeoutMs, cookie, bdstoken,
+      savePath: targetPath, mode: createMissingDirectories ? "create" : "preview"
     });
-    const errno = Number(response.json?.errno ?? 0);
     return {
-      provider: "baidu",
-      label: "百度网盘",
-      ok: response.ok && errno === 0,
-      state: response.ok && errno === 0 ? "reachable" : "unreachable",
-      targetPath,
-      message: response.ok && errno === 0 ? "百度默认保存目录可访问。" : `百度默认保存目录不可访问：errno=${errno}。`
+      provider: "baidu", label: "百度网盘", ok: true, state: "reachable", targetPath,
+      folderId: plan?.folder?.id || targetPath,
+      createdDirectories: plan?.createdDirectories || [],
+      message: plan?.createdDirectories?.length ? "百度默认保存目录缺失部分已自动创建。" : "百度默认保存目录可访问。"
     };
   } catch (error) {
-    return {
-      provider: "baidu",
-      label: "百度网盘",
-      ok: false,
-      state: "error",
-      targetPath: target || "",
-      message: error.message || String(error)
-    };
+    return { provider: "baidu", label: "百度网盘", ok: false, state: "error", targetPath, message: error.message || String(error) };
   }
 }
-
-/** 通过夸克目录读取接口只读检查默认保存目录。 */
-async function checkQuarkSaveTarget({ cookie, target, timeoutMs, fetchImpl }) {
+/** 检查夸克默认保存目录；缺失时自动逐级创建，已有目录直接复用。 */
+async function checkQuarkSaveTarget({ cookie, target, timeoutMs, fetchImpl, createMissingDirectories = false }) {
   try {
     const parsed = parseQuarkFolderUrl(target);
     if (parsed.needsResolution) {
-      const resolved = await resolveQuarkPath({
-        cookie,
-        targetPath: parsed.path,
-        timeoutMs,
-        fetchImpl
+      const plan = await resolveQuarkFolderPath({
+        apiBase: QUARK_API_BASE, cookie, targetPath: parsed.path, timeoutMs,
+        mode: createMissingDirectories ? "create" : "strict"
       });
       return {
-        provider: "quark",
-        label: "夸克网盘",
-        ok: true,
-        state: "reachable",
-        targetPath: parsed.path,
-        fid: resolved.fid,
-        message: "夸克默认保存路径可解析并访问。"
+        provider: "quark", label: "夸克网盘", ok: true, state: "reachable",
+        targetPath: parsed.path, fid: plan.folder?.fid,
+        createdDirectories: plan.createdDirectories || [],
+        message: plan.createdDirectories?.length ? "夸克默认保存目录缺失部分已自动创建。" : "夸克默认保存目录可访问。"
       };
     }
-    await listQuarkDirectory({
-      cookie,
-      pdirFid: parsed.fid,
-      timeoutMs,
-      fetchImpl
-    });
-    return {
-      provider: "quark",
-      label: "夸克网盘",
-      ok: true,
-      state: "reachable",
-      targetPath: target,
-      fid: parsed.fid,
-      message: "夸克默认保存目录可访问。"
-    };
+    await listQuarkDirectory({ cookie, pdirFid: parsed.fid, timeoutMs, fetchImpl });
+    return { provider: "quark", label: "夸克网盘", ok: true, state: "reachable", targetPath: target, fid: parsed.fid, createdDirectories: [], message: "夸克默认保存目录可访问。" };
   } catch (error) {
-    return {
-      provider: "quark",
-      label: "夸克网盘",
-      ok: false,
-      state: "error",
-      targetPath: target || "",
-      message: error.message || String(error)
-    };
+    return { provider: "quark", label: "夸克网盘", ok: false, state: "error", targetPath: target || "", message: error.message || String(error) };
   }
 }
-
 /** 逐层读取夸克目录，解析配置路径对应的文件夹 ID。 */
 async function resolveQuarkPath({ cookie, targetPath, timeoutMs, fetchImpl }) {
   const segments = splitCloudDrivePath(targetPath);
