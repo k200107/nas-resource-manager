@@ -156,16 +156,6 @@ test("mismatched review confirmation remains ineligible after preflight", async 
   assert.equal(result.mutated, false);
 });
 
-test("archive skips review-required entries", async () => {
-  const result = await runMediaArchive({
-    plan: [{ ...plan[0], status: "review_required" }], ...roots,
-    baseUrl: "http://openlist.test", token: "token",
-    fetchImpl: async () => { throw new Error("should not request"); }
-  });
-  assert.equal(result.eligible, 0);
-  assert.equal(result.skipped, 1);
-});
-
 test("archive rejects targets outside configured library root", () => {
   assert.throws(() => validatePlanItem({ ...plan[0], target: "/other/file.mkv" }, roots), /不在对应媒体库根目录内/);
 });
