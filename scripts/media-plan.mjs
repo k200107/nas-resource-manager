@@ -19,7 +19,7 @@ import fs from "node:fs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
-import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES } from "./media-identity.mjs";
+import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES, DEFAULT_TITLE_YEARS } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -40,7 +40,11 @@ const VIDEO_EXTENSIONS = new Set([".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv"
 async function main() {
   const args = parseArgs(cliArgs());
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
-  const sourcePath = normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
+  const sourceFile = args.sourceFile ? normalizeOpenListPath(args.sourceFile) : "";
+  if (args.sourceFile && !sourceFile) throw new Error("--file 必须是有效的 OpenList 绝对文件路径。");
+  const sourcePath = sourceFile
+    ? parentOpenListPath(sourceFile)
+    : normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
   const moviesPath = normalizeOpenListPath(args.moviesPath || env.MEDIA_MOVIES_PATH);
   const tvShowsPath = normalizeOpenListPath(args.tvShowsPath || env.MEDIA_TVSHOWS_PATH);
 
@@ -55,38 +59,35 @@ async function main() {
     fetchImpl: globalThis.fetch,
     timeoutMs: args.timeoutMs
   };
-  // 媒体库根目录不存在时自动创建；只创建用户明确配置的 Movies/TVShows 根路径，不触碰其内部现有文件。
-  const createdTargetDirectories = await ensureTargetDirectories({ ...context, paths: [moviesPath, tvShowsPath] });
-  // 源目录及媒体库内容仍通过 OpenList fs/list 读取；规划阶段不移动、重命名或删除文件。
-  const scanned = await scanTree({ ...context, rootPath: sourcePath });
+  // 规划阶段严格只读；目标目录由归档执行器在用户确认后按需创建。
+  // 指定单文件时只读取其父目录并选中该文件；未指定文件时才递归扫描整个暂存目录。
+  const scanned = sourceFile
+    ? await scanSingleFile({ ...context, filePath: sourceFile })
+    : await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
-  const basePlan = buildMediaPlan({ sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases, sourceScanComplete: !scanned.truncated });
-  // 只检查计划涉及的目标父目录，不递归扫描整个媒体库；目标目录读取不完整时保守转人工复核。
-  const collisionIndex = await scanTargetConflicts({ ...context, plan: basePlan, moviesPath, tvShowsPath });
+  // 规划只负责识别与命名；目标冲突由归档预检统一检查，执行前还会再次检查。
   const plan = buildMediaPlan({
     sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
-    existingPaths: collisionIndex.existingPaths,
-    destinationScanComplete: collisionIndex.complete,
     sourceScanComplete: !scanned.truncated
   });
   const result = {
     ok: true,
     tool: "media-plan",
-    mode: createdTargetDirectories.length ? "prepare-target-roots-and-read-only-plan" : "read-only-dry-run",
-    mutated: createdTargetDirectories.length > 0,
-    createdTargetDirectories,
-    source: { path: sourcePath, scannedItems: scanned.items.length, truncated: scanned.truncated },
+    mode: "read-only-dry-run",
+    mutated: false,
+    source: { path: sourceFile || sourcePath, scope: sourceFile ? "single-file" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
     targets: { movies: moviesPath, tvShows: tvShowsPath },
     summary: summarizePlan(plan),
     plan,
     safety: {
       executed: false,
       fileOperations: false,
-      note: "仅在配置的 Movies/TVShows 根目录或其上级目录不存在时通过 OpenList mkdir 创建；不复制、移动、重命名或删除任何文件。"
+      note: "规划阶段严格只读；不创建目录、不复制、不移动、不重命名、不删除任何文件。目标目录仅在用户确认后的归档执行阶段按需创建。"
     },
     nextAction: "review_plan"
   };
-  console.log(args.format === "text" ? formatPlan(result) : JSON.stringify(result, null, 2));
+  const output = args.format === "text" ? formatPlan(result) : args.compact ? compactPlanResult(result) : JSON.stringify(result, null, 2);
+  console.log(output);
 }
 
 /** 解析命令行参数并生成统一参数对象；遇到未知参数时应报错，避免参数拼写错误被静默忽略。 */
@@ -94,6 +95,8 @@ async function main() {
 function parseArgs(argv) {
   const parsed = {
     sourcePath: "",
+    sourceFile: "",
+    compact: false,
     moviesPath: "",
     tvShowsPath: "",
     envFile: DEFAULT_ENV_FILE,
@@ -105,6 +108,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--source-dir" || arg === "--source") parsed.sourcePath = argv[++i] || "";
+    else if (arg === "--file" || arg === "--source-file") parsed.sourceFile = argv[++i] || "";
+    else if (arg === "--compact") parsed.compact = true;
     else if (arg === "--movies-dir") parsed.moviesPath = argv[++i] || "";
     else if (arg === "--tvshows-dir") parsed.tvShowsPath = argv[++i] || "";
     else if (arg === "--env-file") parsed.envFile = argv[++i] || DEFAULT_ENV_FILE;
@@ -117,12 +122,26 @@ function parseArgs(argv) {
     else if (!parsed.sourcePath) parsed.sourcePath = arg;
     else throw new Error(`Unexpected positional argument: ${arg}`);
   }
+  if (parsed.sourceFile && parsed.sourcePath) throw new Error("--file 与 --source-dir 不能同时使用。");
   if (!["json", "text"].includes(parsed.format)) throw new Error("--format 只支持 json 或 text。");
   return parsed;
 }
 
 /** 读取指定 .env 文件并与当前进程环境变量合并；调用方环境变量优先，避免覆盖部署环境注入值。 */
 /** 读取 .env 并合并进程环境变量；进程环境变量优先，不覆盖运行环境注入的配置。 */
+
+/** 只读取指定文件所在目录，并仅将该文件纳入规划，不递归扫描其他资源。 */
+async function scanSingleFile({ baseUrl, token, fetchImpl, timeoutMs, filePath }) {
+  const parentPath = parentOpenListPath(filePath);
+  const fileName = basenameOpenListPath(filePath);
+  const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: parentPath });
+  const row = rows.find((entry) => entry.name.toLocaleLowerCase("zh-CN") === fileName.toLocaleLowerCase("zh-CN"));
+  if (!row || row.isDir) throw new Error(`指定源文件不存在或不是普通文件：${filePath}`);
+  return {
+    items: [{ ...row, path: filePath, parentPath }],
+    truncated: false
+  };
+}
 
 /** 从指定 OpenList 根目录递归读取目录树，并受最大深度和最大条目数限制，避免扫描失控。 */
 /** 处理 scanTree 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
@@ -190,46 +209,6 @@ async function listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath }) 
   return allRows;
 }
 /**
- * 确保配置的目标根目录存在。逐级检查路径；缺少目录时通过 OpenList fs/mkdir 创建，
- * 若同名路径是文件或创建后无法回读，则停止，避免把异常误判为“空目录”。
- */
-async function ensureTargetDirectories({ baseUrl, token, fetchImpl, timeoutMs, paths }) {
-  const createdDirectories = [];
-  for (const targetPath of [...new Set(paths)]) {
-    const segments = String(targetPath).split("/").filter(Boolean);
-    let current = "/";
-    for (const segment of segments) {
-      const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
-      const existing = rows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
-      const next = joinOpenListPath(current, segment);
-      if (existing) {
-        if (!existing.isDir) throw new Error(`目标目录路径中存在同名文件：${next}`);
-      } else {
-        const response = await fetchImpl(`${String(baseUrl).replace(/\/+$/g, "")}/api/fs/mkdir`, {
-          method: "POST",
-          headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: token },
-          body: JSON.stringify({ path: next }),
-          signal: AbortSignal.timeout(timeoutMs || DEFAULT_TIMEOUT_MS)
-        });
-        const raw = await response.text();
-        let json;
-        try { json = raw ? JSON.parse(raw) : {}; }
-        catch { throw new Error(`OpenList 创建目录返回非 JSON：${raw.slice(0, 120)}`); }
-        if (!response.ok || !(json.code === 200 || json.code === 0 || json.message === "success")) {
-          throw new Error(`OpenList 创建目标目录失败（${next}）：${json.message || response.status}`);
-        }
-        const verifyRows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: current });
-        const created = verifyRows.find((row) => row.name.toLocaleLowerCase("zh-CN") === segment.toLocaleLowerCase("zh-CN"));
-        if (!created || !created.isDir) throw new Error(`目标目录创建后验证失败：${next}`);
-        createdDirectories.push(next);
-      }
-      current = next;
-    }
-  }
-  return createdDirectories;
-}
-
-/**
  * 仅沿着计划目标的目录链检查目标文件是否存在。
  * 不遍历整个 Movies/TVShows 库；所有读取均通过 OpenList fs/list。
  * 如果目录列表达到 API 分页上限，则不能证明目标不存在，必须交由人工复核。
@@ -241,9 +220,15 @@ async function scanTargetConflicts({ baseUrl, token, fetchImpl, timeoutMs, plan,
 
   async function listCached(dirPath) {
     if (!cache.has(dirPath)) {
-      const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath });
-      cache.set(dirPath, rows);
-      if (rows.truncated) complete = false;
+      try {
+        const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath });
+        cache.set(dirPath, rows);
+        if (rows.truncated) complete = false;
+      } catch {
+        // Missing/unreadable destination roots cannot prove that a target is free.
+        complete = false;
+        cache.set(dirPath, []);
+      }
     }
     return cache.get(dirPath);
   }
@@ -314,14 +299,17 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }
 
     const rawName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
-    const year = extractExplicitYear(rawName) || entry.parentYear || null;
+    const explicitYear = extractExplicitYear(rawName) || entry.parentYear || null;
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
       .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
-      .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|2048|4k|2k|uhd|fhd)/ig, "")
+      .replace(/(?:BD(?:Rip|Remux)?\s*\d{3,4}|Blu[ ._-]?ray|WEB[ ._-]?DL|WEBRip|HDRip|DVDRip)/ig, "")
+      .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|1280|1920|2048|4k|2k|uhd|fhd)/ig, "")
+      .replace(/(?:高清|超清|蓝光|藍光|中英双字|中英字幕|中文字幕|英文字幕|双语字幕|双字|中字|国粤双语|国语|粤语)/g, " ")
       .replace(/[()[\]{}（）【】]/g, " ")
       .replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
     const identity = resolveMediaTitle(identityInput, aliases);
+    const year = explicitYear || DEFAULT_TITLE_YEARS[identity.canonicalTitle] || null;
     const resourceName = sanitizeName(identity.canonicalTitle || rawName);
     const relativeFiles = videoFiles.map((file) => ({
       ...file,
@@ -332,9 +320,11 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     // 明确季集优先于年份；年份父目录作为明确年份线索，不把年份本身当成片名。
     const classification = detectedClassification.type === "series"
       ? detectedClassification
-      : year
+      : explicitYear || entry.parentYear
         ? { type: "movie", confidence: "high", reason: "资源目录或其年份父目录包含明确年份，按电影候选处理。" }
-        : detectedClassification;
+        : identity.matchType === "alias" || identity.candidates?.length > 0
+          ? { type: "movie", confidence: "medium", reason: "片名命中已知电影别名；规范片名和年份仅作为候选，需人工确认。" }
+          : detectedClassification;
     const aliasNeedsReview = identity.matchType === "alias" || identity.candidates?.length > 0;
     const base = classification.type === "movie" ? moviesPath : classification.type === "series" ? tvShowsPath : "";
     const videoPlans = [];
@@ -497,10 +487,32 @@ function summarizePlan(plan) {
     movies: plan.filter((item) => item.resourceType === "movie").length,
     series: plan.filter((item) => item.resourceType === "series").length,
     autoArchiveCandidates: plan.filter((item) => item.status === "auto_archive_candidate").length,
-    conflicts: plan.filter((item) => item.status === "conflict").length,
     reviewRequired: plan.filter((item) => item.status === "review_required").length,
     lowConfidence: plan.filter((item) => item.confidence === "low").length
   };
+}
+
+/** 紧凑输出仅保留 Agent 决策和后续执行所需字段，避免传递重复解释性元数据。 */
+function compactPlanResult(result) {
+  const fields = [
+    "source", "target", "resourceName", "originalResourceName", "resourceType",
+    "confidence", "status", "year", "season", "episode", "resolution",
+    "resolutionSource", "conflict", "resourceGroupId", "assetRole", "assetScope",
+    "titleMatch", "reason"
+  ];
+  return JSON.stringify({
+    ok: result.ok,
+    tool: result.tool,
+    mode: result.mode,
+    mutated: result.mutated,
+    source: result.source,
+    targets: result.targets,
+    summary: result.summary,
+    plan: result.plan.map((item) => Object.fromEntries(fields
+      .filter((key) => item[key] !== undefined)
+      .map((key) => [key, item[key]]))),
+    nextAction: result.nextAction
+  });
 }
 
 /** 把只读归档计划转换为便于人工审阅的文本，不会触发计划执行。 */
@@ -510,7 +522,7 @@ function formatPlan(result) {
   for (const item of result.plan) {
     lines.push(`- [${item.status}] ${item.source} → ${item.target || "暂不归档"}（${item.resourceType} / ${item.confidence}）：${item.reason}`);
   }
-  lines.push("", "未执行任何文件变更。请先审阅计划，再决定是否开发后续归档执行功能。");
+  lines.push("", "规划阶段只读；未创建目录、移动、重命名或删除文件。");
   return lines.join("\n");
 }
 
@@ -524,6 +536,14 @@ function normalizeOpenListPath(value) {
 
 /** 在 OpenList 路径规则下拼接父目录和子路径。 */
 /** 处理 joinOpenListPath 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
+function parentOpenListPath(value) {
+  const normalized = String(value || "").replace(/\\/g, "/").replace(/\/+$/g, "");
+  const index = normalized.lastIndexOf("/");
+  return index <= 0 ? "/" : normalized.slice(0, index);
+}
+function basenameOpenListPath(value) {
+  return String(value || "").replace(/\\/g, "/").split("/").filter(Boolean).at(-1) || "";
+}
 function joinOpenListPath(dir, name) {
   const base = String(dir || "").replace(/\/+$/g, "") || "/";
   const child = String(name || "").replace(/^\/+|\/+$/g, "");
@@ -553,6 +573,8 @@ function stripExtension(value) {
 
 export {
   buildMediaPlan,
+  compactPlanResult,
+  scanSingleFile,
   classifyMedia,
   detectSeason,
   normalizeSeriesName,
@@ -561,7 +583,6 @@ export {
   resolveMediaTitle,
   scanTargetConflicts,
   scanTree,
-  ensureTargetDirectories
 };/** 读取可选的本地片名别名表；文件不存在时使用内置示例，格式错误时中止而不是静默忽略。 */
 function loadTitleAliases(filePath) {
   if (!filePath) return DEFAULT_TITLE_ALIASES;

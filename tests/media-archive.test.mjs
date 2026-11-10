@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runMediaArchive, parseArgs, validatePlanItem } from "../scripts/media-archive.mjs";
+import { compactArchiveResult, runMediaArchive, parseArgs, validatePlanItem } from "../scripts/media-archive.mjs";
 
 const roots = { moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" };
 const plan = [{
@@ -63,23 +63,123 @@ test("confirmed archive creates directory, moves and renames, then verifies", as
   assert.equal(result.executed[0].verified, true);
 });
 
-test("archive skips review-required entries", async () => {
+test("explicitly confirmed review item is executable without falsifying its original confidence", async () => {
+  const calls = [];
+  const reviewed = {
+    ...plan[0],
+    status: "review_required",
+    confidence: "low",
+    resourceName: "Example",
+    year: 2024,
+    userConfirmed: true,
+    confirmation: {
+      scope: "move-and-rename",
+      source: plan[0].source,
+      resourceType: "movie",
+      resourceName: "Example",
+      year: 2024,
+      target: plan[0].target
+    }
+  };
   const result = await runMediaArchive({
-    plan: [{ ...plan[0], status: "review_required" }], ...roots,
+    plan: [reviewed], ...roots, yes: true,
     baseUrl: "http://openlist.test", token: "token",
-    fetchImpl: async () => { throw new Error("should not request"); }
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    }, { verifyTarget: true })
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.confirmedReviewCount, 1);
+  assert.equal(reviewed.confidence, "low");
+  assert.equal(reviewed.status, "review_required");
+  assert.equal(result.executed[0].verified, true);
+});
+
+test("review item is preflighted before confirmation but cannot execute", async () => {
+  const calls = [];
+  const proposed = {
+    ...plan[0],
+    status: "review_required",
+    confidence: "low",
+    year: 2024
+  };
+  const result = await runMediaArchive({
+    plan: [proposed], ...roots,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    })
   });
   assert.equal(result.eligible, 0);
-  assert.equal(result.skipped, 1);
+  assert.equal(result.skipped, 0);
+  assert.equal(result.awaitingUserConfirmation, 1);
+  assert.equal(result.preflight[0].ok, true);
+  assert.equal(result.mutated, false);
+  assert.equal(calls.some((call) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(call.endpoint)), false);
+});
+
+test("mismatched review confirmation remains ineligible after preflight", async () => {
+  const calls = [];
+  const invalid = {
+    ...plan[0],
+    status: "review_required",
+    confidence: "low",
+    year: 2024,
+    userConfirmed: true,
+    confirmation: {
+      scope: "move-and-rename",
+      source: plan[0].source,
+      resourceType: "movie",
+      resourceName: "Different title",
+      year: 2024,
+      target: plan[0].target
+    }
+  };
+  const result = await runMediaArchive({
+    plan: [invalid], ...roots,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    })
+  });
+  assert.equal(result.eligible, 0);
+  assert.equal(result.awaitingUserConfirmation, 1);
+  assert.equal(result.preflight[0].ok, true);
+  assert.equal(result.mutated, false);
 });
 
 test("archive rejects targets outside configured library root", () => {
   assert.throws(() => validatePlanItem({ ...plan[0], target: "/other/file.mkv" }, roots), /不在对应媒体库根目录内/);
 });
 
-test("parseArgs requires explicit confirmation flag to enable mutations", () => {
-  assert.equal(parseArgs(["--plan-file", "plan.json"]).yes, false);
+test("parseArgs supports compact output without changing execution confirmation", () => {
+  assert.equal(parseArgs(["--plan-file", "plan.json", "--compact"]).compact, true);
+  assert.equal(parseArgs(["--plan-file", "plan.json", "--compact"]).yes, false);
   assert.equal(parseArgs(["--plan-file", "plan.json", "--yes"]).yes, true);
+});
+
+test("compact archive output retains decisions and errors but omits verbose safety metadata", () => {
+  const output = compactArchiveResult({
+    ok: false, tool: "media-archive", mode: "read-only-dry-run", mutated: false,
+    eligible: 2, skipped: 1, awaitingUserConfirmation: 1,
+    preflight: [{ source: "/Downloads/a.mkv", target: "/Movies/a.mkv", ok: false, conflict: true, reason: "目标已存在", debug: "omit" }],
+    executed: [], alreadyArchived: [], nextAction: "resolve_conflicts_or_missing_sources",
+    safety: { overwrite: false, verbose: "omit" }
+  });
+  assert.equal(output.preflight[0].conflict, true);
+  assert.equal(output.preflight[0].reason, "目标已存在");
+  assert.equal("debug" in output.preflight[0], false);
+  assert.equal("safety" in output, false);
+  assert.equal(output.awaitingUserConfirmation, 1);
 });
 
 function fakeOpenList(calls, listings, { verifyTarget = false } = {}) {

@@ -5,7 +5,12 @@
  */
 
 const DEFAULT_TITLE_ALIASES = {
-  "肖申克的救赎": ["肖生客的救赎", "肖申客的救赎"]
+  "肖申克的救赎": ["肖生客的救赎", "肖申客的救赎", "申克的救赎"]
+};
+
+// 仅用于已知规范片名的年份补全；别名匹配仍必须经过人工确认。
+const DEFAULT_TITLE_YEARS = {
+  "肖申克的救赎": 1994
 };
 
 const SIMPLIFIED_MAP = {
@@ -150,4 +155,4 @@ export function buildSeriesFileName(title, season, episode, resolution, extensio
   return `${title} - ${episodeTag}${resolution ? ` - ${resolution}` : ""}${extension}`;
 }
 
-export { DEFAULT_TITLE_ALIASES };
+export { DEFAULT_TITLE_ALIASES, DEFAULT_TITLE_YEARS };

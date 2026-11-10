@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 
 import {
   buildMediaPlan,
+  compactPlanResult,
   classifyMedia,
   detectSeason,
   parseArgs,
   parseChineseNumber,
   scanTree,
+  scanSingleFile,
   scanTargetConflicts,
-  ensureTargetDirectories,
   resolveMediaTitle
 } from "../scripts/media-plan.mjs";
 import { extractEpisode, extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
@@ -20,6 +21,71 @@ test("parseArgs reads OpenList source and media target paths", () => {
   assert.equal(args.moviesPath, "/media/Movies");
   assert.equal(args.tvShowsPath, "/media/TVShows");
   assert.equal(args.format, "text");
+});
+
+test("parseArgs supports a single source file and compact JSON", () => {
+  const args = parseArgs(["--file", "/Downloads/Movie.mkv", "--compact"]);
+  assert.equal(args.sourceFile, "/Downloads/Movie.mkv");
+  assert.equal(args.compact, true);
+  assert.throws(() => parseArgs(["--file", "/Downloads/Movie.mkv", "--source-dir", "/Downloads"]), /不能同时使用/);
+});
+
+test("scanSingleFile reads only the containing directory and returns only the requested file", async () => {
+  const calls = [];
+  const result = await scanSingleFile({
+    baseUrl: "http://openlist.test",
+    token: "token",
+    timeoutMs: 100,
+    filePath: "/Downloads/Selected.mkv",
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push({ endpoint: new URL(url).pathname, body });
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            code: 200,
+            message: "success",
+            data: { content: [
+              { name: "Selected.mkv", is_dir: false, size: 10 },
+              { name: "Unrelated movie", is_dir: true },
+              { name: "Other.mkv", is_dir: false, size: 20 }
+            ] }
+          });
+        }
+      };
+    }
+  });
+  assert.deepEqual(calls.map((call) => call.body.path), ["/Downloads"]);
+  assert.deepEqual(result.items.map((item) => item.path), ["/Downloads/Selected.mkv"]);
+  assert.equal(result.truncated, false);
+});
+
+test("compact plan output keeps execution fields and omits verbose metadata", () => {
+  const output = JSON.parse(compactPlanResult({
+    ok: true,
+    tool: "media-plan",
+    mode: "read-only-dry-run",
+    mutated: false,
+    source: { path: "/Downloads/Movie.mkv", scope: "single-file", scannedItems: 1, truncated: false },
+    targets: { movies: "/Movies", tvShows: "/TVShows" },
+    summary: { total: 1, movies: 1 },
+    plan: [{
+      source: "/Downloads/Movie.mkv",
+      target: "/Movies/Movie (2024)/Movie (2024).mkv",
+      resourceType: "movie",
+      confidence: "high",
+      status: "auto_archive_candidate",
+      reason: "year detected",
+      verboseDebugPayload: "omit"
+    }],
+    nextAction: "review_plan"
+  }));
+  assert.equal(output.plan[0].target, "/Movies/Movie (2024)/Movie (2024).mkv");
+  assert.equal(output.plan[0].status, "auto_archive_candidate");
+  assert.equal("verboseDebugPayload" in output.plan[0], false);
+  assert.equal(output.source.scannedItems, 1);
 });
 
 test("classifies explicit episode naming as a series", () => {
@@ -99,6 +165,28 @@ test("recognizes a known homophone alias as a candidate requiring user confirmat
   assert.equal(result.canonicalTitle, "肖申克的救赎");
   assert.equal(result.matchType, "alias");
   assert.equal(result.requiresReview, true);
+});
+
+test("recognizes a noisy Chinese Shawshank filename as a reviewable movie candidate", () => {
+  const plan = buildMediaPlan({
+    sourcePath: "/本地存储/Downloads",
+    items: [{
+      name: "申克的救赎BD1280高清中英双字.mp4",
+      path: "/本地存储/Downloads/申克的救赎BD1280高清中英双字.mp4",
+      parentPath: "/本地存储/Downloads",
+      isDir: false
+    }],
+    moviesPath: "/本地存储/Movies",
+    tvShowsPath: "/本地存储/TVShows"
+  });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].resourceType, "movie");
+  assert.equal(plan[0].resourceName, "肖申克的救赎");
+  assert.equal(plan[0].year, 1994);
+  assert.equal(plan[0].confidence, "medium");
+  assert.equal(plan[0].status, "review_required");
+  assert.equal(plan[0].target, "/本地存储/Movies/肖申克的救赎 (1994)/肖申克的救赎 (1994).mp4");
+  assert.equal(plan[0].titleMatch.matchType, "alias");
 });
 
 test("does not mistake resolution suffixes or title letters for episode numbers", () => {
@@ -314,59 +402,6 @@ test("plans multiple seasons into separate Season directories", () => {
     "/TVShows/Series/Season 02/Series - S02E01.mkv"
   ]);
 });
-
-test("creates missing Movies and TVShows root directories through OpenList mkdir and verifies them", async () => {
-  const dirs = new Set(["/"]);
-  const calls = [];
-  const fetchImpl = async (url, options) => {
-    const body = JSON.parse(options.body);
-    calls.push({ endpoint: String(url).split("/api")[1], body });
-    if (String(url).endsWith("/api/fs/list")) {
-      const names = [...dirs]
-        .filter((dir) => dir !== "/" && (dir.slice(0, dir.lastIndexOf("/")) || "/") === body.path)
-        .map((dir) => ({ name: dir.split("/").at(-1), is_dir: true }));
-      return { ok: true, status: 200, async text() { return JSON.stringify({ code: 200, message: "success", data: { content: names } }); } };
-    }
-    if (String(url).endsWith("/api/fs/mkdir")) {
-      dirs.add(body.path);
-      return { ok: true, status: 200, async text() { return JSON.stringify({ code: 200, message: "success" }); } };
-    }
-    throw new Error("Unexpected endpoint");
-  };
-  await ensureTargetDirectories({
-    baseUrl: "http://openlist.test", token: "token", timeoutMs: 100, fetchImpl,
-    paths: ["/media/Movies", "/media/TVShows"]
-  });
-  assert.ok(dirs.has("/media"));
-  assert.ok(dirs.has("/media/Movies"));
-  assert.ok(dirs.has("/media/TVShows"));
-  assert.deepEqual(calls.filter((call) => call.endpoint === "/fs/mkdir").map((call) => call.body.path), [
-    "/media", "/media/Movies", "/media/TVShows"
-  ]);
-});
-
-test("does not treat a file occupying a target root path as a directory", async () => {
-  await assert.rejects(
-    ensureTargetDirectories({
-      baseUrl: "http://openlist.test", token: "token", timeoutMs: 100,
-      paths: ["/media/Movies"],
-      fetchImpl: async (url, options) => {
-        const body = JSON.parse(options.body);
-        return {
-          ok: true, status: 200,
-          async text() {
-            return JSON.stringify({
-              code: 200, message: "success",
-              data: { content: body.path === "/" ? [{ name: "media", is_dir: false }] : [] }
-            });
-          }
-        };
-      }
-    }),
-    /同名文件/
-  );
-});
-
 
 test("associates movie subtitles, artwork and NFO with the movie and matching resolution versions", () => {
   const items = [

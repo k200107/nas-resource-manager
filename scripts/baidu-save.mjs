@@ -1269,7 +1269,9 @@ async function fetchWithTimeout(url, options = {}) {
 /** 从 HTTP 响应头中提取 Set-Cookie 值，兼容不同运行环境。 */
 /** 处理 getSetCookieHeaders 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
 function getSetCookieHeaders(headers) {
+  if (!headers) return [];
   if (typeof headers.getSetCookie === "function") return headers.getSetCookie();
+  if (typeof headers.get !== "function") return [];
   const value = headers.get("set-cookie");
   return value ? [value] : [];
 }

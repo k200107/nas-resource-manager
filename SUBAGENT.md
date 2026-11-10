@@ -1,12 +1,13 @@
 # Sub-Agent Runbook
 
-Use this runbook for delegated media search, cloud-drive saves, OpenList copy/task operations, and media organization. Read SKILL.md for defaults and the workflow; do not duplicate or repeatedly reload provider implementation details.
+Use this runbook for delegated media search, cloud-drive saves, OpenList copy/task operations, and media organization. Read SKILL.md once per task for the applicable workflow. Never open script source files to discover routine CLI usage; use the documented commands and compact JSON output.
 
 ## Essential rules
 
 - Prefer JSON output; for search use --format json --compact.
 - Search defaults to 10 candidates. Expand only when the user asks.
 - Run check-ready only on first setup or after an auth/path failure. Otherwise use the selected provider operation and run a focused check only if it fails.
+- Do not read files under scripts/ for routine parameter discovery or to explain normal command behavior. If a documented command fails, report its error first; inspect implementation only for an explicit code-debugging request or a reproducible undocumented failure.
 - Preview every mutating operation. Do not use --yes until the user confirms the exact resource, selected items, provider, and destination.
 - User confirmation is operation-scoped: cloud save does not authorize NAS copy; NAS copy to Downloads does not authorize archive to Movies/TVShows.
 - Never switch providers for an explicitly supplied share URL or user-selected provider.
@@ -58,7 +59,13 @@ Do not repeatedly poll, refresh the destination, enumerate every copied file, co
 
 ## Media organization
 
-Run media-plan only when the user asks to organize staged media. Present the plan and conflicts. Archive/move/rename requires separate confirmation. Preserve multi-season folder structures. Never overwrite a same-name target.
+Only when requested:
+1. Named file: `npm run --silent media-plan -- --file "$FILE" --format json --compact`. Use `--source-dir` only for a requested directory/batch.
+2. Preserve that plan. Preflight with `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact`.
+3. Show the exact source/target and conflicts. After confirmation, annotate only confirmed review items and execute the same plan with `--yes --compact`.
+4. Do not rescan, regenerate the plan, reread scripts, or repeat post-success verification. The executor performs a fresh pre-mutation check.
+
+Preserve multi-season folder structures. Never overwrite a same-name target.
 
 ## Credentials and paths
 

@@ -34,6 +34,10 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Provider save after confirmation | Same provider command with --yes --format json --compact (retain --context-name and --resource-type) |
 | OpenList copy after confirmation | Same command with --yes --format json |
 | Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
+| Plan one downloaded file | npm run --silent media-plan -- --file "$FILE" --format json --compact |
+| Plan a staging directory | npm run --silent media-plan -- --source-dir "$DIR" --format json --compact |
+| Archive preflight | npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact |
+| Execute reviewed archive | Same archive command with --yes --compact after the exact plan is confirmed |
 
 ## Minimal workflow
 
@@ -50,7 +54,15 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
    Do not re-list every saved file after clear terminal success. Do not treat generic HTTP 200/202 or accepted as terminal success when the provider uses asynchronous tasks.
 6. Copy to NAS: preview source, exact item name, destination, and conflicts. After confirmation, run fs/copy through openlist-copy.
 7. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
-8. Organize: only when requested. Plan destination and conflicts first. Moving/renaming into Movies or TVShows requires separate explicit confirmation.
+8. Organize: only when requested.
+   - If the user names one file, use `media-plan --file "$FILE" --format json --compact`; do not scan the whole Downloads directory. Use `--source-dir` only when the user asks to organize/check a directory or multiple resources.
+   - Planning is strictly read-only and only identifies media/names/targets; it does not query Movies/TVShows for conflicts or create directories. Conflict checking belongs to `media-archive` preflight, which checks source existence and exact target collisions. This avoids repeating destination reads in both planner and executor.
+   - Generate one plan and preserve it. Do not manually rebuild the same plan or reread executor source to discover its contract.
+   - If a review-required item has no target, propose its canonical title, resource type, year and target in that same plan, but keep its original `confidence` and `status: "review_required"`. Run archive preflight against the single preserved plan before asking for confirmation. The executor preflights both automatic candidates and `review_required` items that have a proposed source, resource type and target; review items remain non-executable and are reported in `awaitingUserConfirmation`. Use `--compact` for both preflight and execution output.
+   - After the user confirms the exact source/target preview and preflight, automatic candidates can execute. For each confirmed `review_required` item, preserve its original `confidence` and `status`; annotate that same item with `userConfirmed: true` and `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed canonical title>", "year": <confirmed year or null>, "target": "<exact target>" }`. Never change low/medium confidence to high to bypass review.
+   - The archive executor accepts a reviewed item for execution only when the confirmation record matches its exact source, resource type, canonical title, target and year. Conflicts are never made eligible by confirmation.
+   - Execute that same plan with `--yes`; the executor repeats the source/target preflight immediately before mutation. Do not regenerate or broaden the plan, and do not ask for a second confirmation of an unchanged preview.
+   - The executor creates missing target directories only during confirmed execution, then moves/renames, checks the resulting target, and records the idempotency ledger. Do not repeat destination scans or hash/size checks after a verified success.
 
 ## Token-efficient rules
 
@@ -60,6 +72,8 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 - Run full check-ready only on first setup or after an authentication/path failure. During normal use, let the selected provider/OpenList call report a concrete error; then run only the relevant focused check.
 - Do not re-read SKILL, SUBAGENT, and all provider instructions repeatedly within one task. Read the applicable workflow once; load provider details only when needed.
 - Do not repeat a verification merely to produce a more detailed report. Report API/task status and its evidence.
+- For a named archive file, plan only that file. Use `--compact` for both media-plan and media-archive; do not pass full formatted JSON when compact output contains the execution contract and outcome evidence.
+- Read the applicable skill workflow once. Do not inspect implementation source unless a real command failure or missing documented contract requires it.
 
 ## Safety
 

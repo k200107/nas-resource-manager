@@ -37,14 +37,15 @@ async function main() {
     storePath: env.MEDIA_TASK_STORE_PATH,
     lockDir: env.MEDIA_TASK_LOCK_DIR
   });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(args.compact ? JSON.stringify(compactArchiveResult(result)) : JSON.stringify(result, null, 2));
 }
 
 function parseArgs(argv) {
-  const args = { planFile: "", envFile: ".env", baseUrl: "", token: "", moviesPath: "", tvShowsPath: "", yes: false, timeoutMs: DEFAULT_TIMEOUT_MS };
+  const args = { planFile: "", envFile: ".env", baseUrl: "", token: "", moviesPath: "", tvShowsPath: "", yes: false, compact: false, timeoutMs: DEFAULT_TIMEOUT_MS };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--yes" || arg === "-y") args.yes = true;
+    else if (arg === "--compact") args.compact = true;
     else if (arg === "--plan-file") args.planFile = argv[++i] || "";
     else if (arg === "--env-file") args.envFile = argv[++i] || ".env";
     else if (arg === "--base-url") args.baseUrl = argv[++i] || "";
@@ -58,8 +59,8 @@ function parseArgs(argv) {
 }
 
 /**
- * Plan contract: each item has source, target, resourceType and status.
- * Only auto_archive_candidate entries are eligible. No delete/copy endpoint is used.
+ * Plan contract: automatic candidates and proposed review items with source/target/type are preflighted.
+ * Review items are executable only after a matching explicit confirmation record is added. No delete/copy endpoint is used.
  */
 async function runMediaArchive({
   plan, baseUrl, token, moviesPath, tvShowsPath, yes = false,
@@ -71,20 +72,24 @@ async function runMediaArchive({
   if (!moviesPath || !tvShowsPath || moviesPath === "/" || tvShowsPath === "/") throw new Error("必须提供有效的 Movies 和 TVShows 根目录。");
   if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境不支持 fetch，请使用 Node.js 20 或更新版本。");
 
-  const eligible = plan.filter((item) => item?.status === "auto_archive_candidate" && item.source && item.target);
-  const skipped = plan.length - eligible.length;
-  const allValidated = eligible.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
+  const preflightCandidates = plan.filter(isPreflightCandidate);
+  const eligible = preflightCandidates.filter(isArchiveEligible);
+  const skipped = plan.length - preflightCandidates.length;
+  const allValidated = preflightCandidates.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
   const alreadyArchived = [];
-  const validated = [];
+  const preflightValidated = [];
   for (const item of allValidated) {
     const record = await getArchiveOperation(item.source, item.target, { storePath });
     if (record?.verified === true) alreadyArchived.push({ source: item.source, target: item.target, verified: true, verifiedAt: record.verifiedAt });
-    else validated.push(item);
+    else preflightValidated.push(item);
   }
-  if (validated.length === 0) {
+  const validated = preflightValidated.filter(isArchiveEligible);
+  const awaitingUserConfirmation = preflightValidated.filter((item) => !isArchiveEligible(item)).length;
+  if (preflightValidated.length === 0) {
     return {
       ok: true, tool: "media-archive", mode: "idempotent-noop", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived, preflight: [], executed: [],
+      awaitingUserConfirmation: 0,
       safety: { overwrite: false, delete: false, copy: false },
       nextAction: "archive_already_complete"
     };
@@ -113,7 +118,7 @@ async function runMediaArchive({
 
   // Recheck all sources and all targets before any mutation.
   const preflight = [];
-  for (const item of validated) {
+  for (const item of preflightValidated) {
     const sourceRows = await list(item.sourceDir);
     const sourceEntry = sourceRows.find((entry) => sameName(entry.name, item.sourceName));
     if (!sourceEntry || sourceEntry.isDir) {
@@ -135,7 +140,8 @@ async function runMediaArchive({
     return {
       ok: false, tool: "media-archive", mode: yes ? "execution-blocked" : "read-only-dry-run",
       mutated: false, eligible: eligible.length, skipped, alreadyArchived,
-      preflight, executed: [], nextAction: "resolve_conflicts_or_missing_sources"
+      preflight, executed: [], awaitingUserConfirmation,
+      nextAction: "resolve_conflicts_or_missing_sources"
     };
   }
 
@@ -143,9 +149,19 @@ async function runMediaArchive({
     return {
       ok: true, tool: "media-archive", mode: "read-only-dry-run", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived,
-      preflight, executed: [],
+      preflight, executed: [], awaitingUserConfirmation,
       safety: { overwrite: false, delete: false, copy: false, note: "仅检查源文件和目标路径；未创建目录、移动或重命名文件。" },
-      nextAction: "review_and_confirm_with_yes"
+      nextAction: awaitingUserConfirmation > 0 ? "confirm_review_items" : "review_and_confirm_with_yes"
+    };
+  }
+
+  if (validated.length === 0) {
+    return {
+      ok: true, tool: "media-archive", mode: "awaiting-user-confirmation", mutated: false,
+      eligible: 0, skipped, alreadyArchived, preflight, executed: [],
+      awaitingUserConfirmation,
+      safety: { overwrite: false, delete: false, copy: false },
+      nextAction: "confirm_review_items"
     };
   }
 
@@ -164,7 +180,8 @@ async function runMediaArchive({
     return {
       ok: false, tool: "media-archive", mode: "execution-blocked", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived, preflight, executed: [],
-      error: error.message || String(error), nextAction: "resolve_resource_lock"
+      error: error.message || String(error), awaitingUserConfirmation,
+      nextAction: "resolve_resource_lock"
     };
   }
 
@@ -224,8 +241,56 @@ async function runMediaArchive({
     mutated: executed.some((entry) => entry.ok), eligible: eligible.length, skipped, alreadyArchived,
     preflight, executed,
     safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
+    confirmedReviewCount: validated.filter((item) => item.confirmedReview).length,
+    awaitingUserConfirmation,
     nextAction: success ? "archive_complete" : "inspect_partial_execution_before_retry"
   };
+}
+
+
+/** Agent-facing output: keep decisions and execution evidence, omit verbose safety prose. */
+function compactArchiveResult(result) {
+  const pick = (item, keys) => Object.fromEntries(keys
+    .filter((key) => item?.[key] !== undefined && item[key] !== "")
+    .map((key) => [key, item[key]]));
+  const compact = {
+    ok: result.ok,
+    tool: result.tool,
+    mode: result.mode,
+    mutated: result.mutated,
+    eligible: result.eligible,
+    skipped: result.skipped,
+    awaitingUserConfirmation: result.awaitingUserConfirmation,
+    alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
+    preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "missingDirectories", "reason"])),
+    executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "verified", "error"])),
+    nextAction: result.nextAction
+  };
+  for (const key of ["confirmedReviewCount", "error"]) {
+    if (result[key] !== undefined) compact[key] = result[key];
+  }
+  return compact;
+}
+
+function isPreflightCandidate(item) {
+  return Boolean(
+    item && ["auto_archive_candidate", "review_required"].includes(item.status) &&
+    item.source && item.target && ["movie", "series"].includes(item.resourceType) &&
+    item.conflict !== true
+  );
+}
+
+function isArchiveEligible(item) {
+  if (item?.conflict === true) return false;
+  if (item?.status === "auto_archive_candidate") return true;
+  if (item?.status !== "review_required" || item.userConfirmed !== true) return false;
+  const confirmation = item.confirmation;
+  if (!confirmation || confirmation.scope !== "move-and-rename") return false;
+  if (confirmation.source !== item.source || confirmation.target !== item.target) return false;
+  if (confirmation.resourceType !== item.resourceType || confirmation.resourceName !== item.resourceName) return false;
+  if (item.year != null && Number(confirmation.year) !== Number(item.year)) return false;
+  if (item.year == null && confirmation.year != null) return false;
+  return ["movie", "series"].includes(item.resourceType);
 }
 
 function validatePlanItem(item, roots) {
@@ -237,7 +302,10 @@ function validatePlanItem(item, roots) {
   const sourceName = basename(source);
   const targetName = basename(target);
   if (!sourceName || !targetName) throw new Error("计划路径缺少文件名。");
-  return { ...item, source, target, sourceDir: parent(source), sourceName, targetDir: parent(target), targetName };
+  return {
+    ...item, source, target, sourceDir: parent(source), sourceName, targetDir: parent(target), targetName,
+    confirmedReview: item.status === "review_required" && isArchiveEligible(item)
+  };
 }
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
@@ -289,4 +357,4 @@ function basename(value) { return value.split("/").filter(Boolean).at(-1) || "";
 function join(dir, name) { return dir === "/" ? "/" + name : dir.replace(/\/+$/g, "") + "/" + name; }
 function sameName(a, b) { return String(a).toLocaleLowerCase("zh-CN") === String(b).toLocaleLowerCase("zh-CN"); }
 
-export { parseArgs, runMediaArchive, validatePlanItem };
+export { compactArchiveResult, isArchiveEligible, isPreflightCandidate, parseArgs, runMediaArchive, validatePlanItem };
