@@ -63,6 +63,18 @@ test("buildAliyunRenamePlan creates movie and series naming plans", () => {
   assert.deepEqual(seriesPlan.map((item) => item.suggestedName), ["测试剧集 E01.mkv", "测试剧集 E02.mkv"]);
 });
 
+test("buildAliyunRenamePlan renames a selected noisy folder using canonical search title", () => {
+  const plan = buildAliyunRenamePlan({
+    resourceType: "movie",
+    contextName: "奥德赛 (2026)",
+    selectedItems: [{ fid: "folder-1", rank: 1, name: "奥z德z赛 (2026) 1080P", isDir: true }]
+  });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].originalName, "奥z德z赛 (2026) 1080P");
+  assert.equal(plan[0].suggestedName, "奥德赛 (2026)");
+  assert.equal(plan[0].sourceFid, "folder-1");
+});
+
 test("Agent rename plan is validated and no-rename disables it", () => {
   const selectedItems = [{ fid: "f1", rank: 2, name: "old.mp4", isDir: false }];
   const plan = buildAliyunRenamePlan({
