@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildMediaPlan,
+  compactPlanResult,
   classifyMedia,
   detectSeason,
   parseArgs,
@@ -59,6 +60,32 @@ test("scanSingleFile reads only the containing directory and returns only the re
   assert.deepEqual(calls.map((call) => call.body.path), ["/Downloads"]);
   assert.deepEqual(result.items.map((item) => item.path), ["/Downloads/Selected.mkv"]);
   assert.equal(result.truncated, false);
+});
+
+test("compact plan output keeps execution fields and omits verbose metadata", () => {
+  const output = JSON.parse(compactPlanResult({
+    ok: true,
+    tool: "media-plan",
+    mode: "read-only-dry-run",
+    mutated: false,
+    source: { path: "/Downloads/Movie.mkv", scope: "single-file", scannedItems: 1, truncated: false },
+    targets: { movies: "/Movies", tvShows: "/TVShows" },
+    summary: { total: 1, movies: 1 },
+    plan: [{
+      source: "/Downloads/Movie.mkv",
+      target: "/Movies/Movie (2024)/Movie (2024).mkv",
+      resourceType: "movie",
+      confidence: "high",
+      status: "auto_archive_candidate",
+      reason: "year detected",
+      verboseDebugPayload: "omit"
+    }],
+    nextAction: "review_plan"
+  }));
+  assert.equal(output.plan[0].target, "/Movies/Movie (2024)/Movie (2024).mkv");
+  assert.equal(output.plan[0].status, "auto_archive_candidate");
+  assert.equal("verboseDebugPayload" in output.plan[0], false);
+  assert.equal(output.source.scannedItems, 1);
 });
 
 test("classifies explicit episode naming as a series", () => {
