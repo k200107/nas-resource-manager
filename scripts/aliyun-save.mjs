@@ -9,7 +9,8 @@ import {
 } from "./cloud-save-common.mjs";
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
+import { directoryPlanFields, resolveCloudDirectory, resolveDirectoryMode } from "./cloud-directory.mjs";
 
 const API_BASE = "https://api.aliyundrive.com";
 const DEFAULT_ENV_FILE = ".env";
@@ -25,14 +26,12 @@ const COMMON_HEADERS = {
 };
 
 if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
+  args.directoryMode = resolveDirectoryMode(args);
   const loaded = loadEnvFile(args.envFile);
   const env = mergeEnvValues(loaded.values, process.env);
   const refreshToken = String(env.ALIYUN_REFRESH_TOKEN || "").trim();
@@ -67,6 +66,7 @@ async function main() {
     ok: saved.ok, transferOk: saved.transferOk, renameOk: saved.renameOk,
     provider: "aliyun", mode: "saved", source: result.shareUrl,
     target: result.targetPath, savedCount: saved.savedCount,
+    createdDirectories: result.directoryPlan?.createdDirectories || [],
     results: saved.results, renameResults: saved.renameResults
   };
   console.log(JSON.stringify(args.compact ? buildAliyunCompactSave(output) : output, null, 2));
@@ -82,6 +82,7 @@ function parseArgs(argv) {
     selection: "all",
     agentRenamePlan: null,
     noRename: false,
+    noCreateDir: false,
     envFile: DEFAULT_ENV_FILE,
     stateFile: DEFAULT_STATE_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -96,6 +97,7 @@ function parseArgs(argv) {
     if (arg === "--dry-run") parsed.dryRun = true;
     else if (arg === "--yes") parsed.yes = true;
     else if (arg === "--no-rename") parsed.noRename = true;
+    else if (arg === "--no-create-dir") parsed.noCreateDir = true;
     else if (arg === "--compact") parsed.compact = true;
     else if (arg === "--json") parsed.format = "json";
     else if (arg === "--format") parsed.format = argv[++index] || "text";
@@ -170,13 +172,15 @@ async function prepareAliyunSave(args = {}) {
     timeoutMs: args.timeoutMs
   });
   const targetPath = normalizeCloudPath(args.targetPath);
-  const targetFolder = await resolveAliyunFolder({
+  const directoryPlan = await resolveAliyunFolder({
     driveId: token.default_drive_id,
     targetPath,
     accessToken: token.access_token,
     fetchImpl,
-    timeoutMs: args.timeoutMs
+    timeoutMs: args.timeoutMs,
+    mode: args.directoryMode || "strict"
   });
+  const targetFolder = directoryPlan.folder;
   const resourceContext = resolveResourceContext({
     resourceType: args.resourceType || "auto",
     contextName: args.contextName || shareInfo.share_name || shareInfo.share_title || "",
@@ -206,6 +210,7 @@ async function prepareAliyunSave(args = {}) {
     targetPath,
     targetFolderId: targetFolder.file_id,
     targetFolderName: targetFolder.name || path.posix.basename(targetPath),
+    directoryPlan,
     contextName,
     resource,
     items,
@@ -245,7 +250,8 @@ async function validateAliyunRefreshToken(options = {}) {
 async function checkAliyunSaveTarget({ refreshToken, targetPath, stateFile = DEFAULT_STATE_FILE, fetchImpl = globalThis.fetch, timeoutMs }) {
   const { token } = await authenticateAliyun({ refreshToken, stateFile, fetchImpl, timeoutMs });
   const normalizedPath = normalizeCloudPath(targetPath);
-  const folder = await resolveAliyunFolder({
+  // 就绪检查必须保持只读：不传 mode，沿用 strict，绝不创建目录。
+  const plan = await resolveAliyunFolder({
     driveId: token.default_drive_id,
     targetPath: normalizedPath,
     accessToken: token.access_token,
@@ -258,7 +264,7 @@ async function checkAliyunSaveTarget({ refreshToken, targetPath, stateFile = DEF
     ok: true,
     state: "reachable",
     targetPath: normalizedPath,
-    folderId: folder.file_id,
+    folderId: plan.folder.file_id,
     message: "阿里云盘默认保存目录可访问。"
   };
 }
@@ -306,29 +312,52 @@ async function listAliyunShareItems({ shareId, shareToken, fetchImpl, timeoutMs 
   return items.map((item, index) => ({ ...item, rank: index + 1 }));
 }
 
-async function resolveAliyunFolder({ driveId, targetPath, accessToken, fetchImpl, timeoutMs }) {
-  const segments = targetPath.split("/").filter(Boolean);
-  let parentId = "root";
-  let current = { file_id: "root", name: "/" };
-  for (const segment of segments) {
-    const response = await requestAliyun("/adrive/v3/file/list", {
-      body: {
-        drive_id: driveId,
-        parent_file_id: parentId,
-        limit: 100,
-        order_by: "name",
-        order_direction: "ASC"
-      },
-      accessToken,
-      fetchImpl,
-      timeoutMs
-    });
-    const match = (response.items || []).find((item) => item.type === "folder" && item.name === segment);
-    if (!match) throw new Error(`阿里云盘保存目录不存在：${targetPath}（缺少目录：${segment}）。请先在阿里云盘中创建目录。`);
-    current = match;
-    parentId = match.file_id;
-  }
-  return current;
+async function resolveAliyunFolder({ driveId, targetPath, accessToken, fetchImpl, timeoutMs, mode = "strict" }) {
+  const segments = normalizeCloudPath(targetPath).split("/").filter(Boolean);
+  return resolveCloudDirectory({
+    segments,
+    mode,
+    providerLabel: "阿里云盘",
+    joinPath: (parentPath, segment) => path.posix.join(parentPath, segment),
+    placeholder: (parent, segment, pendingPath) => ({
+      id: null, file_id: null, name: segment, path: pendingPath, pendingCreate: true
+    }),
+    listSegment: async (parent, segment) => {
+      const response = await requestAliyun("/adrive/v3/file/list", {
+        body: {
+          drive_id: driveId,
+          parent_file_id: parent.file_id || "root",
+          limit: 100,
+          order_by: "name",
+          order_direction: "ASC"
+        },
+        accessToken,
+        fetchImpl,
+        timeoutMs
+      });
+      const match = (response.items || []).find((item) => item.type === "folder" && item.name === segment);
+      if (!match) return null;
+      return { ...match, id: match.file_id, path: path.posix.join(parent.path || "/", match.name) };
+    },
+    createSegment: async (parent, segment, pendingPath) => {
+      const response = await requestAliyun("/adrive/v2/file/createWithFolders", {
+        body: {
+          drive_id: driveId,
+          parent_file_id: parent.file_id || "root",
+          name: segment,
+          type: "folder",
+          // refuse：同名目录直接失败，避免重复创建或覆盖已有内容。
+          check_name_mode: "refuse"
+        },
+        accessToken,
+        fetchImpl,
+        timeoutMs
+      });
+      const fileId = response.file_id || response.fileId;
+      if (!fileId) throw new Error(`阿里云盘创建目录未返回 file_id：${pendingPath}`);
+      return { id: fileId, file_id: fileId, name: segment, path: pendingPath };
+    }
+  });
 }
 
 function buildAliyunRenamePlan({
@@ -496,6 +525,7 @@ function buildAliyunSubagentPreview({ args, result }) {
     provider: "aliyun",
     mode: "preview",
     nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.directoryPlan),
     source: { shareUrl: result.shareUrl, shareId: result.shareId },
     target: { provider: "aliyun", pathOrUrl: result.targetPath, folderId: result.targetFolderId },
     resource: {
@@ -531,6 +561,8 @@ function buildAliyunCompactPreview(preview) {
   return {
     ok: preview.ok, provider: preview.provider, mode: preview.mode,
     nextAction: preview.nextAction, source: preview.source.shareUrl,
+    willCreateDirectories: preview.willCreateDirectories || [],
+    createdDirectories: preview.createdDirectories || [],
     target: preview.target.pathOrUrl, resource: preview.resource.canonicalName,
     type: preview.resource.type,
     selectedItems: preview.selection.selectedItems.map((item) => ({

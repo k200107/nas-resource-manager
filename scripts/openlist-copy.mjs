@@ -16,7 +16,7 @@
 
 
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -24,16 +24,13 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
   if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const result = await runOpenListCopy({
     env,

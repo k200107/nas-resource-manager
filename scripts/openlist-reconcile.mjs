@@ -15,15 +15,12 @@
  */
 
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { lookupOpenListTaskById } from "./openlist-tasks.mjs";
 import { getTask, transitionTask } from "./media-task-store.mjs";
 
 if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 读取内部媒体任务并按其记录的 OpenList task ID 对账；只有任务处于 TRANSFERRING 才查询远端状态。 */
@@ -85,7 +82,7 @@ function parseArgs(argv) {
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** 命令行主入口：解析参数、读取配置、调用检查或状态管理流程并输出结果。 */
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const result = await runOpenListReconcile({ env: mergeEnvValues(loadEnvFile(args.envFile).values, process.env), args });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exit(1);

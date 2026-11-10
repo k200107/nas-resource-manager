@@ -7,7 +7,7 @@
  */
 import path from "node:path";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 
 const ROOT_NAME = "__MEDIA_ARCHIVE_TESTS__";
@@ -34,14 +34,11 @@ const FIXTURES = [
 ];
 
 if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   const envFile = args.envFile || ".env";
   const env = mergeEnvValues(loadEnvFile(envFile).values, process.env);
   const baseUrl = args.baseUrl || env.OPENLIST_BASE_URL;

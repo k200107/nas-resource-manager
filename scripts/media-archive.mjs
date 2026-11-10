@@ -7,21 +7,18 @@
  */
 import fs from "node:fs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { acquireResourceLock, getArchiveOperation, recordArchiveOperation } from "./media-task-store.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 if (isCliEntryPoint(import.meta.url)) {
-  main().catch((error) => {
-    console.error(JSON.stringify({ ok: false, error: error.message || String(error) }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(cliArgs());
   if (!args.planFile) throw new Error("请通过 --plan-file 指定 media-plan 输出的 JSON 文件。");
   const envFile = args.envFile || ".env";
   const env = mergeEnvValues(loadEnvFile(envFile).values, process.env);

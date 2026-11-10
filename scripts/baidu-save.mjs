@@ -2,7 +2,8 @@
 import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
-import { isCliEntryPoint as isCli } from "./cli-utils.mjs";
+import { cliArgs, failCli, isCliEntryPoint as isCli } from "./cli-utils.mjs";
+import { directoryPlanFields, resolveCloudDirectory, resolveDirectoryMode } from "./cloud-directory.mjs";
 
 /**
  * 解析百度分享资源、展示候选项并按明确选择转存到用户网盘；转存和重命名属于远端写操作。
@@ -32,17 +33,14 @@ const USER_AGENT =
 
 // 仅在直接执行脚本时启动主流程；作为模块导入时不产生网络请求或其他副作用。
   if (isCli(import.meta.url)) {
-  main().catch((error) => {
-    const message = error && error.message ? error.message : String(error);
-    console.error(JSON.stringify({ ok: false, error: message }, null, 2));
-    process.exit(1);
-  });
+  main().catch((error) => failCli(error));
 }
 
 /** 命令行主入口：解析参数、准备配置、调用本模块核心流程并输出结果。 */
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
-  const args = applyEnvDefaults(parseArgs(process.argv.slice(2)));
+  const args = applyEnvDefaults(parseArgs(cliArgs()));
+  args.directoryMode = resolveDirectoryMode(args);
   if (!args.shareUrl || !args.savePath) {
     printUsage();
     process.exit(2);
@@ -125,6 +123,7 @@ function parseArgs(argv) {
     yes: false,
     dryRun: false,
     noRename: false,
+    noCreateDir: false,
     format: "markdown",
     compact: false
   };
@@ -161,6 +160,8 @@ function parseArgs(argv) {
       parsed.dryRun = true;
     } else if (arg === "--no-rename") {
       parsed.noRename = true;
+    } else if (arg === "--no-create-dir") {
+      parsed.noCreateDir = true;
     } else if (arg === "--compact") {
       parsed.compact = true;
     } else if (arg === "--json") {
@@ -213,6 +214,7 @@ function printUsage() {
   console.error("  --yes                          跳过确认，直接使用 --select");
   console.error("  --dry-run                      只列资源和命名建议，不转存");
   console.error("  --no-rename                    转存后不执行重命名修正");
+  console.error("  --no-create-dir                不自动创建缺失的保存目录，保持旧行为");
 }
 
 /** 解析百度分享资源并生成可供人工选择的预览；此阶段以读取和准备为主。 */
@@ -303,9 +305,24 @@ async function prepareBaiduSave(args) {
     selectedItems: selectedPreview
   });
 
+  // strict 保持旧行为，不额外检查目录（由转存接口自行校验）。
+  // preview 只列出将创建的路径；create 只会在用户 --yes 确认后被推导出来。
+  const directoryPlan = args.directoryMode && args.directoryMode !== "strict"
+    ? await planBaiduDirectory({
+        apiBase: args.apiBase,
+        appId: args.appId,
+        timeoutMs: args.timeoutMs,
+        cookie,
+        bdstoken: context.bdstoken,
+        savePath: args.savePath,
+        mode: args.directoryMode
+      })
+    : null;
+
   return {
     ok: true,
     cookie,
+    directoryPlan,
     share: {
       ...share,
       bdstoken: context.bdstoken,
@@ -343,6 +360,7 @@ async function saveSelectedItems(args) {
     shareId: args.share.shareId,
     shareUk: args.share.shareUk,
     savePath: args.savePath,
+    sekey: args.share.sekey || "",
     selectedItems: args.selectedItems
   });
 
@@ -409,6 +427,7 @@ function parseBaiduShareUrl(value) {
 function extractBaiduShareContextFromHtml(html) {
   const text = String(html || "");
   const mergedContext = mergeBaiduShareContexts([
+    extractEmbeddedShareIds(text),
     extractYunDataContext(text),
     extractLocalsMsetContext(text),
     extractJsonLoginContext(text)
@@ -420,6 +439,22 @@ function extractBaiduShareContextFromHtml(html) {
   }
 
   throw new Error("无法解析百度分享页中的分享上下文。");
+}
+
+/** 验证提取码后的分享页会把 yunData 写成变量引用模板，真实 ID 只存在于页面内嵌 JSON 中。 */
+function extractEmbeddedShareIds(text) {
+  const body = String(text || "");
+  const shareId = body.match(/["']?shareid["']?\s*:\s*["']?(\d{5,})["']?/);
+  const shareUk = body.match(/["']?share_uk["']?\s*:\s*["']?(\d{5,})["']?/);
+  if (!shareId || !shareUk) return null;
+  return {
+    bdstoken: "",
+    shareId: shareId[1],
+    shareUk: shareUk[1],
+    title: "",
+    rootPath: "",
+    files: []
+  };
 }
 
 /** 从页面内嵌 JSON 中提取登录/分享上下文。 */
@@ -485,7 +520,10 @@ function extractJsObjectProperty(body, key) {
   const pattern = new RegExp(`(?:^|,)\\s*${escapeRegExp(key)}\\s*:\\s*(?:"([^"]*)"|'([^']*)'|([^,}]+))`, "s");
   const match = String(body || "").match(pattern);
   if (!match) return "";
-  return String(match[1] ?? match[2] ?? match[3] ?? "").trim();
+  const value = String(match[1] ?? match[2] ?? match[3] ?? "").trim();
+  // 未加引号且含成员访问、运算等特征时，这是页面模板代码而非真实数据。
+  if (match[1] === undefined && match[2] === undefined && /[^0-9A-Za-z_-]/.test(value)) return "";
+  return value;
 }
 
 /** 合并页面不同位置提取到的分享上下文。 */
@@ -584,6 +622,17 @@ function normalizeBaiduShareItems(rows) {
   });
 }
 
+/** share/verify 返回的 randsk 已 URL 编码，交给 URLSearchParams 前需先解码，避免二次编码。 */
+function decodeBaiduSekey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 /** 构造百度分享转存接口所需参数。 */
 /** 构造百度分享转存接口所需的请求数据。 */
 function buildBaiduTransferRequest({
@@ -593,6 +642,7 @@ function buildBaiduTransferRequest({
   shareId,
   shareUk,
   savePath,
+  sekey = "",
   selectedItems = []
 }) {
   const url = new URL("/share/transfer", normalizeApiBase(apiBase));
@@ -604,6 +654,7 @@ function buildBaiduTransferRequest({
     shareid: shareId,
     from: shareUk,
     bdstoken,
+    sekey: decodeBaiduSekey(sekey),
     ondup: "newcopy"
   };
   for (const [key, value] of Object.entries(query)) {
@@ -723,6 +774,7 @@ function buildBaiduCompactPreview({ args = {}, result }) {
   const selected = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
     ok: true, provider: "baidu", mode: "preview", nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.directoryPlan),
     source: args.shareUrl || "", target: result.savePath || args.savePath || "",
     resource: result.contextName || result.shareTitle || "",
     type: result.classification?.type || "unknown",
@@ -759,6 +811,7 @@ function buildBaiduSubagentPreview({ args = {}, result }) {
     provider: "baidu",
     mode: "preview",
     nextAction: "confirm_before_save",
+    ...directoryPlanFields(result.directoryPlan),
     source: {
       shareUrl: args.shareUrl || "",
       shareId: result.share?.featureStr || "",
@@ -972,7 +1025,7 @@ async function listBaiduShareFiles({ apiBase, appId, timeoutMs, cookie, shareId,
 
 /** 向百度网盘提交分享文件转存请求；该操作会在用户网盘中新增文件。 */
 /** 向百度网盘提交分享转存请求；该操作会在用户网盘中新增文件。 */
-async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, bdstoken, shareId, shareUk, savePath, selectedItems }) {
+async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, bdstoken, shareId, shareUk, savePath, sekey = "", selectedItems }) {
   if (!bdstoken) {
     throw new Error("缺少百度 bdstoken，无法调用 share/transfer。请确认 BAIDU_COOKIE 有效且已登录百度网盘。");
   }
@@ -983,6 +1036,7 @@ async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, 
     shareId,
     shareUk,
     savePath,
+    sekey,
     selectedItems
   });
   return fetchBaiduJson(request.url, {
@@ -996,6 +1050,68 @@ async function transferBaiduShare({ apiBase, appId, timeoutMs, cookie, referer, 
 
 /** 读取百度网盘目标目录内容，不执行目录修改。 */
 /** 通过对应服务接口读取列表数据，不修改远端内容。 */
+/**
+ * 逐级检查百度保存目录；缺失时按 mode 决定只列出还是创建。
+ *
+ * 只有"明确的目录不存在"错误才视为缺失，凭据、网络等其它异常一律上抛，
+ * 避免因为一次偶发故障而误建目录。
+ */
+async function planBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, savePath, mode = "preview" }) {
+  if (!cookie) return null;
+  const segments = parseBaiduSavePath(savePath || "/").split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+  return resolveCloudDirectory({
+    segments,
+    mode: mode === "create" ? "create" : "preview",
+    providerLabel: "百度网盘",
+    joinPath: (parentPath, segment) => `${String(parentPath).replace(/\/+$/, "")}/${segment}`,
+    placeholder: (parent, segment, pendingPath) => ({ id: null, name: segment, path: pendingPath, pendingCreate: true }),
+    listSegment: async (parent, segment) => {
+      const dirPath = `${String(parent.path).replace(/\/+$/, "")}/${segment}`;
+      try {
+        await listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir: dirPath });
+        return { id: dirPath, name: segment, path: dirPath };
+      } catch (error) {
+        const message = String(error?.message || error);
+        if (/Baidu API error (-9|31066)\b|目录不存在|does not exist/i.test(message)) return null;
+        throw error;
+      }
+    },
+    createSegment: async (parent, segment, pendingPath) => {
+      await createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath: pendingPath });
+      return { id: pendingPath, name: segment, path: pendingPath };
+    }
+  });
+}
+
+/** 在百度网盘创建单个目录；仅由 create 模式调用。 */
+async function createBaiduDirectory({ apiBase, appId, timeoutMs, cookie, bdstoken, dirPath }) {
+  const url = new URL("/api/create", normalizeApiBase(apiBase));
+  const query = {
+    a: "commit",
+    app_id: appId || DEFAULT_APP_ID,
+    channel: "chunlei",
+    web: "1",
+    clienttype: "0",
+    bdstoken: bdstoken || ""
+  };
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  const body = new URLSearchParams();
+  body.set("path", dirPath);
+  body.set("isdir", "1");
+  body.set("block_list", "[]");
+  await fetchBaiduJson(url, {
+    method: "POST",
+    body,
+    timeoutMs,
+    cookie,
+    referer: normalizeApiBase(apiBase)
+  });
+  return { path: dirPath };
+}
+
 async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir }) {
   const url = new URL("/api/list", normalizeApiBase(apiBase));
   const query = {
@@ -1265,10 +1381,12 @@ export {
   buildBaiduSubagentSave,
   buildBaiduTransferRequest,
   extractBaiduShareContextFromHtml,
+  getBaiduBdstoken,
   normalizeBaiduShareItems,
   parseBaiduSavePath,
   parseBaiduShareUrl,
   parseArgs,
+  planBaiduDirectory,
   renderBaiduShareItemsTable,
   buildBaiduCompactPreview,
   buildBaiduCompactSave,
