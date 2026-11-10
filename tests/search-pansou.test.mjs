@@ -6,15 +6,47 @@ import {
   normalizeCheckLinksResponse,
   normalizePanSouSearchResponse,
   parseArgs,
-  renderMarkdownTable
+  renderMarkdownTable,
+  formatSearchResult
 } from "../scripts/search-rrdynb.mjs";
 
-test("parseArgs defaults search to Aliyun, Quark, and Baidu with a 50 candidate cap", () => {
+test("parseArgs defaults search to Aliyun, Quark, and Baidu with a 10 candidate cap", () => {
   const args = parseArgs(["蜘蛛侠"]);
 
   assert.equal(args.title, "蜘蛛侠");
-  assert.equal(args.maxCandidates, 50);
+  assert.equal(args.maxCandidates, 10);
+  assert.equal(args.compact, false);
   assert.deepEqual(args.cloudTypes, ["aliyun", "quark", "baidu"]);
+});
+
+test("parseArgs enables compact Agent JSON output", () => {
+  const args = parseArgs(["蜘蛛侠", "--format", "json", "--compact"]);
+  assert.equal(args.compact, true);
+});
+
+test("formatSearchResult compact mode emits one flat row per candidate", () => {
+  const json = formatSearchResult({
+    ok: true,
+    inputTitle: "蜘蛛侠",
+    selectedQuery: "蜘蛛侠",
+    availableTotal: 20,
+    returnedCount: 1,
+    providerCounts: { quark: 1 },
+    downloadLinks: [{
+      provider: "夸克网盘",
+      diskType: "quark",
+      url: "https://pan.quark.cn/s/example",
+      extractionCode: "1234",
+      note: "蜘蛛侠 4K",
+      source: "tg:movies",
+      datetime: "2026-11-07"
+    }]
+  }, "json", true);
+  const parsed = JSON.parse(json);
+  assert.equal(parsed.results.length, 1);
+  assert.equal(parsed.results[0].url, "https://pan.quark.cn/s/example");
+  assert.equal("candidates" in parsed, false);
+  assert.equal("downloadLinks" in parsed, false);
 });
 
 test("buildSearchQueryParams serializes PanSou GET parameters", () => {

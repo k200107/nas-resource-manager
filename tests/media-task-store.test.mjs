@@ -50,7 +50,7 @@ test("rejects reusing an idempotency key for another source", async () => {
   }, options), /Idempotency key/);
 });
 
-test("enforces transfer and verification gates before STAGED", async () => {
+test("enforces OpenList task completion before STAGED without file stability checks", async () => {
   const options = await tempOptions();
   const { task } = await createSample(options);
   await transitionTask(task.id, "CLOUD_SAVE_PENDING", {}, options);
@@ -62,12 +62,9 @@ test("enforces transfer and verification gates before STAGED", async () => {
   assert.equal(verifying.state, "VERIFYING");
   await assert.rejects(() => transitionTask(task.id, "STAGED", {
     verification: { passed: true, transferCompleted: false, openListTaskId: "openlist-77", stableChecks: 2 }
-  }, options), /OpenList 任务已成功完成/);
-  await assert.rejects(() => transitionTask(task.id, "STAGED", {
-    verification: { passed: true, transferCompleted: true, openListTaskId: "openlist-77", stableChecks: 1 }
-  }, options), /OpenList 任务已成功完成/);
+  }, options), /OpenList 复制任务已明确成功/);
   const staged = await transitionTask(task.id, "STAGED", {
-    verification: { passed: true, transferCompleted: true, openListTaskId: "openlist-77", stableChecks: 2, size: 1024, hash: null }
+    verification: { passed: true, transferCompleted: true, openListTaskId: "openlist-77" }
   }, options);
   assert.equal(canArchive(staged), true);
 });

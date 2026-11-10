@@ -62,7 +62,7 @@ async function main() {
 
   if (args.dryRun) {
     if (jsonOutput) {
-      console.log(JSON.stringify(buildBaiduSubagentPreview({ args, result }), null, 2));
+      console.log(JSON.stringify(args.compact ? buildBaiduCompactPreview({ args, result }) : buildBaiduSubagentPreview({ args, result }), null, 2));
     } else {
       console.log(renderBaiduShareItemsTable(result));
       console.log("\n--dry-run 已启用：只预览资源和命名建议，不会调用转存接口。");
@@ -100,7 +100,7 @@ async function main() {
   });
 
   if (jsonOutput) {
-    console.log(JSON.stringify(buildBaiduSubagentSave({ args, result, saveResult }), null, 2));
+    console.log(JSON.stringify(args.compact ? buildBaiduCompactSave({ args, result, saveResult }) : buildBaiduSubagentSave({ args, result, saveResult }), null, 2));
   } else {
     console.log(renderSaveSummary(saveResult));
   }
@@ -125,7 +125,8 @@ function parseArgs(argv) {
     yes: false,
     dryRun: false,
     noRename: false,
-    format: "markdown"
+    format: "markdown",
+    compact: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -160,6 +161,8 @@ function parseArgs(argv) {
       parsed.dryRun = true;
     } else if (arg === "--no-rename") {
       parsed.noRename = true;
+    } else if (arg === "--compact") {
+      parsed.compact = true;
     } else if (arg === "--json") {
       parsed.format = "json";
     } else if (arg === "--format") {
@@ -715,6 +718,40 @@ function renderSaveSummary(saveResult) {
 
 /** 生成供自动化代理展示的百度资源预览，不执行转存。 */
 /** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
+
+function buildBaiduCompactPreview({ args = {}, result }) {
+  const selected = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
+  return {
+    ok: true, provider: "baidu", mode: "preview", nextAction: "confirm_before_save",
+    source: args.shareUrl || "", target: result.savePath || args.savePath || "",
+    resource: result.contextName || result.shareTitle || "",
+    type: result.classification?.type || "unknown",
+    selectedItems: selected.map((item) => ({
+      rank: item.rank, id: item.fsId, name: item.name, isDir: item.isDir, size: item.size
+    })),
+    renamePlan: (result.renamePlan || []).map((item, index) => ({
+      rank: index + 1, originalName: item.originalName, suggestedName: item.suggestedName
+    }))
+  };
+}
+function buildBaiduCompactSave({ args = {}, result, saveResult }) {
+  const transfer = saveResult.transferResponse || {};
+  const errno = Number(transfer.errno ?? 0);
+  const taskId = transfer.task_id || transfer.taskid || "";
+  const failures = (saveResult.renameResults || []).filter((item) => !item.ok);
+  return {
+    ok: errno === 0 && failures.length === 0, provider: "baidu", mode: "saved",
+    status: errno !== 0 ? "FAILED" : taskId ? "SUBMITTED" : "SUCCEEDED",
+    source: args.shareUrl || "", target: result.savePath || args.savePath || "",
+    taskId, selectedCount: (saveResult.selectedItems || []).length,
+    rename: {
+      succeeded: (saveResult.renameResults || []).length - failures.length,
+      failed: failures.length,
+      failures: failures.map((item) => ({ name: item.originalName, error: item.error || "rename failed" }))
+    }
+  };
+}
+
 function buildBaiduSubagentPreview({ args = {}, result }) {
   const selectedItems = result.selectedPreview || parseSelection(result.defaultSelection || args.defaultSelection || "all", result.items || []);
   return {
@@ -1231,5 +1268,8 @@ export {
   normalizeBaiduShareItems,
   parseBaiduSavePath,
   parseBaiduShareUrl,
-  renderBaiduShareItemsTable
+  parseArgs,
+  renderBaiduShareItemsTable,
+  buildBaiduCompactPreview,
+  buildBaiduCompactSave,
 };

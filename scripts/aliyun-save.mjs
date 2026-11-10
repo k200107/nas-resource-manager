@@ -50,7 +50,7 @@ async function main() {
 
   if (args.dryRun) {
     const preview = buildAliyunSubagentPreview({ args, result });
-    console.log(args.format === "json" ? JSON.stringify(preview, null, 2) : renderPreview(preview));
+    console.log(args.format === "json" ? JSON.stringify(args.compact ? buildAliyunCompactPreview(preview) : preview, null, 2) : renderPreview(preview));
     return;
   }
   if (args.format === "json" && !args.yes) {
@@ -63,18 +63,13 @@ async function main() {
     selectedItems: result.selectedItems,
     renamePlan: result.renamePlan
   });
-  console.log(JSON.stringify({
-    ok: saved.ok,
-    transferOk: saved.transferOk,
-    renameOk: saved.renameOk,
-    provider: "aliyun",
-    mode: "saved",
-    source: result.shareUrl,
-    target: result.targetPath,
-    savedCount: saved.savedCount,
-    results: saved.results,
-    renameResults: saved.renameResults
-  }, null, 2));
+  const output = {
+    ok: saved.ok, transferOk: saved.transferOk, renameOk: saved.renameOk,
+    provider: "aliyun", mode: "saved", source: result.shareUrl,
+    target: result.targetPath, savedCount: saved.savedCount,
+    results: saved.results, renameResults: saved.renameResults
+  };
+  console.log(JSON.stringify(args.compact ? buildAliyunCompactSave(output) : output, null, 2));
 }
 
 function parseArgs(argv) {
@@ -92,7 +87,8 @@ function parseArgs(argv) {
     timeoutMs: DEFAULT_TIMEOUT_MS,
     dryRun: false,
     yes: false,
-    format: "json"
+    format: "json",
+    compact: false
   };
   const positionals = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -100,6 +96,7 @@ function parseArgs(argv) {
     if (arg === "--dry-run") parsed.dryRun = true;
     else if (arg === "--yes") parsed.yes = true;
     else if (arg === "--no-rename") parsed.noRename = true;
+    else if (arg === "--compact") parsed.compact = true;
     else if (arg === "--json") parsed.format = "json";
     else if (arg === "--format") parsed.format = argv[++index] || "text";
     else if (arg === "--env-file" || arg === "--dotenv") parsed.envFile = argv[++index] || DEFAULT_ENV_FILE;
@@ -529,6 +526,37 @@ function buildAliyunSubagentPreview({ args, result }) {
   };
 }
 
+
+function buildAliyunCompactPreview(preview) {
+  return {
+    ok: preview.ok, provider: preview.provider, mode: preview.mode,
+    nextAction: preview.nextAction, source: preview.source.shareUrl,
+    target: preview.target.pathOrUrl, resource: preview.resource.canonicalName,
+    type: preview.resource.type,
+    selectedItems: preview.selection.selectedItems.map((item) => ({
+      rank: item.rank, id: item.fid, name: item.name, isDir: item.isDir, size: item.size
+    })),
+    renamePlan: (preview.renamePlan || []).map((item) => ({
+      rank: item.rank, originalName: item.originalName, suggestedName: item.suggestedName
+    }))
+  };
+}
+function buildAliyunCompactSave(result) {
+  const pending = (result.results || []).some((item) => item.status === 202);
+  const failures = (result.renameResults || []).filter((item) => !item.ok);
+  return {
+    ok: result.ok, provider: "aliyun", mode: "saved",
+    status: !result.transferOk ? "FAILED" : pending ? "ACTIVE" : "SUCCEEDED",
+    source: result.source, target: result.target,
+    selectedCount: result.results?.length || 0, savedCount: result.savedCount,
+    rename: {
+      succeeded: (result.renameResults || []).length - failures.length,
+      failed: failures.length,
+      failures: failures.map((item) => ({ name: item.originalName, error: item.error || "rename failed" }))
+    }
+  };
+}
+
 function renderPreview(preview) {
   const lines = [
     "### 阿里云盘转存预览",
@@ -575,5 +603,7 @@ export {
   requestAliyun,
   resolveAliyunFolder,
   saveAliyunSelectedItems,
-  validateAliyunRefreshToken
+  validateAliyunRefreshToken,
+  buildAliyunCompactPreview,
+  buildAliyunCompactSave,
 };
