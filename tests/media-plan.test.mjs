@@ -8,6 +8,7 @@ import {
   parseArgs,
   parseChineseNumber,
   scanTree,
+  scanSingleFile,
   scanTargetConflicts,
   ensureTargetDirectories,
   resolveMediaTitle
@@ -20,6 +21,45 @@ test("parseArgs reads OpenList source and media target paths", () => {
   assert.equal(args.moviesPath, "/media/Movies");
   assert.equal(args.tvShowsPath, "/media/TVShows");
   assert.equal(args.format, "text");
+});
+
+test("parseArgs supports a single source file and compact JSON", () => {
+  const args = parseArgs(["--file", "/Downloads/Movie.mkv", "--compact"]);
+  assert.equal(args.sourceFile, "/Downloads/Movie.mkv");
+  assert.equal(args.compact, true);
+  assert.throws(() => parseArgs(["--file", "/Downloads/Movie.mkv", "--source-dir", "/Downloads"]), /不能同时使用/);
+});
+
+test("scanSingleFile reads only the containing directory and returns only the requested file", async () => {
+  const calls = [];
+  const result = await scanSingleFile({
+    baseUrl: "http://openlist.test",
+    token: "token",
+    timeoutMs: 100,
+    filePath: "/Downloads/Selected.mkv",
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push({ endpoint: new URL(url).pathname, body });
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            code: 200,
+            message: "success",
+            data: { content: [
+              { name: "Selected.mkv", is_dir: false, size: 10 },
+              { name: "Unrelated movie", is_dir: true },
+              { name: "Other.mkv", is_dir: false, size: 20 }
+            ] }
+          });
+        }
+      };
+    }
+  });
+  assert.deepEqual(calls.map((call) => call.body.path), ["/Downloads"]);
+  assert.deepEqual(result.items.map((item) => item.path), ["/Downloads/Selected.mkv"]);
+  assert.equal(result.truncated, false);
 });
 
 test("classifies explicit episode naming as a series", () => {
