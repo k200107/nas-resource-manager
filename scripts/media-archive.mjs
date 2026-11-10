@@ -71,20 +71,24 @@ async function runMediaArchive({
   if (!moviesPath || !tvShowsPath || moviesPath === "/" || tvShowsPath === "/") throw new Error("必须提供有效的 Movies 和 TVShows 根目录。");
   if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境不支持 fetch，请使用 Node.js 20 或更新版本。");
 
-  const eligible = plan.filter((item) => isArchiveEligible(item) && item.source && item.target);
-  const skipped = plan.length - eligible.length;
-  const allValidated = eligible.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
+  const preflightCandidates = plan.filter(isPreflightCandidate);
+  const eligible = preflightCandidates.filter(isArchiveEligible);
+  const skipped = plan.length - preflightCandidates.length;
+  const allValidated = preflightCandidates.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
   const alreadyArchived = [];
-  const validated = [];
+  const preflightValidated = [];
   for (const item of allValidated) {
     const record = await getArchiveOperation(item.source, item.target, { storePath });
     if (record?.verified === true) alreadyArchived.push({ source: item.source, target: item.target, verified: true, verifiedAt: record.verifiedAt });
-    else validated.push(item);
+    else preflightValidated.push(item);
   }
-  if (validated.length === 0) {
+  const validated = preflightValidated.filter(isArchiveEligible);
+  const awaitingUserConfirmation = preflightValidated.filter((item) => !isArchiveEligible(item)).length;
+  if (preflightValidated.length === 0) {
     return {
       ok: true, tool: "media-archive", mode: "idempotent-noop", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived, preflight: [], executed: [],
+      awaitingUserConfirmation: 0,
       safety: { overwrite: false, delete: false, copy: false },
       nextAction: "archive_already_complete"
     };
@@ -113,7 +117,7 @@ async function runMediaArchive({
 
   // Recheck all sources and all targets before any mutation.
   const preflight = [];
-  for (const item of validated) {
+  for (const item of preflightValidated) {
     const sourceRows = await list(item.sourceDir);
     const sourceEntry = sourceRows.find((entry) => sameName(entry.name, item.sourceName));
     if (!sourceEntry || sourceEntry.isDir) {
@@ -143,9 +147,19 @@ async function runMediaArchive({
     return {
       ok: true, tool: "media-archive", mode: "read-only-dry-run", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived,
-      preflight, executed: [],
+      preflight, executed: [], awaitingUserConfirmation,
       safety: { overwrite: false, delete: false, copy: false, note: "仅检查源文件和目标路径；未创建目录、移动或重命名文件。" },
-      nextAction: "review_and_confirm_with_yes"
+      nextAction: awaitingUserConfirmation > 0 ? "confirm_review_items" : "review_and_confirm_with_yes"
+    };
+  }
+
+  if (validated.length === 0) {
+    return {
+      ok: true, tool: "media-archive", mode: "awaiting-user-confirmation", mutated: false,
+      eligible: 0, skipped, alreadyArchived, preflight, executed: [],
+      awaitingUserConfirmation,
+      safety: { overwrite: false, delete: false, copy: false },
+      nextAction: "confirm_review_items"
     };
   }
 
@@ -229,6 +243,14 @@ async function runMediaArchive({
   };
 }
 
+function isPreflightCandidate(item) {
+  return Boolean(
+    item && ["auto_archive_candidate", "review_required"].includes(item.status) &&
+    item.source && item.target && ["movie", "series"].includes(item.resourceType) &&
+    item.conflict !== true
+  );
+}
+
 function isArchiveEligible(item) {
   if (item?.conflict === true) return false;
   if (item?.status === "auto_archive_candidate") return true;
@@ -248,9 +270,6 @@ function validatePlanItem(item, roots) {
   if (!source || !target || source === "/" || target === "/") throw new Error("计划中存在无效源路径或目标路径。");
   const root = item.resourceType === "movie" ? roots.moviesPath : item.resourceType === "series" ? roots.tvShowsPath : "";
   if (!root || !(target.startsWith(root + "/"))) throw new Error(`目标路径不在对应媒体库根目录内：${target}`);
-  if (item.status === "review_required" && !isArchiveEligible(item)) {
-    throw new Error("人工复核条目缺少完整确认信息；必须保留原始置信度并记录用户确认的类型、目标和操作范围。");
-  }
   const sourceName = basename(source);
   const targetName = basename(target);
   if (!sourceName || !targetName) throw new Error("计划路径缺少文件名。");
@@ -309,4 +328,4 @@ function basename(value) { return value.split("/").filter(Boolean).at(-1) || "";
 function join(dir, name) { return dir === "/" ? "/" + name : dir.replace(/\/+$/g, "") + "/" + name; }
 function sameName(a, b) { return String(a).toLocaleLowerCase("zh-CN") === String(b).toLocaleLowerCase("zh-CN"); }
 
-export { isArchiveEligible, parseArgs, runMediaArchive, validatePlanItem };
+export { isArchiveEligible, isPreflightCandidate, parseArgs, runMediaArchive, validatePlanItem };
