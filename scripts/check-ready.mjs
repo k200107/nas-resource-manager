@@ -3,10 +3,9 @@ import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint as isCli, parseEnvCliArgs } from "./cli-utils.mjs";
 
 /**
- * 组合检查环境变量、网盘 Cookie、OpenList 目标目录和网盘保存目录的只读连通性。
+ * 组合检查环境变量、网盘 Cookie、OpenList 目标目录和网盘保存目录。
  *
- * 本文件说明：函数注释解释各步骤职责及重要约束；本次修改仅增加注释，不改变业务执行逻辑。
- * 安全约束：状态推进必须依赖可核验的证据；配置和连通性检查保持只读，凭证不得明文输出。
+ * 阿里云盘默认保存目录缺失时自动创建；其他检查保持原有行为。凭证不得明文输出。
  */
 
 
@@ -83,7 +82,8 @@ async function validateReadyConfig(env = {}, options = {}) {
       targetPath: env.ALIYUN_DEFAULT_SAVE_PATH,
       stateFile: options.aliyunStateFile,
       timeoutMs: options.timeoutMs || DEFAULT_TIMEOUT_MS,
-      fetchImpl
+      fetchImpl,
+      createMissingDirectories: true
     }));
   }
   if (validProviders.includes("quark")) {
