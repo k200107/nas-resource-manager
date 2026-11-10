@@ -189,11 +189,11 @@ async function checkBaiduSaveTarget({ cookie, target, timeoutMs, fetchImpl, crea
   let targetPath = target || "";
   try {
     targetPath = parseBaiduSavePath(target);
-    const bdstoken = await getBaiduBdstoken({ apiBase: BAIDU_API_BASE, timeoutMs, cookie });
+    const bdstoken = await getBaiduBdstoken({ apiBase: BAIDU_API_BASE, timeoutMs, cookie, fetchImpl });
     if (!bdstoken) throw new Error("无法获取百度 bdstoken，不能检查或创建保存目录。");
     const plan = await planBaiduDirectory({
       apiBase: BAIDU_API_BASE, appId: DEFAULT_BAIDU_APP_ID, timeoutMs, cookie, bdstoken,
-      savePath: targetPath, mode: createMissingDirectories ? "create" : "preview"
+      savePath: targetPath, mode: createMissingDirectories ? "create" : "preview", fetchImpl
     });
     return {
       provider: "baidu", label: "百度网盘", ok: true, state: "reachable", targetPath,
@@ -211,7 +211,7 @@ async function checkQuarkSaveTarget({ cookie, target, timeoutMs, fetchImpl, crea
     const parsed = parseQuarkFolderUrl(target);
     if (parsed.needsResolution) {
       const plan = await resolveQuarkFolderPath({
-        apiBase: QUARK_API_BASE, cookie, targetPath: parsed.path, timeoutMs,
+        apiBase: QUARK_API_BASE, cookie, targetPath: parsed.path, timeoutMs, fetchImpl,
         mode: createMissingDirectories ? "create" : "strict"
       });
       return {
