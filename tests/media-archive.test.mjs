@@ -97,20 +97,63 @@ test("explicitly confirmed review item is executable without falsifying its orig
   assert.equal(result.executed[0].verified, true);
 });
 
-test("review item without a complete confirmation record remains skipped", async () => {
+test("review item is preflighted before confirmation but cannot execute", async () => {
+  const calls = [];
+  const proposed = {
+    ...plan[0],
+    status: "review_required",
+    confidence: "low",
+    year: 2024
+  };
+  const result = await runMediaArchive({
+    plan: [proposed], ...roots,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    })
+  });
+  assert.equal(result.eligible, 0);
+  assert.equal(result.skipped, 0);
+  assert.equal(result.awaitingUserConfirmation, 1);
+  assert.equal(result.preflight[0].ok, true);
+  assert.equal(result.mutated, false);
+  assert.equal(calls.some((call) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(call.endpoint)), false);
+});
+
+test("mismatched review confirmation remains ineligible after preflight", async () => {
+  const calls = [];
   const invalid = {
     ...plan[0],
     status: "review_required",
+    confidence: "low",
+    year: 2024,
     userConfirmed: true,
-    confirmation: { scope: "move-and-rename", source: plan[0].source, resourceType: "movie", resourceName: plan[0].resourceName, target: plan[0].target }
+    confirmation: {
+      scope: "move-and-rename",
+      source: plan[0].source,
+      resourceType: "movie",
+      resourceName: "Different title",
+      year: 2024,
+      target: plan[0].target
+    }
   };
   const result = await runMediaArchive({
     plan: [invalid], ...roots,
     baseUrl: "http://openlist.test", token: "token",
-    fetchImpl: async () => { throw new Error("unconfirmed review item must not call OpenList"); }
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    })
   });
   assert.equal(result.eligible, 0);
-  assert.equal(result.skipped, 1);
+  assert.equal(result.awaitingUserConfirmation, 1);
+  assert.equal(result.preflight[0].ok, true);
+  assert.equal(result.mutated, false);
 });
 
 test("archive skips review-required entries", async () => {
