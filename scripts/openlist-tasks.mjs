@@ -45,7 +45,7 @@ async function main() {
   if (args.format === "text") {
     console.log(formatTaskResult(result));
   } else {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
   }
 
   if (!result.ok) process.exit(1);
@@ -244,17 +244,18 @@ async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.f
   const taskId = String(id || "").trim();
   if (!taskId) throw new Error("OpenList task ID 不能为空。");
   const normalizedGroup = normalizeGroup(group);
-  const snapshots = {};
-  for (const state of ["undone", "done"]) {
-    const response = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: "/api/task/" + normalizedGroup + "/" + state, method: "GET" });
-    if (!response.ok || !isOpenListSuccess(response.json)) throw new Error("OpenList " + state + " task lookup failed: " + (response.json?.message || response.status || "unknown"));
-    const tasks = Array.isArray(response.json?.data) ? response.json.data.map(normalizeTask) : [];
-    snapshots[state] = tasks.find((task) => task.id === taskId) || null;
-  }
-  if (snapshots.undone && snapshots.done) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_appears_in_both_lists", task: snapshots.undone };
-  if (snapshots.undone) return { id: taskId, group: normalizedGroup, status: "ACTIVE", bucket: "undone", task: snapshots.undone };
-  if (!snapshots.done) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found_in_either_list", task: null };
-  const task = snapshots.done;
+  const undoneResponse = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: `/api/task/${normalizedGroup}/undone`, method: "GET" });
+  if (!undoneResponse.ok || !isOpenListSuccess(undoneResponse.json)) throw new Error("OpenList undone lookup failed: " + sanitizeTaskError(undoneResponse.json?.message || undoneResponse.status || "unknown"));
+  const activeTasks = Array.isArray(undoneResponse.json?.data) ? undoneResponse.json.data : [];
+  const active = activeTasks.find((item) => String(item.id || "") === taskId);
+  if (active) return { id: taskId, group: normalizedGroup, status: "ACTIVE", bucket: "undone", task: normalizeTask(active) };
+
+  const doneResponse = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: `/api/task/${normalizedGroup}/done`, method: "GET" });
+  if (!doneResponse.ok || !isOpenListSuccess(doneResponse.json)) throw new Error("OpenList done lookup failed: " + sanitizeTaskError(doneResponse.json?.message || doneResponse.status || "unknown"));
+  const doneTasks = Array.isArray(doneResponse.json?.data) ? doneResponse.json.data : [];
+  const completed = doneTasks.find((item) => String(item.id || "") === taskId);
+  if (!completed) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found", task: null };
+  const task = normalizeTask(completed);
   const errorText = String(task.error || "").trim();
   const statusText = String(task.status || "").trim().toLowerCase();
   if (errorText || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) return { id: taskId, group: normalizedGroup, status: "FAILED", bucket: "done", reason: errorText || task.status, task };
@@ -294,16 +295,18 @@ function normalizeTask(task = {}) {
   return {
     id: String(task.id || ""),
     name: String(task.name || ""),
-    creator: task.creator || "",
-    creatorRole: task.creator_role ?? task.creatorRole ?? null,
     state: task.state ?? null,
     status: task.status || "",
     progress: task.progress ?? null,
-    startTime: task.start_time || task.startTime || "",
-    endTime: task.end_time || task.endTime || "",
-    totalBytes: task.total_bytes ?? task.totalBytes ?? null,
-    error: task.error || ""
+    error: sanitizeTaskError(task.error || "")
   };
+}
+
+function sanitizeTaskError(value) {
+  return String(value || "")
+    .replace(/https?:\/\/[^\s"'<>]+/gi, "[URL]")
+    .replace(/([?&])[A-Za-z0-9_.~-]+=[^\s&"'<>]*/g, "$1[redacted]")
+    .replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 /** 判断 OpenList 任务是否属于指定网盘或任务来源。 */
