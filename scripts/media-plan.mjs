@@ -68,7 +68,7 @@ async function main() {
   const scoped = resourceName
     ? await scanResourceDirectory({ ...context, rootPath: sourcePath, resourceName })
     : null;
-  const planSourcePath = scoped?.resourcePath || sourcePath;
+  const planSourcePath = sourcePath;
   const scanned = sourceFile
     ? await scanSingleFile({ ...context, filePath: sourceFile })
     : scoped || await scanTree({ ...context, rootPath: sourcePath });
@@ -174,7 +174,12 @@ async function scanResourceDirectory({ baseUrl, token, fetchImpl, timeoutMs, roo
   const entry = rows.find((row) => row.name.toLocaleLowerCase("zh-CN") === resourceName.toLocaleLowerCase("zh-CN"));
   if (!entry || !entry.isDir) throw new Error(`指定资源目录不存在或不是目录：${joinOpenListPath(rootPath, resourceName)}`);
   const resourcePath = joinOpenListPath(rootPath, entry.name);
-  return { ...(await scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath: resourcePath })), resourcePath };
+  const scanned = await scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath: resourcePath });
+  return {
+    ...scanned,
+    items: [{ name: entry.name, path: resourcePath, parentPath: rootPath, isDir: true }, ...scanned.items],
+    resourcePath
+  };
 }
 
 /** 从指定 OpenList 根目录递归读取目录树，并受最大深度和最大条目数限制，避免扫描失控。 */
