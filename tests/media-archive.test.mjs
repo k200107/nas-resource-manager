@@ -20,8 +20,40 @@ test("archive defaults to read-only and preflights source and target", async () 
   });
   assert.equal(result.mode, "read-only-dry-run");
   assert.equal(result.mutated, false);
-  assert.deepEqual(calls.map((x) => x.endpoint), ["/api/fs/list", "/api/fs/list", "/api/fs/list", "/api/fs/list"]);
-  assert.equal(calls.some((x) => !x.endpoint.endsWith("/list")), false);
+  assert.deepEqual(calls.map((x) => x.endpoint), ["/api/task/copy/undone", "/api/fs/list", "/api/fs/list", "/api/fs/list", "/api/fs/list"]);
+  assert.equal(calls.some((x) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(x.endpoint)), false);
+});
+
+test("archive blocks an active copy task and all sidecars in the same resource group", async () => {
+  const calls = [];
+  const group = "/Downloads/Example";
+  const groupedPlan = [
+    { ...plan[0], resourceGroupId: group },
+    {
+      source: "/Downloads/Example.zh.srt",
+      target: "/media/Movies/Example (2024)/Example (2024).zh.srt",
+      resourceType: "movie", status: "auto_archive_candidate", resourceGroupId: group
+    }
+  ];
+  const result = await runMediaArchive({
+    plan: groupedPlan, ...roots, yes: true,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {}, {
+      activeTasks: [{
+        id: "copy-active-1",
+        name: "copy [/bdy](/Downloads/Example.2160p.mkv) to [/本地存储](/Downloads/Example)",
+        progress: 12.5
+      }]
+    })
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.mutated, false);
+  assert.equal(result.nextAction, "wait_for_copy_tasks");
+  assert.equal(result.blockedByActiveTasks.length, 2);
+  assert.equal(result.blockedByActiveTasks[0].taskId, "copy-active-1");
+  assert.equal(calls.filter((call) => call.endpoint === "/api/task/copy/undone").length, 1);
+  assert.equal(calls.some((call) => call.endpoint.startsWith("/api/fs/")), false);
 });
 
 test("archive refuses existing target and never calls a mutation endpoint", async () => {
@@ -182,14 +214,16 @@ test("compact archive output retains decisions and errors but omits verbose safe
   assert.equal(output.awaitingUserConfirmation, 1);
 });
 
-function fakeOpenList(calls, listings, { verifyTarget = false } = {}) {
+function fakeOpenList(calls, listings, { verifyTarget = false, activeTasks = [] } = {}) {
   const moved = new Set();
   return async (url, options) => {
     const endpoint = new URL(url).pathname;
     const body = options.body ? JSON.parse(options.body) : {};
     calls.push({ endpoint, body });
     let data = null;
-    if (endpoint === "/api/fs/list") {
+    if (endpoint === "/api/task/copy/undone") {
+      data = activeTasks;
+    } else if (endpoint === "/api/fs/list") {
       const dir = body.path;
       let rows = listings[dir] || [];
       if (verifyTarget && dir === "/media/Movies/Example (2024)" && calls.some((x) => x.endpoint === "/api/fs/rename")) {
