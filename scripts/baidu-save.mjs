@@ -417,9 +417,13 @@ async function saveSelectedItems(args) {
   }
 
   const renameFailed = renameResults.some((item) => !item.ok);
+  const transferTaskId = transferResponse.task_id || transferResponse.taskid || "";
+  const state = transferTaskId
+    ? (renameFailed ? "TRANSFER_SUBMITTED_RENAME_PENDING" : "SUBMITTED")
+    : (renameFailed ? "SAVED_RENAME_FAILED" : "COMPLETED");
   return {
     ok: !renameFailed,
-    state: renameFailed ? "SAVED_RENAME_FAILED" : "COMPLETED",
+    state,
     transferResponse,
     selectedItems: args.selectedItems,
     renamePlan: args.renamePlan,
@@ -914,11 +918,11 @@ function buildBaiduCompactSave({ args = {}, result, saveResult }) {
   const transfer = saveResult.transferResponse || {};
   const taskId = transfer.task_id || transfer.taskid || "";
   const failures = (saveResult.renameResults || []).filter((item) => !item.ok);
-  const state = failures.length ? "SAVED_RENAME_FAILED" : (saveResult.state || (taskId ? "SUBMITTED" : "COMPLETED"));
+  const state = saveResult.state || (failures.length ? "SAVED_RENAME_FAILED" : (taskId ? "SUBMITTED" : "COMPLETED"));
   return {
     ok: Boolean(saveResult.ok) && failures.length === 0, provider: "baidu", mode: "saved",
     status: state,
-    nextAction: failures.length ? "resume_rename_without_resaving" : (taskId ? "check_transfer_task" : "continue_workflow"),
+    nextAction: state === "SAVED_RENAME_FAILED" ? "resume_rename_without_resaving" : (state === "SUBMITTED" || state === "TRANSFER_SUBMITTED_RENAME_PENDING" ? "check_transfer_task_before_rename" : "continue_workflow"),
     source: args.shareUrl || "", target: result.savePath || args.savePath || "",
     taskId, selectedCount: (saveResult.selectedItems || []).length,
     rename: {
@@ -986,7 +990,7 @@ function buildBaiduSubagentSave({ args = {}, result, saveResult }) {
     state: saveResult.state || "COMPLETED",
     provider: "baidu",
     mode: "save",
-    nextAction: saveResult.state === "SAVED_RENAME_FAILED" ? "resume_rename_without_resaving" : "verify_target_path_or_openlist",
+    nextAction: saveResult.state === "SAVED_RENAME_FAILED" ? "resume_rename_without_resaving" : (saveResult.state === "SUBMITTED" || saveResult.state === "TRANSFER_SUBMITTED_RENAME_PENDING" ? "check_transfer_task_before_rename" : "verify_target_path_or_openlist"),
     source: {
       shareUrl: args.shareUrl || "",
       shareId: result.share?.featureStr || "",
