@@ -50,8 +50,9 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 2. For a search result, pass its clean title as `--context-name "$CANONICAL_TITLE"`; pass `--resource-type movie` when known. Never derive the canonical title from a noisy share/folder name.
 3. Compare selected names with the canonical title. If cleanup is needed but `renamePlan` is empty, do not save; correct the context name or provide a validated rename plan and preview again. Renaming a folder does not rename its children.
 4. Execute with `--yes` only after confirmation of exact resource, items, provider, and destination.
-5. Status: documented synchronous terminal success = SUCCEEDED; accepted/task ID = ACTIVE until terminal task status; explicit error = FAILED; ambiguous evidence = UNKNOWN. HTTP 200/202 or accepted is not terminal success for asynchronous providers.
-6. Do not relist after clear terminal success. For asynchronous providers, query the original task; never blindly resubmit.
+5. Baidu save states are `COMPLETED`, `SUBMITTED`, `TRANSFER_SUBMITTED_RENAME_PENDING`, and `SAVED_RENAME_FAILED`. For either submitted state, check the original transfer task first; do not retry the share-save command. Once the transfer is terminal, use the exact `sourcePath` and `renameTo` from compact output with the resume-rename preview command, then execute with `--yes` only after confirmation. `SAVED_RENAME_FAILED` means the transfer request completed but rename failed; recovery never transfers again and refuses to overwrite an existing target.
+6. For other providers, documented synchronous terminal success = SUCCEEDED; accepted/task ID = ACTIVE until terminal task status; explicit error = FAILED; ambiguous evidence = UNKNOWN. HTTP 200/202 or accepted is not terminal success for asynchronous providers.
+7. Do not relist after clear terminal success. For asynchronous providers, query the original task; never blindly resubmit.
 
 ### OpenList copy
 1. Preview exact source, item name, destination, and conflicts. Execute only after confirmation.
