@@ -45,7 +45,7 @@ async function main() {
   if (args.format === "text") {
     console.log(formatTaskResult(result));
   } else {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(args.compact ? compactTaskResult(result) : result, null, args.compact ? 0 : 2));
   }
 
   if (!result.ok) process.exit(1);
@@ -66,7 +66,8 @@ function parseArgs(argv) {
     envFile: DEFAULT_ENV_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     yes: false,
-    format: "json"
+    format: "json",
+    compact: false
   };
   const positionals = [];
 
@@ -96,6 +97,8 @@ function parseArgs(argv) {
       parsed.token = argv[++index] || "";
     } else if (arg === "--yes" || arg === "-y") {
       parsed.yes = true;
+    } else if (arg === "--compact") {
+      parsed.compact = true;
     } else if (arg === "--json") {
       parsed.format = "json";
     } else if (arg === "--format") {
@@ -238,23 +241,70 @@ async function listTasks({ baseUrl, token, fetchImpl, timeoutMs, group, state })
   };
 }
 
+function compactTaskResult(result = {}) {
+  const pickTask = (task) => {
+    if (!task) return null;
+    const output = {};
+    for (const key of ["id", "name", "status", "progress", "totalBytes", "error"]) {
+      if (task[key] !== undefined && task[key] !== "") output[key] = task[key];
+    }
+    return output;
+  };
+  if (result.action === "get") {
+    return {
+      ok: result.ok,
+      action: result.action,
+      group: result.group,
+      taskId: result.taskId,
+      status: result.status,
+      nextAction: result.nextAction,
+      task: pickTask(result.task),
+      ...(result.reason ? { reason: result.reason } : {})
+    };
+  }
+  return {
+    ok: result.ok,
+    action: result.action,
+    group: result.group,
+    state: result.state,
+    totalCount: result.totalCount,
+    matchedCount: result.matchedCount,
+    tasks: (result.tasks || []).map(pickTask),
+    nextAction: result.nextAction
+  };
+}
+
 /** 按精确 OpenList task ID 查询任务，不按文件名或目录名猜测任务身份。 */
 /** 按精确 OpenList task ID 查询任务，不使用文件名或路径猜测任务身份。 */
 async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS, group = DEFAULT_GROUP, id }) {
   const taskId = String(id || "").trim();
   if (!taskId) throw new Error("OpenList task ID 不能为空。");
   const normalizedGroup = normalizeGroup(group);
-  const snapshots = {};
-  for (const state of ["undone", "done"]) {
-    const response = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: "/api/task/" + normalizedGroup + "/" + state, method: "GET" });
-    if (!response.ok || !isOpenListSuccess(response.json)) throw new Error("OpenList " + state + " task lookup failed: " + (response.json?.message || response.status || "unknown"));
-    const tasks = Array.isArray(response.json?.data) ? response.json.data.map(normalizeTask) : [];
-    snapshots[state] = tasks.find((task) => task.id === taskId) || null;
+  const undoneResponse = await fetchOpenListJson({
+    baseUrl, token, fetchImpl, timeoutMs,
+    path: "/api/task/" + normalizedGroup + "/undone",
+    method: "GET"
+  });
+  if (!undoneResponse.ok || !isOpenListSuccess(undoneResponse.json)) {
+    throw new Error("OpenList undone task lookup failed: " + (undoneResponse.json?.message || undoneResponse.status || "unknown"));
   }
-  if (snapshots.undone && snapshots.done) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_appears_in_both_lists", task: snapshots.undone };
-  if (snapshots.undone) return { id: taskId, group: normalizedGroup, status: "ACTIVE", bucket: "undone", task: snapshots.undone };
-  if (!snapshots.done) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found_in_either_list", task: null };
-  const task = snapshots.done;
+  const activeTasks = Array.isArray(undoneResponse.json?.data)
+    ? undoneResponse.json.data.map(normalizeTask)
+    : [];
+  const activeTask = activeTasks.find((task) => task.id === taskId);
+  if (activeTask) return { id: taskId, group: normalizedGroup, status: "ACTIVE", bucket: "undone", task: activeTask };
+
+  const doneResponse = await fetchOpenListJson({
+    baseUrl, token, fetchImpl, timeoutMs,
+    path: "/api/task/" + normalizedGroup + "/done",
+    method: "GET"
+  });
+  if (!doneResponse.ok || !isOpenListSuccess(doneResponse.json)) {
+    throw new Error("OpenList done task lookup failed: " + (doneResponse.json?.message || doneResponse.status || "unknown"));
+  }
+  const doneTasks = Array.isArray(doneResponse.json?.data) ? doneResponse.json.data.map(normalizeTask) : [];
+  const task = doneTasks.find((entry) => entry.id === taskId);
+  if (!task) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found_in_either_list", task: null };
   const errorText = String(task.error || "").trim();
   const statusText = String(task.status || "").trim().toLowerCase();
   if (errorText || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) return { id: taskId, group: normalizedGroup, status: "FAILED", bucket: "done", reason: errorText || task.status, task };
@@ -387,6 +437,7 @@ function isOpenListSuccess(json) {
 /** 判断当前模块是否作为命令行入口直接运行。 */
 
 export {
+  compactTaskResult,
   filterTasks,
   lookupOpenListTaskById,
   parseArgs,
