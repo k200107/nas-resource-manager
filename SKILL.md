@@ -26,7 +26,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 | Aliyun preview | `npm run --silent aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json --compact` |
 | Quark preview | `npm run --silent quark-save -- "$URL" "$DEST" --dry-run --format json --compact` |
 | Baidu preview | `npm run --silent baidu-save -- "$URL" "$DEST" --dry-run --format json --compact` |
-| Resume Baidu rename (preview) | `npm run --silent baidu-save -- --resume-rename --source-path "$SOURCE_PATH" --rename-to "$NAME" --dry-run --format json --compact` |
+| Resume Baidu rename (preview) | `npm run --silent baidu-save -- --resume-rename --source-path "$SOURCE_PATH" --rename-to "$NAME" [--expected-id "$EXPECTED_ID"] --dry-run --format json --compact` |
 | Resume Baidu rename (confirmed) | Same recovery command with `--yes` after preview and confirmation |
 | OpenList copy preview | `npm run --silent openlist-copy -- "$SRC" "$DST" "$NAME" --format json` |
 | Provider save after confirmation | Same provider command with `--yes`, retaining naming arguments and compact JSON |
@@ -50,7 +50,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 2. For a search result, pass its clean title as `--context-name "$CANONICAL_TITLE"`; pass `--resource-type movie` when known. Never derive the canonical title from a noisy share/folder name.
 3. Compare selected names with the canonical title. If cleanup is needed but `renamePlan` is empty, do not save; correct the context name or provide a validated rename plan and preview again. Renaming a folder does not rename its children.
 4. Execute with `--yes` only after confirmation of exact resource, items, provider, and destination.
-5. Baidu save states are `COMPLETED`, `SUBMITTED`, `TRANSFER_SUBMITTED_RENAME_PENDING`, and `SAVED_RENAME_FAILED`. For either submitted state, check the original transfer task first; do not retry the share-save command. Once the transfer is terminal, use the exact `sourcePath` and `renameTo` from compact output with the resume-rename preview command, then execute with `--yes` only after confirmation. `SAVED_RENAME_FAILED` means the transfer request completed but rename failed; recovery never transfers again and refuses to overwrite an existing target.
+5. Baidu save states are `COMPLETED`, `SUBMITTED`, `TRANSFER_SUBMITTED_RENAME_PENDING`, and `SAVED_RENAME_FAILED`. For either submitted state, check the original transfer task first; do not retry the share-save command. Once the transfer is terminal, use the exact `sourcePath` and `renameTo` from compact output with the resume-rename preview command, passing `expectedFsId` as `--expected-id` when available. A target-only match without the expected file ID is reported as `TARGET_EXISTS_UNVERIFIED`, not assumed successful. Execute with `--yes` only after confirmation. `SAVED_RENAME_FAILED` means the transfer request completed but rename failed; recovery never transfers again and refuses to overwrite an existing target.
 6. For other providers, documented synchronous terminal success = SUCCEEDED; accepted/task ID = ACTIVE until terminal task status; explicit error = FAILED; ambiguous evidence = UNKNOWN. HTTP 200/202 or accepted is not terminal success for asynchronous providers.
 7. Do not relist after clear terminal success. For asynchronous providers, query the original task; never blindly resubmit.
 
