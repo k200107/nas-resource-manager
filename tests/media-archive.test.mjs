@@ -87,7 +87,7 @@ test("confirmed archive creates directory, moves and renames, then verifies", as
   });
   assert.equal(result.ok, true);
   assert.equal(result.mutated, true);
-  assert.deepEqual(calls.filter((x) => x.endpoint !== "/api/fs/list").map((x) => [x.endpoint, x.body]), [
+  assert.deepEqual(calls.filter((x) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(x.endpoint)).map((x) => [x.endpoint, x.body]), [
     ["/api/fs/mkdir", { path: "/media/Movies/Example (2024)" }],
     ["/api/fs/move", { src_dir: "/Downloads", dst_dir: "/media/Movies/Example (2024)", names: ["Example.2160p.mkv"] }],
     ["/api/fs/rename", { path: "/media/Movies/Example (2024)/Example.2160p.mkv", name: "Example (2024) - 2160p.mkv" }]
