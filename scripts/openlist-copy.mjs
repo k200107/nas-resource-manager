@@ -41,7 +41,8 @@ async function main() {
   if (args.format === "text") {
     console.log(formatCopyResult(result));
   } else {
-    console.log(JSON.stringify(result, null, 2));
+    const output = args.compact ? toCompactCopyResult(result) : result;
+    console.log(args.compact ? JSON.stringify(output) : JSON.stringify(output, null, 2));
   }
 
   if (!result.ok) process.exit(1);
@@ -61,6 +62,8 @@ function parseArgs(argv) {
     poll: true,
     yes: false,
     format: "json",
+    compact: false,
+    sourceItemPath: "",
     baseUrl: "",
     token: ""
   };
@@ -90,6 +93,10 @@ function parseArgs(argv) {
       parsed.poll = true;
     } else if (arg === "--yes" || arg === "-y") {
       parsed.yes = true;
+    } else if (arg === "--source-item-path") {
+      parsed.sourceItemPath = argv[++index] || "";
+    } else if (arg === "--compact") {
+      parsed.compact = true;
     } else if (arg === "--json") {
       parsed.format = "json";
     } else if (arg === "--format") {
@@ -109,6 +116,16 @@ function parseArgs(argv) {
   if (!parsed.dstDir && positionals[1]) parsed.dstDir = positionals[1];
   if (parsed.names.length === 0 && positionals.length > 2) parsed.names.push(...positionals.slice(2));
   parsed.names = parsed.names.map((name) => String(name || "").trim()).filter(Boolean);
+  if (parsed.sourceItemPath) {
+    if (parsed.srcDir || parsed.names.length > 0) {
+      throw new Error("--source-item-path cannot be combined with --src-dir/--source or --name/--names/positional item names.");
+    }
+    const itemPath = normalizeOpenListPath(parsed.sourceItemPath);
+    if (!itemPath || itemPath === "/") throw new Error("--source-item-path must identify a file or directory, not the OpenList root.");
+    const separator = itemPath.lastIndexOf("/");
+    parsed.srcDir = separator <= 0 ? "/" : itemPath.slice(0, separator);
+    parsed.names = [itemPath.slice(separator + 1)];
+  }
   return parsed;
 }
 
@@ -234,6 +251,42 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
     copyTask,
     verification
   };
+}
+
+
+/** Return only the fields an Agent needs to confirm or report a copy operation. */
+function toCompactCopyResult(result = {}) {
+  const plan = result.copyPlan || {};
+  const source = result.source || {};
+  const destination = result.destination || {};
+  const verification = result.verification || {};
+  const task = result.copyTask || result.copyRequest?.task || {};
+  const output = {
+    ok: Boolean(result.ok),
+    mode: result.dryRun ? "preview" : "copy",
+    nextAction: result.nextAction || "",
+    source: {
+      dir: source.dir || plan.srcDir || "",
+      found: source.foundNames || [],
+      missing: source.missingNames || []
+    },
+    destination: {
+      dir: destination.dir || plan.dstDir || "",
+      exists: destination.exists ?? null,
+      created: Boolean(destination.created),
+      conflicts: destination.existingTargetNames || []
+    },
+    items: plan.names || source.foundNames || [],
+    targetPaths: plan.expectedPaths || []
+  };
+  const status = result.status || verification.status;
+  const taskId = task.id || verification.taskId || "";
+  if (status) output.status = status;
+  if (taskId) output.taskId = taskId;
+  if (Number.isFinite(task.progress)) output.progress = task.progress;
+  const error = result.error || result.copyRequest?.message || verification.error || "";
+  if (error) output.error = error;
+  return output;
 }
 
 /** 轮询 OpenList 任务状态，直到成功、失败或达到等待上限。 */
@@ -505,5 +558,6 @@ function sleep(ms) {
 
 export {
   parseArgs,
-  runOpenListCopy
+  runOpenListCopy,
+  toCompactCopyResult
 };
