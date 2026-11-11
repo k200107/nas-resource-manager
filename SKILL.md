@@ -26,6 +26,8 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 | Aliyun preview | `npm run --silent aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json --compact` |
 | Quark preview | `npm run --silent quark-save -- "$URL" "$DEST" --dry-run --format json --compact` |
 | Baidu preview | `npm run --silent baidu-save -- "$URL" "$DEST" --dry-run --format json --compact` |
+| Resume Baidu rename (preview) | `npm run --silent baidu-save -- --resume-rename --source-path "$SOURCE_PATH" --rename-to "$NAME" --dry-run --format json --compact` |
+| Resume Baidu rename (confirmed) | Same recovery command with `--yes` after preview and confirmation |
 | OpenList copy preview | `npm run --silent openlist-copy -- "$SRC" "$DST" "$NAME" --format json` |
 | Provider save after confirmation | Same provider command with `--yes`, retaining naming arguments and compact JSON |
 | OpenList copy after confirmation | Same copy command with `--yes` |
