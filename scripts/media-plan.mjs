@@ -83,7 +83,7 @@ async function main() {
     tool: "media-plan",
     mode: "read-only-dry-run",
     mutated: false,
-    source: { path: sourceFile || planSourcePath, scope: sourceFile ? "single-file" : resourceName ? "resource-directory" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
+    source: { path: sourceFile || scoped?.resourcePath || sourcePath, scope: sourceFile ? "single-file" : resourceName ? "resource-directory" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
     targets: { movies: moviesPath, tvShows: tvShowsPath },
     summary: summarizePlan(plan),
     plan,
