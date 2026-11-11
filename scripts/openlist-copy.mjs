@@ -32,16 +32,14 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 async function main() {
   const args = parseArgs(cliArgs());
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
-  const result = await runOpenListCopy({
-    env,
-    args,
-    fetchImpl: globalThis.fetch
-  });
+  const result = args.listMounts
+    ? await listOpenListMounts({ env, args, fetchImpl: globalThis.fetch })
+    : await runOpenListCopy({ env, args, fetchImpl: globalThis.fetch });
 
   if (args.format === "text") {
     console.log(formatCopyResult(result));
   } else {
-    console.log(JSON.stringify(result));
+    console.log(JSON.stringify(args.compact ? compactCopyResult(result) : result));
   }
 
   if (!result.ok) process.exit(1);
@@ -53,6 +51,8 @@ function parseArgs(argv) {
   const parsed = {
     srcDir: "",
     dstDir: "",
+    listMounts: false,
+    compact: false,
     names: [],
     envFile: DEFAULT_ENV_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -68,7 +68,11 @@ function parseArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--src-dir" || arg === "--source") {
+    if (arg === "--list-mounts") {
+      parsed.listMounts = true;
+    } else if (arg === "--compact") {
+      parsed.compact = true;
+    } else if (arg === "--src-dir" || arg === "--source") {
       parsed.srcDir = argv[++index] || "";
     } else if (arg === "--dst-dir" || arg === "--dest" || arg === "--target") {
       parsed.dstDir = argv[++index] || "";
@@ -114,8 +118,18 @@ function parseArgs(argv) {
 
 /** 组织复制流程：校验参数、读取源信息、发起复制并返回任务结果。 */
 /** 组织 OpenList 复制流程，完成参数检查、源/目标预览、确认门槛和任务提交。 */
+async function listOpenListMounts({ env = {}, args = {}, fetchImpl = globalThis.fetch }) {
+  const context = buildOpenListContext(env, args, fetchImpl);
+  const root = await listDirectory({ ...context, dirPath: "/", refresh: false });
+  return { ok: true, tool: "openlist-copy", mode: "agent-json", state: "mounts_listed",
+    mounts: root.items.filter((item) => item.isDir).map((item) => item.name),
+    stagingPath: env.OPENLIST_STAGING_PATH || "",
+    defaultCopyDestination: env.OPENLIST_DEFAULT_COPY_DST_PATH || "",
+    libraries: [env.MEDIA_MOVIES_PATH, env.MEDIA_TVSHOWS_PATH].filter(Boolean) };
+}
+
 async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fetch }) {
-  const srcDir = normalizeOpenListPath(args.srcDir);
+  let srcDir = normalizeOpenListPath(args.srcDir);
   const dstDir = normalizeOpenListPath(args.dstDir || env.OPENLIST_DEFAULT_COPY_DST_PATH);
   const names = (args.names || []).map((name) => String(name || "").trim()).filter(Boolean);
   const context = buildOpenListContext(env, args, fetchImpl);
@@ -124,7 +138,19 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
   if (!dstDir) throw new Error("缺少 OpenList 目标目录。请传 --dst-dir 或配置 OPENLIST_DEFAULT_COPY_DST_PATH。");
   if (names.length === 0) throw new Error("缺少要复制的对象名。请传 --name 或 --names。");
 
-  const sourceListing = await listDirectory({ ...context, dirPath: srcDir, refresh: true });
+  let sourceListing = await listDirectory({ ...context, dirPath: srcDir, refresh: true });
+  let sourcePathCorrection = null;
+  if (names.length === 1 && !sourceListing.items.some((item) => item.name === names[0]) && basenameFromPath(srcDir) === names[0]) {
+    const parentDir = parentOpenListPath(srcDir);
+    if (parentDir && parentDir !== srcDir) {
+      const parentListing = await listDirectory({ ...context, dirPath: parentDir, refresh: true });
+      if (parentListing.items.some((item) => item.name === names[0])) {
+        sourcePathCorrection = { supplied: srcDir, corrected: parentDir, itemName: names[0] };
+        srcDir = parentDir;
+        sourceListing = parentListing;
+      }
+    }
+  }
   let destinationListing = null;
   let destinationExists = true;
   let destinationCreated = false;
@@ -161,6 +187,7 @@ async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fet
     mode: "agent-json",
     dryRun: !args.yes,
     nextAction,
+    ...(sourcePathCorrection ? { sourcePathCorrection } : {}),
     source: {
       dir: srcDir,
       itemCount: sourceListing.items.length,
@@ -438,6 +465,34 @@ function buildOpenListContext(env, args, fetchImpl) {
   };
 }
 
+
+/** Agent-facing output: retain only decision fields; omit duplicated API payloads and directory counts. */
+function compactCopyResult(result) {
+  if (result.state === "mounts_listed") return result;
+  const compact = {
+    ok: result.ok,
+    tool: result.tool,
+    mode: result.mode,
+    dryRun: result.dryRun,
+    nextAction: result.nextAction
+  };
+  if (result.copyPlan) {
+    compact.source = result.copyPlan.srcDir;
+    compact.destination = result.copyPlan.dstDir;
+    compact.items = result.copyPlan.names;
+    compact.expectedPaths = result.copyPlan.expectedPaths;
+  }
+  if (result.sourcePathCorrection) compact.sourcePathCorrection = result.sourcePathCorrection;
+  if (result.destination?.existingTargetNames?.length) compact.conflicts = result.destination.existingTargetNames;
+  if (result.status) compact.status = result.status;
+  const taskId = result.copyTask?.id || result.verification?.taskId;
+  if (taskId) compact.taskId = taskId;
+  if (result.verification?.error) compact.error = sanitizeTaskError(result.verification.error);
+  if (result.copyRequest?.message && !result.ok) compact.error = sanitizeTaskError(result.copyRequest.message);
+  if (result.source?.missingNames?.length) compact.missing = result.source.missingNames;
+  return compact;
+}
+
 /** 格式化 OpenList 复制结果，展示源、目标、任务 ID 和执行状态。 */
 /** 把复制结果格式化为可读输出，展示源、目标和任务状态。 */
 function formatCopyResult(result) {
@@ -478,6 +533,13 @@ function joinOpenListPath(dirPath, name) {
 
 /** 从路径中提取最后一级名称。 */
 /** 处理 basenameFromPath 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
+function parentOpenListPath(value) {
+  const normalized = normalizeOpenListPath(value);
+  if (!normalized || normalized === "/") return "";
+  const index = normalized.lastIndexOf("/");
+  return index <= 0 ? "/" : normalized.slice(0, index);
+}
+
 function basenameFromPath(value) {
   return String(value || "").split("/").filter(Boolean).at(-1) || "";
 }
@@ -505,5 +567,7 @@ function sleep(ms) {
 
 export {
   parseArgs,
-  runOpenListCopy
+  runOpenListCopy,
+  listOpenListMounts,
+  compactCopyResult
 };

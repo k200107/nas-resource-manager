@@ -28,7 +28,8 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 | Baidu preview | `npm run --silent baidu-save -- "$URL" "$DEST" --dry-run --format json --compact` |
 | Resume Baidu rename (preview) | `npm run --silent baidu-save -- --resume-rename --source-path "$SOURCE_PATH" --rename-to "$NAME" [--expected-id "$EXPECTED_ID"] --dry-run --format json --compact` |
 | Resume Baidu rename (confirmed) | Same recovery command with `--yes` after preview and confirmation |
-| OpenList copy preview | `npm run --silent openlist-copy -- "$SRC" "$DST" "$NAME" --format json` |
+| Discover OpenList mounts | `npm run --silent openlist-copy -- --list-mounts --format json --compact` |
+| OpenList copy preview | `npm run --silent openlist-copy -- "$SRC_PARENT" "$DST" "$ITEM_NAME" --format json --compact` |
 | Provider save after confirmation | Same provider command with `--yes`, retaining naming arguments and compact JSON |
 | OpenList copy after confirmation | Same copy command with `--yes` |
 | Inspect copy task | `npm run --silent openlist-tasks -- get copy --id "$TASK_ID"` |
@@ -55,9 +56,11 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 7. Do not relist after clear terminal success. For asynchronous providers, query the original task; never blindly resubmit.
 
 ### OpenList copy
-1. Preview exact source, item name, destination, and conflicts. Execute only after confirmation.
-2. Task commands emit compact JSON by default: only ID/name/status/progress and a short sanitized error are returned. Check the exact ID: undone = ACTIVE (one request, return immediately); only if absent query done; done without error = SUCCEEDED; explicit error = FAILED; absent from both = UNKNOWN.
-3. Do not repeatedly poll, refresh destination, enumerate files, compare sizes, or hash by default. For ACTIVE/UNKNOWN, retain the task ID and query that same task when progress is requested. Never resubmit blindly.
+1. If the OpenList mount is unknown, run `--list-mounts` once; do not run `check-ready`, read `.env`, or write ad-hoc API scripts just to discover mounts. The command returns root mount names and configured staging/library paths in one read-only request.
+2. Copy arguments are **source parent directory + item name + destination**. Example: to copy `/百度网盘/影视库/片名`, pass source `/百度网盘/影视库` and name `片名`, not the full item path as the source. If the full item path is mistakenly supplied with its basename, the script checks the parent and safely corrects it only when that exact item exists.
+3. Use `OPENLIST_STAGING_PATH` for media ingestion (normally `/本地存储/Downloads`), not the formal Movies/TVShows library. Preview exact source, item name, destination, and conflicts. Execute only after confirmation.
+4. Use `--compact` for copy commands. Agent output contains only source, destination, item names, conflicts, status, task ID, and actionable errors; it omits duplicate task/API objects and directory counts. Check the exact ID only when status is ACTIVE/UNKNOWN: undone = ACTIVE (one request, return immediately); only if absent query done; done without error = SUCCEEDED; explicit error = FAILED; absent from both = UNKNOWN.
+5. Do not repeatedly poll, refresh destination, enumerate files, compare sizes, or hash by default. For ACTIVE/UNKNOWN, retain the task ID and query that same task when progress is requested. Never resubmit blindly.
 
 ### Media organization
 1. Organize only when requested. One named file uses `--file`; one named resource folder uses `--source-dir "$DIR" --resource "$RESOURCE_DIR"`; use unfiltered `--source-dir` only for a requested batch.

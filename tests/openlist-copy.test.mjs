@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   parseArgs,
-  runOpenListCopy
+  runOpenListCopy,
+  listOpenListMounts,
+  compactCopyResult
 } from "../scripts/openlist-copy.mjs";
 
 test("parseArgs accepts source, destination, and object name positionals", () => {
@@ -250,4 +252,90 @@ test("runOpenListCopy previews a missing destination without creating it", async
   assert.equal(result.destination.created, false);
   assert.equal(result.nextAction, "confirm_create_destination_and_copy");
   assert.equal(calls.some((endpoint) => endpoint.endsWith("/api/fs/mkdir")), false);
+});
+
+
+test("listOpenListMounts returns mount names and configured destinations in one request", async () => {
+  let calls = 0;
+  const result = await listOpenListMounts({
+    env: {
+      OPENLIST_BASE_URL: "http://openlist.test",
+      OPENLIST_TOKEN: "token",
+      OPENLIST_STAGING_PATH: "/本地存储/Downloads",
+      OPENLIST_DEFAULT_COPY_DST_PATH: "/本地存储"
+    },
+    fetchImpl: async (url, options) => {
+      calls += 1;
+      assert.equal(String(url), "http://openlist.test/api/fs/list");
+      assert.equal(JSON.parse(options.body).path, "/");
+      return jsonResponse({
+        code: 200, message: "success",
+        data: { content: [
+          { name: "百度网盘", is_dir: true },
+          { name: "本地存储", is_dir: true },
+          { name: "说明.txt", is_dir: false }
+        ] }
+      });
+    }
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(result.mounts, ["百度网盘", "本地存储"]);
+  assert.equal(result.stagingPath, "/本地存储/Downloads");
+});
+
+test("runOpenListCopy corrects a selected folder mistakenly supplied as its own source parent", async () => {
+  const calls = [];
+  const result = await runOpenListCopy({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: {
+      srcDir: "/百度网盘/影视库/可能的爱",
+      dstDir: "/本地存储/Downloads",
+      names: ["可能的爱"],
+      yes: false
+    },
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body.path);
+      if (body.path === "/百度网盘/影视库/可能的爱") {
+        return jsonResponse({ code: 200, message: "success", data: { content: [{ name: "电影.mkv", is_dir: false }] } });
+      }
+      if (body.path === "/百度网盘/影视库") {
+        return jsonResponse({ code: 200, message: "success", data: { content: [{ name: "可能的爱", is_dir: true }] } });
+      }
+      if (body.path === "/本地存储/Downloads") {
+        return jsonResponse({ code: 200, message: "success", data: { content: [] } });
+      }
+      throw new Error("Unexpected path " + body.path);
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.copyPlan.srcDir, "/百度网盘/影视库");
+  assert.deepEqual(result.copyPlan.names, ["可能的爱"]);
+  assert.deepEqual(result.sourcePathCorrection, {
+    supplied: "/百度网盘/影视库/可能的爱",
+    corrected: "/百度网盘/影视库",
+    itemName: "可能的爱"
+  });
+  assert.equal(calls.length, 3);
+});
+
+
+test("compactCopyResult removes duplicated task and directory payloads", () => {
+  const compact = compactCopyResult({
+    ok: true, tool: "openlist-copy", mode: "agent-json", dryRun: false,
+    nextAction: "copy_complete", status: "SUCCEEDED",
+    copyPlan: { srcDir: "/百度网盘/影视库", dstDir: "/本地存储/Downloads", names: ["可能的爱"], expectedPaths: ["/本地存储/Downloads/可能的爱"] },
+    source: { dir: "/百度网盘/影视库", itemCount: 200, foundNames: ["可能的爱"], missingNames: [] },
+    destination: { dir: "/本地存储/Downloads", itemCount: 50, existingTargetNames: [] },
+    copyRequest: { message: "success", task: { id: "copy-1" } },
+    copyTask: { id: "copy-1", name: "long task name", state: 2 },
+    verification: { status: "SUCCEEDED", taskId: "copy-1", task: { id: "copy-1", name: "long task name" } }
+  });
+  assert.deepEqual(compact, {
+    ok: true, tool: "openlist-copy", mode: "agent-json", dryRun: false,
+    nextAction: "copy_complete", source: "/百度网盘/影视库",
+    destination: "/本地存储/Downloads", items: ["可能的爱"],
+    expectedPaths: ["/本地存储/Downloads/可能的爱"],
+    status: "SUCCEEDED", taskId: "copy-1"
+  });
 });
