@@ -33,9 +33,10 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | OpenList copy preview | npm run openlist-copy -- --source-item-path "$SOURCE_ITEM_PATH" --dst-dir "$DST" --format json --compact |
 | Provider save after confirmation | Same provider command with --yes --format json --compact (retain --context-name and --resource-type) |
 | OpenList copy after confirmation | Same command with --yes --format json --compact |
-| Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
+| Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json --compact |
 | Plan one downloaded file | npm run --silent media-plan -- --file "$FILE" --format json --compact |
 | Plan a staging directory | npm run --silent media-plan -- --source-dir "$DIR" --format json --compact |
+| Plan one selected resource from a directory | npm run --silent media-plan -- --source-dir "$DIR" --resource "$RESOURCE_NAME" --output-file "$PLAN_FILE" |
 | Archive preflight | npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact |
 | Execute reviewed archive | Same archive command with --yes --compact after the exact plan is confirmed |
 
@@ -56,8 +57,8 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 7. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
 8. Organize: only when requested.
    - If the user names one file, use `media-plan --file "$FILE" --format json --compact`; do not scan the whole Downloads directory. Use `--source-dir` only when the user asks to organize/check a directory or multiple resources.
-   - Planning is strictly read-only and only identifies media/names/targets; it does not query Movies/TVShows for conflicts or create directories. Conflict checking belongs to `media-archive` preflight, which checks source existence and exact target collisions. This avoids repeating destination reads in both planner and executor.
-   - Generate one plan and preserve it. Do not manually rebuild the same plan or reread executor source to discover its contract.
+   - Planning is strictly read-only and only identifies media/names/targets; it does not query Movies/TVShows for conflicts or create directories. Conflict checking belongs to `media-archive` preflight, which checks source existence and exact target collisions. Before filesystem preflight, `media-archive` reads `/api/task/copy/undone` once and blocks any active source/resource group (including its sidecars); do not add a separate manual task-list query. If the task-list check fails, archive fails closed.
+   - Generate one plan and preserve it. For a multi-resource directory, use `--resource "$RESOURCE_NAME" --output-file "$PLAN_FILE"` to write the exact filtered plan locally; the command returns only a compact summary. Pass that file directly to `media-archive`. Do not manually parse/rebuild the JSON, create a second temporary plan, or reread executor source to discover its contract.
    - If a review-required item has no target, propose its canonical title, resource type, year and target in that same plan, but keep its original `confidence` and `status: "review_required"`. Run archive preflight against the single preserved plan before asking for confirmation. The executor preflights both automatic candidates and `review_required` items that have a proposed source, resource type and target; review items remain non-executable and are reported in `awaitingUserConfirmation`. Use `--compact` for both preflight and execution output.
    - After the user confirms the exact source/target preview and preflight, automatic candidates can execute. For each confirmed `review_required` item, preserve its original `confidence` and `status`; annotate that same item with `userConfirmed: true` and `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed canonical title>", "year": <confirmed year or null>, "target": "<exact target>" }`. Never change low/medium confidence to high to bypass review.
    - The archive executor accepts a reviewed item for execution only when the confirmation record matches its exact source, resource type, canonical title, target and year. Conflicts are never made eligible by confirmation.
