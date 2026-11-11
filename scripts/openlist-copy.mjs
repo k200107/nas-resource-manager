@@ -129,7 +129,7 @@ async function listOpenListMounts({ env = {}, args = {}, fetchImpl = globalThis.
 }
 
 async function runOpenListCopy({ env = {}, args = {}, fetchImpl = globalThis.fetch }) {
-  const srcDir = normalizeOpenListPath(args.srcDir);
+  let srcDir = normalizeOpenListPath(args.srcDir);
   const dstDir = normalizeOpenListPath(args.dstDir || env.OPENLIST_DEFAULT_COPY_DST_PATH);
   const names = (args.names || []).map((name) => String(name || "").trim()).filter(Boolean);
   const context = buildOpenListContext(env, args, fetchImpl);
