@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import {
   parseArgs,
   runOpenListCopy,
-  listOpenListMounts
+  listOpenListMounts,
+  compactCopyResult
 } from "../scripts/openlist-copy.mjs";
 
 test("parseArgs accepts source, destination, and object name positionals", () => {
@@ -316,4 +317,25 @@ test("runOpenListCopy corrects a selected folder mistakenly supplied as its own 
     itemName: "可能的爱"
   });
   assert.equal(calls.length, 3);
+});
+
+
+test("compactCopyResult removes duplicated task and directory payloads", () => {
+  const compact = compactCopyResult({
+    ok: true, tool: "openlist-copy", mode: "agent-json", dryRun: false,
+    nextAction: "copy_complete", status: "SUCCEEDED",
+    copyPlan: { srcDir: "/百度网盘/影视库", dstDir: "/本地存储/Downloads", names: ["可能的爱"], expectedPaths: ["/本地存储/Downloads/可能的爱"] },
+    source: { dir: "/百度网盘/影视库", itemCount: 200, foundNames: ["可能的爱"], missingNames: [] },
+    destination: { dir: "/本地存储/Downloads", itemCount: 50, existingTargetNames: [] },
+    copyRequest: { message: "success", task: { id: "copy-1" } },
+    copyTask: { id: "copy-1", name: "long task name", state: 2 },
+    verification: { status: "SUCCEEDED", taskId: "copy-1", task: { id: "copy-1", name: "long task name" } }
+  });
+  assert.deepEqual(compact, {
+    ok: true, tool: "openlist-copy", mode: "agent-json", dryRun: false,
+    nextAction: "copy_complete", source: "/百度网盘/影视库",
+    destination: "/本地存储/Downloads", items: ["可能的爱"],
+    expectedPaths: ["/本地存储/Downloads/可能的爱"],
+    status: "SUCCEEDED", taskId: "copy-1"
+  });
 });
