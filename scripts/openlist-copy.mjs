@@ -296,19 +296,20 @@ async function pollCopyCompletion({ baseUrl, token, fetchImpl, timeoutMs, taskId
     return { ok: true, status: "UNKNOWN", state: "task_id_missing", reason: "OpenList 未返回可追踪的 task ID。" };
   }
 
-  const [undone, done] = await Promise.all([
-    listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" }),
-    listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" })
-  ]);
-  const active = undone.tasks.find((task) => task.id === taskId);
-  const completed = done.tasks.find((task) => task.id === taskId);
-
-  if (active && completed) {
-    return { ok: true, status: "UNKNOWN", state: "task_in_both_lists", taskId };
+  const undone = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" });
+  if (undone.error) {
+    return { ok: true, status: "UNKNOWN", state: "undone_lookup_failed", taskId, error: undone.error };
   }
+  const active = undone.tasks.find((task) => task.id === taskId);
   if (active) {
     return { ok: true, status: "ACTIVE", state: "copying", taskId, task: active };
   }
+
+  const done = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" });
+  if (done.error) {
+    return { ok: true, status: "UNKNOWN", state: "done_lookup_failed", taskId, error: done.error };
+  }
+  const completed = done.tasks.find((task) => task.id === taskId);
   if (!completed) {
     return { ok: true, status: "UNKNOWN", state: "task_not_found", taskId };
   }
