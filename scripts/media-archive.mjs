@@ -83,15 +83,37 @@ async function runMediaArchive({
     if (record?.verified === true) alreadyArchived.push({ source: item.source, target: item.target, verified: true, verifiedAt: record.verifiedAt });
     else preflightValidated.push(item);
   }
-  const validated = preflightValidated.filter(isArchiveEligible);
-  const awaitingUserConfirmation = preflightValidated.filter((item) => !isArchiveEligible(item)).length;
-  if (preflightValidated.length === 0) {
+  const activeCopyTasks = preflightValidated.length
+    ? await listActiveCopyTasks({ baseUrl, token, fetchImpl, timeoutMs })
+    : [];
+  const blockedByActiveTasks = [];
+  const safeCandidates = [];
+  for (const item of preflightValidated) {
+    const activeTask = activeCopyTasks.find((task) => activeCopyTaskMatchesItem(task, item));
+    if (activeTask) {
+      blockedByActiveTasks.push({
+        source: item.source,
+        target: item.target,
+        taskId: activeTask.id,
+        taskName: activeTask.name,
+        progress: activeTask.progress ?? null,
+        reason: "资源仍存在活动中的 OpenList 复制任务，暂缓归档。"
+      });
+    } else {
+      safeCandidates.push(item);
+    }
+  }
+  const validated = safeCandidates.filter(isArchiveEligible);
+  const awaitingUserConfirmation = safeCandidates.filter((item) => !isArchiveEligible(item)).length;
+  if (safeCandidates.length === 0) {
+    const blocked = blockedByActiveTasks.length > 0;
     return {
-      ok: true, tool: "media-archive", mode: "idempotent-noop", mutated: false,
+      ok: !blocked, tool: "media-archive", mode: blocked ? "execution-blocked" : "idempotent-noop", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived, preflight: [], executed: [],
+      activeTaskCount: activeCopyTasks.length, blockedByActiveTasks,
       awaitingUserConfirmation: 0,
       safety: { overwrite: false, delete: false, copy: false },
-      nextAction: "archive_already_complete"
+      nextAction: blocked ? "wait_for_copy_tasks" : "archive_already_complete"
     };
   }
   const api = createApi({ baseUrl, token, fetchImpl, timeoutMs });
@@ -140,7 +162,7 @@ async function runMediaArchive({
     return {
       ok: false, tool: "media-archive", mode: yes ? "execution-blocked" : "read-only-dry-run",
       mutated: false, eligible: eligible.length, skipped, alreadyArchived,
-      preflight, executed: [], awaitingUserConfirmation,
+      preflight, executed: [], awaitingUserConfirmation, activeTaskCount: activeCopyTasks.length, blockedByActiveTasks,
       nextAction: "resolve_conflicts_or_missing_sources"
     };
   }
@@ -149,9 +171,9 @@ async function runMediaArchive({
     return {
       ok: true, tool: "media-archive", mode: "read-only-dry-run", mutated: false,
       eligible: eligible.length, skipped, alreadyArchived,
-      preflight, executed: [], awaitingUserConfirmation,
+      preflight, executed: [], awaitingUserConfirmation, activeTaskCount: activeCopyTasks.length, blockedByActiveTasks,
       safety: { overwrite: false, delete: false, copy: false, note: "仅检查源文件和目标路径；未创建目录、移动或重命名文件。" },
-      nextAction: awaitingUserConfirmation > 0 ? "confirm_review_items" : "review_and_confirm_with_yes"
+      nextAction: blockedByActiveTasks.length > 0 ? "wait_for_copy_tasks" : awaitingUserConfirmation > 0 ? "confirm_review_items" : "review_and_confirm_with_yes"
     };
   }
 
@@ -159,9 +181,9 @@ async function runMediaArchive({
     return {
       ok: true, tool: "media-archive", mode: "awaiting-user-confirmation", mutated: false,
       eligible: 0, skipped, alreadyArchived, preflight, executed: [],
-      awaitingUserConfirmation,
+      awaitingUserConfirmation, activeTaskCount: activeCopyTasks.length, blockedByActiveTasks,
       safety: { overwrite: false, delete: false, copy: false },
-      nextAction: "confirm_review_items"
+      nextAction: blockedByActiveTasks.length > 0 ? "wait_for_copy_tasks" : "confirm_review_items"
     };
   }
 
@@ -237,13 +259,13 @@ async function runMediaArchive({
 
   const success = executed.length === validated.length && executed.every((entry) => entry.ok);
   return {
-    ok: success, tool: "media-archive", mode: "openlist-move-and-rename",
+    ok: success && blockedByActiveTasks.length === 0, tool: "media-archive", mode: "openlist-move-and-rename",
     mutated: executed.some((entry) => entry.ok), eligible: eligible.length, skipped, alreadyArchived,
-    preflight, executed,
+    preflight, executed, activeTaskCount: activeCopyTasks.length, blockedByActiveTasks,
     safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
     confirmedReviewCount: validated.filter((item) => item.confirmedReview).length,
     awaitingUserConfirmation,
-    nextAction: success ? "archive_complete" : "inspect_partial_execution_before_retry"
+    nextAction: blockedByActiveTasks.length > 0 ? "wait_for_copy_tasks" : success ? "archive_complete" : "inspect_partial_execution_before_retry"
   };
 }
 
@@ -262,6 +284,8 @@ function compactArchiveResult(result) {
     skipped: result.skipped,
     awaitingUserConfirmation: result.awaitingUserConfirmation,
     alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
+    activeTaskCount: result.activeTaskCount ?? 0,
+    blockedByActiveTasks: (result.blockedByActiveTasks || []).map((item) => pick(item, ["source", "target", "taskId", "progress", "reason"])),
     preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "missingDirectories", "reason"])),
     executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "verified", "error"])),
     nextAction: result.nextAction
@@ -306,6 +330,30 @@ function validatePlanItem(item, roots) {
     ...item, source, target, sourceDir: parent(source), sourceName, targetDir: parent(target), targetName,
     confirmedReview: item.status === "review_required" && isArchiveEligible(item)
   };
+}
+
+async function listActiveCopyTasks({ baseUrl, token, fetchImpl, timeoutMs }) {
+  const response = await requestOpenListJson({
+    baseUrl, token, fetchImpl, timeoutMs,
+    endpoint: "/api/task/copy/undone",
+    method: "GET"
+  });
+  if (!response.ok || !isOpenListSuccess(response.json)) {
+    throw new Error(`无法确认 OpenList 活动复制任务，已停止归档：${response.json?.message || response.status || "unknown"}`);
+  }
+  return Array.isArray(response.json?.data)
+    ? response.json.data.map((task) => ({
+      id: String(task.id || ""),
+      name: String(task.name || ""),
+      progress: task.progress ?? null
+    })).filter((task) => task.id && task.name)
+    : [];
+}
+
+function activeCopyTaskMatchesItem(task, item) {
+  const taskName = String(task?.name || "");
+  return taskName.includes(String(item.source || "")) ||
+    Boolean(item.resourceGroupId && taskName.includes(String(item.resourceGroupId)));
 }
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
