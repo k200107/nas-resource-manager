@@ -244,23 +244,39 @@ async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.f
   const taskId = String(id || "").trim();
   if (!taskId) throw new Error("OpenList task ID 不能为空。");
   const normalizedGroup = normalizeGroup(group);
-  const undoneResponse = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: `/api/task/${normalizedGroup}/undone`, method: "GET" });
-  if (!undoneResponse.ok || !isOpenListSuccess(undoneResponse.json)) throw new Error("OpenList undone lookup failed: " + sanitizeTaskError(undoneResponse.json?.message || undoneResponse.status || "unknown"));
-  const activeTasks = Array.isArray(undoneResponse.json?.data) ? undoneResponse.json.data : [];
-  const active = activeTasks.find((item) => String(item.id || "") === taskId);
-  if (active) return { id: taskId, group: normalizedGroup, status: "ACTIVE", bucket: "undone", task: normalizeTask(active) };
+  const response = await fetchOpenListJson({
+    baseUrl, token, fetchImpl, timeoutMs,
+    path: `/api/task/${normalizedGroup}/info?tid=${encodeURIComponent(taskId)}`,
+    method: "POST"
+  });
+  if (!response.ok || !isOpenListSuccess(response.json)) {
+    throw new Error("OpenList task info lookup failed: " + sanitizeTaskError(response.json?.message || response.status || "unknown"));
+  }
 
-  const doneResponse = await fetchOpenListJson({ baseUrl, token, fetchImpl, timeoutMs, path: `/api/task/${normalizedGroup}/done`, method: "GET" });
-  if (!doneResponse.ok || !isOpenListSuccess(doneResponse.json)) throw new Error("OpenList done lookup failed: " + sanitizeTaskError(doneResponse.json?.message || doneResponse.status || "unknown"));
-  const doneTasks = Array.isArray(doneResponse.json?.data) ? doneResponse.json.data : [];
-  const completed = doneTasks.find((item) => String(item.id || "") === taskId);
-  if (!completed) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found", task: null };
-  const task = normalizeTask(completed);
-  const errorText = String(task.error || "").trim();
+  const data = response.json?.data;
+  const rows = Array.isArray(data) ? data : data && typeof data === "object" ? [data] : [];
+  const found = rows.find((item) => String(item?.id || "") === taskId);
+  if (!found) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found", task: null };
+
+  const task = normalizeTask(found);
+  const state = String(task.state ?? "").trim().toLowerCase();
   const statusText = String(task.status || "").trim().toLowerCase();
-  if (errorText || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) return { id: taskId, group: normalizedGroup, status: "FAILED", bucket: "done", reason: errorText || task.status, task };
-  // OpenList 的 done 分组就是终态列表；部分版本的 status 文本仍显示 uploading。
-  return { id: taskId, group: normalizedGroup, status: "SUCCEEDED", bucket: "done", task };
+  const errorText = String(task.error || "").trim();
+  if (errorText || ["errored", "error", "failed", "canceled", "cancelled"].includes(state)
+      || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) {
+    return { id: taskId, group: normalizedGroup, status: "FAILED", reason: errorText || task.state || task.status, task };
+  }
+  if (["pending", "running", "canceling"].includes(state)) {
+    return { id: taskId, group: normalizedGroup, status: "ACTIVE", reason: state, task };
+  }
+  if (state === "succeeded") {
+    const progress = Number(task.progress);
+    if (Number.isFinite(progress) && progress >= 100 && !/(uploading|copying|downloading|pending|running)/.test(statusText)) {
+      return { id: taskId, group: normalizedGroup, status: "SUCCEEDED", task };
+    }
+    return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "success_state_incomplete_or_conflicting", task };
+  }
+  return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "unrecognized_task_state", task };
 }
 
 /** 向 OpenList 请求取消匹配的后台任务；这是会改变远端任务状态的操作。 */
