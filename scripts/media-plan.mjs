@@ -66,10 +66,11 @@ async function main() {
     : await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
   // 规划只负责识别与命名；目标冲突由归档预检统一检查，执行前还会再次检查。
-  const plan = buildMediaPlan({
+  const fullPlan = buildMediaPlan({
     sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
     sourceScanComplete: !scanned.truncated
   });
+  const plan = filterPlanByResource(fullPlan, args.resourceFilter);
   const result = {
     ok: true,
     tool: "media-plan",
@@ -84,9 +85,18 @@ async function main() {
       fileOperations: false,
       note: "规划阶段严格只读；不创建目录、不复制、不移动、不重命名、不删除任何文件。目标目录仅在用户确认后的归档执行阶段按需创建。"
     },
-    nextAction: "review_plan"
+    nextAction: plan.length > 0 ? "review_plan" : "no_matching_resource"
   };
-  const output = args.format === "text" ? formatPlan(result) : args.compact ? compactPlanResult(result) : JSON.stringify(result, null, 2);
+  if (args.outputFile) {
+    fs.writeFileSync(path.resolve(args.outputFile), JSON.stringify(result, null, 2), "utf8");
+  }
+  const output = args.format === "text" ? formatPlan(result)
+    : args.outputFile ? JSON.stringify({
+      ok: true, tool: "media-plan", mode: "read-only-dry-run", mutated: false,
+      planFile: path.resolve(args.outputFile), source: result.source, summary: result.summary,
+      nextAction: result.nextAction === "no_matching_resource" ? result.nextAction : "preflight_archive_plan"
+    })
+      : args.compact ? compactPlanResult(result) : JSON.stringify(result, null, 2);
   console.log(output);
 }
 
@@ -96,6 +106,8 @@ function parseArgs(argv) {
   const parsed = {
     sourcePath: "",
     sourceFile: "",
+    resourceFilter: "",
+    outputFile: "",
     compact: false,
     moviesPath: "",
     tvShowsPath: "",
@@ -110,6 +122,8 @@ function parseArgs(argv) {
     if (arg === "--source-dir" || arg === "--source") parsed.sourcePath = argv[++i] || "";
     else if (arg === "--file" || arg === "--source-file") parsed.sourceFile = argv[++i] || "";
     else if (arg === "--compact") parsed.compact = true;
+    else if (arg === "--resource") parsed.resourceFilter = argv[++i] || "";
+    else if (arg === "--output-file") parsed.outputFile = argv[++i] || "";
     else if (arg === "--movies-dir") parsed.moviesPath = argv[++i] || "";
     else if (arg === "--tvshows-dir") parsed.tvShowsPath = argv[++i] || "";
     else if (arg === "--env-file") parsed.envFile = argv[++i] || DEFAULT_ENV_FILE;
@@ -493,6 +507,15 @@ function summarizePlan(plan) {
 }
 
 /** 紧凑输出仅保留 Agent 决策和后续执行所需字段，避免传递重复解释性元数据。 */
+function filterPlanByResource(plan, resourceFilter = "") {
+  const needle = String(resourceFilter || "").trim().toLocaleLowerCase("zh-CN");
+  if (!needle) return plan;
+  return plan.filter((item) => [
+    item.resourceName, item.originalResourceName, item.resourceGroupId,
+    item.source, item.target
+  ].some((value) => String(value || "").toLocaleLowerCase("zh-CN").includes(needle)));
+}
+
 function compactPlanResult(result) {
   const fields = [
     "source", "target", "resourceName", "originalResourceName", "resourceType",
@@ -574,6 +597,7 @@ function stripExtension(value) {
 export {
   buildMediaPlan,
   compactPlanResult,
+  filterPlanByResource,
   scanSingleFile,
   classifyMedia,
   detectSeason,
