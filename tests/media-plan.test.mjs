@@ -15,6 +15,22 @@ import {
 } from "../scripts/media-plan.mjs";
 import { extractEpisode, extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
 
+test("parseArgs accepts a resource filter and plan output path", () => {
+  const args = parseArgs(["--source-dir", "/Downloads", "--resource", "奥本海默", "--output-file", "C:/Temp/plan.json"]);
+  assert.equal(args.resourceFilter, "奥本海默");
+  assert.equal(args.outputFile, "C:/Temp/plan.json");
+});
+
+test("filterPlanByResource keeps all assets belonging to the selected resource", () => {
+  const items = [
+    { resourceName: "奥本海默", originalResourceName: "奥本海默 (2023)", source: "/Downloads/奥本海默/movie.mkv" },
+    { resourceName: "奥本海默", originalResourceName: "奥本海默 (2023)", source: "/Downloads/奥本海默/poster.jpg" },
+    { resourceName: "奥德赛", originalResourceName: "奥德赛 (2026)", source: "/Downloads/奥德赛/movie.mkv" }
+  ];
+  assert.deepEqual(filterPlanByResource(items, "奥本海默"), items.slice(0, 2));
+  assert.deepEqual(filterPlanByResource(items, ""), items);
+});
+
 test("parseArgs reads OpenList source and media target paths", () => {
   const args = parseArgs(["--source-dir", "/Downloads", "--movies-dir", "/media/Movies", "--tvshows-dir", "/media/TVShows", "--format", "text"]);
   assert.equal(args.sourcePath, "/Downloads");
