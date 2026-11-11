@@ -98,9 +98,12 @@ async function main() {
     const outputPath = path.resolve(args.outputFile);
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), "utf8");
+    const outputResult = { ...result, planFile: outputPath };
     console.log(args.format === "text"
       ? `计划已保存：${outputPath}\n扫描 ${scanned.items.length} 项；归档候选 ${result.summary.autoArchiveCandidates} 项；待复核 ${result.summary.reviewRequired} 项。`
-      : JSON.stringify({ ok: true, tool: "media-plan", source: result.source, summary: result.summary, planFile: outputPath, nextAction: "review_plan" }));
+      : args.compact
+        ? compactPlanResult(outputResult)
+        : JSON.stringify({ ok: true, tool: "media-plan", source: result.source, summary: result.summary, planFile: outputPath, nextAction: "review_plan" }));
     return;
   }
   const output = args.format === "text" ? formatPlan(result) : args.compact ? compactPlanResult(result) : JSON.stringify(result, null, 2);
@@ -427,9 +430,17 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     const movieFolder = year ? `${resourceName} (${year})` : resourceName;
     const resourceFolder = joinOpenListPath(moviesPath, movieFolder);
     const seriesFolder = joinOpenListPath(tvShowsPath, resourceName);
+    // Movie-level sidecars must follow the actual video target folder. The year may
+    // exist only in a video filename, so the directory-level "year" can be null.
+    const movieTargetDirs = classification.type === "movie"
+      ? [...new Set(videoPlans.filter((item) => item.target).map((item) => path.posix.dirname(item.target)))]
+      : [];
+    const sidecarResourceFolder = movieTargetDirs.length === 1
+      ? movieTargetDirs[0]
+      : movieTargetDirs.length === 0 ? resourceFolder : "";
     const sidecarPlans = buildSidecarPlans({
       sidecarFiles: normalizedSidecars, videoPlans, resourceType: classification.type,
-      resourceName, year, resourceFolder, seriesFolder
+      resourceName, year, resourceFolder: sidecarResourceFolder, seriesFolder
     });
     for (const sidecar of sidecarPlans) {
       const targetKey = sidecar.target?.toLocaleLowerCase("zh-CN");
@@ -545,6 +556,7 @@ function compactPlanResult(result) {
     mode: result.mode,
     mutated: result.mutated,
     source: result.source,
+    planFile: result.planFile,
     targets: result.targets,
     summary: result.summary,
     plan: result.plan.map((item) => Object.fromEntries(fields
