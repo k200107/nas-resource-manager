@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   parseArgs,
-  runOpenListCopy
+  runOpenListCopy,
+  toCompactCopyResult
 } from "../scripts/openlist-copy.mjs";
 
 test("parseArgs accepts source, destination, and object name positionals", () => {
@@ -203,6 +204,54 @@ test("runOpenListCopy reports source mismatch before copy", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.nextAction, "fix_copy_source");
   assert.deepEqual(result.source.missingNames, ["不存在的资源"]);
+});
+
+
+test("parseArgs derives the source directory and item name from one exact OpenList item path", () => {
+  const args = parseArgs([
+    "--source-item-path", "/百度网盘/影视库/奥本海默 (2023)",
+    "--dst-dir", "/本地存储/Downloads",
+    "--compact"
+  ]);
+
+  assert.equal(args.srcDir, "/百度网盘/影视库");
+  assert.deepEqual(args.names, ["奥本海默 (2023)"]);
+  assert.equal(args.dstDir, "/本地存储/Downloads");
+  assert.equal(args.compact, true);
+});
+
+test("parseArgs rejects ambiguous combinations with --source-item-path", () => {
+  assert.throws(
+    () => parseArgs(["--source-item-path", "/百度网盘/影视库/电影", "/来源", "/目标", "电影"]),
+    /cannot be combined/
+  );
+});
+
+test("toCompactCopyResult removes duplicated preview payload while preserving confirmation facts", () => {
+  const compact = toCompactCopyResult({
+    ok: true,
+    dryRun: true,
+    nextAction: "confirm_before_copy",
+    source: { dir: "/百度网盘/影视库", itemCount: 10, foundNames: ["奥本海默 (2023)"], missingNames: [] },
+    destination: { dir: "/本地存储/Downloads", exists: true, created: false, itemCount: 2, existingTargetNames: [] },
+    copyPlan: {
+      srcDir: "/百度网盘/影视库",
+      dstDir: "/本地存储/Downloads",
+      names: ["奥本海默 (2023)"],
+      expectedPaths: ["/本地存储/Downloads/奥本海默 (2023)"]
+    },
+    confirmation: { source: "duplicate", selectedItems: ["duplicate"], target: "duplicate" }
+  });
+
+  assert.deepEqual(compact, {
+    ok: true,
+    mode: "preview",
+    nextAction: "confirm_before_copy",
+    source: { dir: "/百度网盘/影视库", found: ["奥本海默 (2023)"], missing: [] },
+    destination: { dir: "/本地存储/Downloads", exists: true, created: false, conflicts: [] },
+    items: ["奥本海默 (2023)"],
+    targetPaths: ["/本地存储/Downloads/奥本海默 (2023)"]
+  });
 });
 
 function jsonResponse(body, options = {}) {
