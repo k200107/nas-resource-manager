@@ -45,6 +45,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 1. Search with compact JSON. Normally show 5–10 candidates with title, provider, original share URL, extraction code, and useful quality hints.
 2. Preserve original URLs/codes. Do not call link checks unless requested or materially needed.
 3. Ask the user to select when multiple plausible candidates exist. Selection and confirmation apply only to the selected resource and operation.
+4. After selection, carry forward the exact provider, original share URL, extraction code, and canonical title from that result. Do not search again, rerank, or check links unless the user asks or the selected link has a concrete failure.
 
 ### Cloud-drive save
 1. Preview every write. Show selected items, provider, actual destination, and rename plan.
@@ -54,6 +55,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 5. Baidu save states are `COMPLETED`, `SUBMITTED`, `TRANSFER_SUBMITTED_RENAME_PENDING`, and `SAVED_RENAME_FAILED`. For either submitted state, check the original transfer task first; do not retry the share-save command. Once the transfer is terminal, use the exact `sourcePath` and `renameTo` from compact output with the resume-rename preview command, passing `expectedFsId` as `--expected-id` when available. A target-only match without the expected file ID is reported as `TARGET_EXISTS_UNVERIFIED`, not assumed successful. Execute with `--yes` only after confirmation. `SAVED_RENAME_FAILED` means the transfer request completed but rename failed; recovery never transfers again and refuses to overwrite an existing target.
 6. For other providers, documented synchronous terminal success = SUCCEEDED; accepted/task ID = ACTIVE until terminal task status; explicit error = FAILED; ambiguous evidence = UNKNOWN. HTTP 200/202 or accepted is not terminal success for asynchronous providers.
 7. Do not relist after clear terminal success. For asynchronous providers, query the original task; never blindly resubmit.
+8. On confirmed save execution, reuse the exact preview inputs: provider, share URL, destination, selected items, canonical title, resource type, and rename plan. Do not repeat search or reclassify the resource. If the provider requires a second API read to safely execute, let its CLI perform that check; do not add model-side checks.
 
 ### OpenList copy
 1. If the OpenList mount is unknown, run `--list-mounts` once; do not run `check-ready`, read `.env`, or write ad-hoc API scripts just to discover mounts. The command returns root mount names and configured staging/library paths in one read-only request.
@@ -61,6 +63,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 3. Use `OPENLIST_STAGING_PATH` for media ingestion (normally `/本地存储/Downloads`), not the formal Movies/TVShows library. Preview exact source, item name, destination, and conflicts. Execute only after confirmation.
 4. Use `--compact` for copy commands. Agent output contains only source, destination, item names, conflicts, status, task ID, and actionable errors; it omits duplicate task/API objects and directory counts. Check the exact ID only when status is ACTIVE/UNKNOWN: undone = ACTIVE (one request, return immediately); only if absent query done; done without error = SUCCEEDED; explicit error = FAILED; absent from both = UNKNOWN.
 5. Do not repeatedly poll, refresh destination, enumerate files, compare sizes, or hash by default. For ACTIVE/UNKNOWN, retain the task ID and query that same task when progress is requested. Never resubmit blindly.
+6. When the copy command returns terminal `SUCCEEDED`, stop the copy stage. Do not issue a separate `openlist-tasks get`, refresh the destination, or enumerate files. For `ACTIVE`/`UNKNOWN`, retain the exact task ID; query it only when the user asks for progress or recovery requires it.
 
 ### Media organization
 1. Organize only when requested. One named file uses `--file`. One named resource folder uses the staging root plus `--resource "$RESOURCE_DIR_NAME"`; never pass the resource folder itself as `--source-dir`. Use unfiltered `--source-dir` only for a requested batch.

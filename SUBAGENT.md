@@ -9,6 +9,8 @@
 - Confirmation is operation-scoped: cloud save ≠ NAS copy; Downloads copy ≠ formal-library archive.
 - Never switch away from a user-selected provider/share URL. Never delete, overwrite, or move existing media without a separate preview and confirmation.
 - Never expose credentials or commit `.env` / `.state/`.
+- Carry state forward: after candidate selection, reuse the exact provider/share URL/code/title; after save or copy submission, retain the returned task ID. Never repeat search/save/copy to recover status.
+- Treat terminal SUCCEEDED as complete for that stage. For ACTIVE/UNKNOWN, query only the original task ID when progress is requested or recovery requires it. Do not refresh destination listings after a confirmed successful copy.
 - On timeout/unknown status, query the original task ID before any retry. Do not create retries, monitoring, cron jobs, or recurring tasks unless requested.
 
 ## Output discipline
