@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import path from "node:path";
 import { askUserSelection, classifyResource, escapeMarkdownCell, escapeMarkdownText, extractEpisodeLabel, formatBytes, formatTimestamp as formatTimestampCommon, getExtension, normalizeContextName, parseJson, parseSelection, resolveCookie, sanitizeFileName, stripExtension, suggestSavedName } from "./cloud-save-common.mjs";
 import { buildResourceRenamePlan, resolveAgentRenamePlan, resolveResourceContext } from "./resource-recognition.mjs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
@@ -57,6 +58,22 @@ async function main() {
 
   const result = await prepareBaiduSave({ ...args, cookie });
   const jsonOutput = args.format === "json";
+
+  if (args.resumeRename) {
+    if (!args.sourcePath || !args.renameTo) throw new Error("--resume-rename requires --source-path and --rename-to.");
+    if (!args.dryRun && !args.yes) throw new Error("重命名恢复执行必须先预览，再在确认后使用 --yes。");
+    const resumeCookie = resolveCookie(args);
+    if (!resumeCookie) throw new Error(`缺少百度网盘 Cookie。请设置 ${args.cookieEnv} 环境变量。`);
+    const recovery = await resumeBaiduRename({
+      sourcePath: args.sourcePath, newName: args.renameTo, apiBase: args.apiBase,
+      appId: args.appId, timeoutMs: args.timeoutMs, cookie: resumeCookie, dryRun: args.dryRun
+    });
+    const payload = buildBaiduCompactRenameRecovery(recovery);
+    if (jsonOutput) console.log(JSON.stringify(payload));
+    else console.log(`${payload.state}: ${payload.sourcePath} -> ${payload.targetPath}${payload.error ? ` (${payload.error})` : ""}`);
+    if (!payload.ok && payload.state !== "READY_TO_RENAME") process.exitCode = 1;
+    return;
+  }
 
   if (args.dryRun) {
     if (jsonOutput) {
@@ -125,12 +142,21 @@ function parseArgs(argv) {
     noRename: false,
     noCreateDir: false,
     format: "markdown",
-    compact: false
+    compact: false,
+    resumeRename: false,
+    sourcePath: "",
+    renameTo: ""
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--share-url") {
+    if (arg === "--resume-rename") {
+      parsed.resumeRename = true;
+    } else if (arg === "--source-path") {
+      parsed.sourcePath = argv[++index] || "";
+    } else if (arg === "--rename-to") {
+      parsed.renameTo = argv[++index] || "";
+    } else if (arg === "--share-url") {
       parsed.shareUrl = argv[++index] || "";
     } else if (arg === "--save-path" || arg === "--to-path" || arg === "--dest-path") {
       parsed.savePath = argv[++index] || "";
@@ -214,6 +240,8 @@ function printUsage() {
   console.error("  --yes                          跳过确认，直接使用 --select");
   console.error("  --dry-run                      只列资源和命名建议，不转存");
   console.error("  --no-rename                    转存后不执行重命名修正");
+  console.error("  --resume-rename --source-path PATH --rename-to NAME 仅恢复重命名，不会再次转存");
+  console.error("  --dry-run / --yes               重命名恢复先预览，确认后执行");
   console.error("  --no-create-dir                不自动创建缺失的保存目录，保持旧行为");
 }
 
@@ -366,25 +394,120 @@ async function saveSelectedItems(args) {
 
   let renameResults = [];
   if (!args.noRename && args.renamePlan.length > 0) {
-    const afterRows = await listBaiduDir({
-      apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
-      cookie: args.cookie, bdstoken: args.share.bdstoken, dir: args.savePath
-    });
-    const beforeIds = new Set(beforeRows.map((row) => String(row.fsId)));
-    const newlyCreatedRows = afterRows.filter((row) => row.fsId && !beforeIds.has(String(row.fsId)));
-    renameResults = await applyBaiduRenamePlan({
-      apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
-      cookie: args.cookie, bdstoken: args.share.bdstoken,
-      targetRows: newlyCreatedRows, renamePlan: args.renamePlan
-    });
+    try {
+      const afterRows = await listBaiduDir({
+        apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
+        cookie: args.cookie, bdstoken: args.share.bdstoken, dir: args.savePath
+      });
+      const beforeIds = new Set(beforeRows.map((row) => String(row.fsId)));
+      const newlyCreatedRows = afterRows.filter((row) => row.fsId && !beforeIds.has(String(row.fsId)));
+      renameResults = await applyBaiduRenamePlan({
+        apiBase: args.apiBase, appId: args.appId, timeoutMs: args.timeoutMs,
+        cookie: args.cookie, bdstoken: args.share.bdstoken,
+        targetRows: newlyCreatedRows, renamePlan: args.renamePlan
+      });
+    } catch (error) {
+      // 转存接口已成功；后处理失败必须保留为可恢复状态，不能让调用方误以为转存失败并重跑。
+      renameResults = args.renamePlan.map((item) => ({
+        ...item, ok: false, recoverable: true,
+        error: `转存已完成，但读取转存结果目录失败：${error.message || String(error)}`
+      }));
+    }
   }
 
+  const renameFailed = renameResults.some((item) => !item.ok);
   return {
-    ok: true,
+    ok: !renameFailed,
+    state: renameFailed ? "SAVED_RENAME_FAILED" : "COMPLETED",
     transferResponse,
     selectedItems: args.selectedItems,
     renamePlan: args.renamePlan,
     renameResults
+  };
+}
+
+/**
+ * 仅恢复已存在网盘项目的重命名；不会调用分享转存接口。
+ * 首先检查源/目标状态，支持重复执行且不会覆盖同名目标。
+ */
+async function resumeBaiduRename({
+  sourcePath, newName, apiBase = DEFAULT_API_BASE, appId = DEFAULT_APP_ID,
+  timeoutMs = DEFAULT_TIMEOUT_MS, cookie, dryRun = false, fetchImpl,
+  getTokenImpl = getBaiduBdstoken, listDirImpl = listBaiduDir,
+  renamePathImpl = renameBaiduPath, sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+}) {
+  const source = String(sourcePath || "").trim();
+  const targetName = String(newName || "").trim();
+  if (!source.startsWith("/") || source.endsWith("/") || source.includes("\\\\") || source.split("/").includes("..")) {
+    throw new Error("sourcePath must be an absolute Baidu path without traversal segments.");
+  }
+  if (!targetName || targetName === "." || targetName === ".." || /[\\/]/.test(targetName)) {
+    throw new Error("rename target must be a single non-empty path segment.");
+  }
+  const parentPath = path.posix.dirname(source);
+  const sourceName = path.posix.basename(source);
+  const targetPath = joinCloudPath(parentPath, targetName);
+  const bdstoken = await getTokenImpl({ apiBase, timeoutMs, cookie, fetchImpl });
+  if (!bdstoken) throw new Error("无法获取百度网盘 bdstoken。");
+  const list = () => listDirImpl({ apiBase, appId, timeoutMs, cookie, bdstoken, dir: parentPath, fetchImpl });
+  let rows = await list();
+  const hasSource = rows.some((row) => row.name === sourceName);
+  const hasTarget = rows.some((row) => row.name === targetName);
+  if (sourceName === targetName || (!hasSource && hasTarget)) {
+    return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName };
+  }
+  if (!hasSource) {
+    return { ok: false, state: "SOURCE_NOT_FOUND", sourcePath: source, targetPath, newName: targetName, recoverable: false };
+  }
+  if (hasTarget) {
+    return { ok: false, state: "TARGET_CONFLICT", sourcePath: source, targetPath, newName: targetName, recoverable: false };
+  }
+  if (dryRun) {
+    return { ok: true, state: "READY_TO_RENAME", sourcePath: source, targetPath, newName: targetName, recoverable: true };
+  }
+
+  let renameResponse;
+  try {
+    renameResponse = await renamePathImpl({
+      apiBase, appId, timeoutMs, cookie, bdstoken,
+      sourcePath: source, newName: targetName, fetchImpl
+    });
+  } catch (error) {
+    return {
+      ok: false, state: "SAVED_RENAME_FAILED", sourcePath: source, targetPath,
+      newName: targetName, recoverable: true, error: error.message || String(error)
+    };
+  }
+
+  const taskId = renameResponse?.taskid || renameResponse?.task_id || "";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      rows = await list();
+      const sourceRemains = rows.some((row) => row.name === sourceName);
+      const targetAppeared = rows.some((row) => row.name === targetName);
+      if (!sourceRemains && targetAppeared) {
+        return { ok: true, state: "COMPLETED", sourcePath: source, targetPath, newName: targetName, taskId };
+      }
+      if (sourceRemains && targetAppeared) {
+        return { ok: false, state: "TARGET_CONFLICT", sourcePath: source, targetPath, newName: targetName, taskId, recoverable: false };
+      }
+    } catch (error) {
+      return {
+        ok: false, state: "RENAME_PENDING", sourcePath: source, targetPath,
+        newName: targetName, taskId, recoverable: true, error: error.message || String(error)
+      };
+    }
+    if (attempt < 4) await sleepImpl(500);
+  }
+  return { ok: false, state: "RENAME_PENDING", sourcePath: source, targetPath, newName: targetName, taskId, recoverable: true };
+}
+
+function buildBaiduCompactRenameRecovery(result) {
+  return {
+    ok: Boolean(result.ok), provider: "baidu", mode: "rename_recovery",
+    state: result.state, sourcePath: result.sourcePath, targetPath: result.targetPath,
+    renameTo: result.newName, taskId: result.taskId || "",
+    recoverable: Boolean(result.recoverable), error: result.error || ""
   };
 }
 
@@ -788,18 +911,23 @@ function buildBaiduCompactPreview({ args = {}, result }) {
 }
 function buildBaiduCompactSave({ args = {}, result, saveResult }) {
   const transfer = saveResult.transferResponse || {};
-  const errno = Number(transfer.errno ?? 0);
   const taskId = transfer.task_id || transfer.taskid || "";
   const failures = (saveResult.renameResults || []).filter((item) => !item.ok);
+  const state = failures.length ? "SAVED_RENAME_FAILED" : (saveResult.state || (taskId ? "SUBMITTED" : "COMPLETED"));
   return {
-    ok: errno === 0 && failures.length === 0, provider: "baidu", mode: "saved",
-    status: errno !== 0 ? "FAILED" : taskId ? "SUBMITTED" : "SUCCEEDED",
+    ok: Boolean(saveResult.ok) && failures.length === 0, provider: "baidu", mode: "saved",
+    status: state,
+    nextAction: failures.length ? "resume_rename_without_resaving" : (taskId ? "check_transfer_task" : "continue_workflow"),
     source: args.shareUrl || "", target: result.savePath || args.savePath || "",
     taskId, selectedCount: (saveResult.selectedItems || []).length,
     rename: {
       succeeded: (saveResult.renameResults || []).length - failures.length,
       failed: failures.length,
-      failures: failures.map((item) => ({ name: item.originalName, error: item.error || "rename failed" }))
+      failures: failures.map((item) => ({
+        name: item.originalName, sourcePath: item.sourcePath || item.expectedSourcePath || "",
+        renameTo: item.suggestedName || "", recoverable: Boolean(item.recoverable),
+        error: item.error || "rename failed"
+      }))
     }
   };
 }
@@ -853,10 +981,11 @@ function buildBaiduSubagentPreview({ args = {}, result }) {
 /** 构造后续流程使用的数据结构或执行计划；本函数只准备数据，不应隐式执行写入。 */
 function buildBaiduSubagentSave({ args = {}, result, saveResult }) {
   return {
-    ok: true,
+    ok: Boolean(saveResult.ok),
+    state: saveResult.state || "COMPLETED",
     provider: "baidu",
     mode: "save",
-    nextAction: "verify_target_path_or_openlist",
+    nextAction: saveResult.state === "SAVED_RENAME_FAILED" ? "resume_rename_without_resaving" : "verify_target_path_or_openlist",
     source: {
       shareUrl: args.shareUrl || "",
       shareId: result.share?.featureStr || "",
@@ -919,6 +1048,8 @@ function serializeRenameResults(results) {
     originalName: item.originalName,
     suggestedName: item.suggestedName,
     reason: item.reason,
+    sourcePath: item.sourcePath || item.expectedSourcePath || "",
+    recoverable: Boolean(item.recoverable),
     error: item.error || ""
   }));
 }
@@ -1143,7 +1274,7 @@ async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir, 
 
 /** 按确认后的重命名计划调用百度接口修改网盘文件或目录名称。 */
 /** 处理 applyBaiduRenamePlan 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, targetRows = [], renamePlan }) {
+async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, targetRows = [], renamePlan, renamePathImpl = renameBaiduPath }) {
   const results = [];
   const usedIds = new Set();
   for (const item of renamePlan) {
@@ -1152,7 +1283,7 @@ async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoke
     const copyNamePattern = new RegExp("^" + escapeRegExp(stem) + "(?:\\s*\\(\\d+\\))?" + escapeRegExp(extension) + "$", "i");
     const candidates = targetRows.filter((row) => row.fsId && !usedIds.has(String(row.fsId)) && copyNamePattern.test(row.name));
     if (candidates.length !== 1) {
-      results.push({ ...item, ok: false, error: candidates.length
+      results.push({ ...item, sourcePath: item.sourcePath, ok: false, recoverable: candidates.length === 0, error: candidates.length
         ? "检测到多个新建候选文件，无法唯一确认本次转存副本，已跳过重命名。"
         : "未能从转存前后目录差异中唯一定位新建副本，已跳过重命名。" });
       continue;
@@ -1160,10 +1291,10 @@ async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoke
     const matched = candidates[0];
     usedIds.add(String(matched.fsId));
     try {
-      const response = await renameBaiduPath({ apiBase, appId, timeoutMs, cookie, bdstoken, sourcePath: matched.path, newName: item.suggestedName });
+      const response = await renamePathImpl({ apiBase, appId, timeoutMs, cookie, bdstoken, sourcePath: matched.path, newName: item.suggestedName });
       results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: true, response });
     } catch (error) {
-      results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: false, error: error.message || String(error) });
+      results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: false, recoverable: true, error: error.message || String(error) });
     }
   }
   return results;
@@ -1395,4 +1526,9 @@ export {
   renderBaiduShareItemsTable,
   buildBaiduCompactPreview,
   buildBaiduCompactSave,
+  buildBaiduCompactRenameRecovery,
+  applyBaiduRenamePlan,
+  listBaiduDir,
+  renameBaiduPath,
+  resumeBaiduRename,
 };
