@@ -10,6 +10,7 @@ import {
   parseChineseNumber,
   scanTree,
   scanSingleFile,
+  scanResourceDirectory,
   scanTargetConflicts,
   resolveMediaTitle
 } from "../scripts/media-plan.mjs";
@@ -21,6 +22,10 @@ test("parseArgs reads OpenList source and media target paths", () => {
   assert.equal(args.moviesPath, "/media/Movies");
   assert.equal(args.tvShowsPath, "/media/TVShows");
   assert.equal(args.format, "text");
+  const scoped = parseArgs(["--source-dir", "/Downloads", "--resource", "好东西 (2024)", "--output-file", "C:/Temp/plan.json"]);
+  assert.equal(scoped.resourceName, "好东西 (2024)");
+  assert.equal(scoped.outputFile, "C:/Temp/plan.json");
+  assert.throws(() => parseArgs(["--source-dir", "/Downloads", "--resource", "../Movies"]), /单级目录名/);
 });
 
 test("parseArgs supports a single source file and compact JSON", () => {
@@ -123,6 +128,43 @@ test("plans movie and series destinations without executing mutations", () => {
   assert.equal(plan[0].status, "auto_archive_candidate");
   assert.equal(plan[2].status, "review_required");
   assert.equal(plan[2].target, null);
+});
+
+test("scanResourceDirectory lists the staging root once and traverses only the selected resource", async () => {
+  const calls = [];
+  const result = await scanResourceDirectory({
+    baseUrl: "http://openlist.test", token: "token", timeoutMs: 100,
+    rootPath: "/Downloads", resourceName: "好东西 (2024)",
+    fetchImpl: async (url, options) => {
+      const dir = JSON.parse(options.body).path;
+      calls.push(dir);
+      const content = dir === "/Downloads"
+        ? [{ name: "好东西 (2024)", is_dir: true }, { name: "柯南", is_dir: true }, { name: "其他.mkv", is_dir: false }]
+        : dir === "/Downloads/好东西 (2024)"
+          ? [{ name: "Her.Story.mkv", is_dir: false }, { name: "movie.nfo", is_dir: false }]
+          : [];
+      return {
+        ok: true, status: 200,
+        async text() { return JSON.stringify({ code: 200, message: "success", data: { content } }); }
+      };
+    }
+  });
+  assert.equal(result.resourcePath, "/Downloads/好东西 (2024)");
+  assert.deepEqual(calls, ["/Downloads", "/Downloads/好东西 (2024)"]);
+  assert.deepEqual(result.items.map((item) => item.path), [
+    "/Downloads/好东西 (2024)",
+    "/Downloads/好东西 (2024)/Her.Story.mkv",
+    "/Downloads/好东西 (2024)/movie.nfo"
+  ]);
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads",
+    items: result.items,
+    moviesPath: "/Movies",
+    tvShowsPath: "/TVShows"
+  });
+  assert.equal(plan.length, 2);
+  assert.ok(plan.every((item) => item.status === "auto_archive_candidate"));
+  assert.ok(plan.some((item) => item.assetRole === "metadata" && item.target === "/Movies/好东西 (2024)/movie.nfo"));
 });
 
 test("scanTree only reads OpenList fs/list and traverses nested directories", async () => {

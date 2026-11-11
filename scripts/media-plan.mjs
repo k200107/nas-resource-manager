@@ -45,6 +45,10 @@ async function main() {
   const sourcePath = sourceFile
     ? parentOpenListPath(sourceFile)
     : normalizeOpenListPath(args.sourcePath || env.OPENLIST_STAGING_PATH);
+  const resourceName = args.resourceName;
+  if (resourceName && (sourceFile || !sourcePath || resourceName === "." || resourceName === ".." || /[\\/]/.test(resourceName))) {
+    throw new Error("--resource 必须是 --source-dir 下的单级目录名，且不能与 --file 同时使用。");
+  }
   const moviesPath = normalizeOpenListPath(args.moviesPath || env.MEDIA_MOVIES_PATH);
   const tvShowsPath = normalizeOpenListPath(args.tvShowsPath || env.MEDIA_TVSHOWS_PATH);
 
@@ -61,13 +65,17 @@ async function main() {
   };
   // 规划阶段严格只读；目标目录由归档执行器在用户确认后按需创建。
   // 指定单文件时只读取其父目录并选中该文件；未指定文件时才递归扫描整个暂存目录。
+  const scoped = resourceName
+    ? await scanResourceDirectory({ ...context, rootPath: sourcePath, resourceName })
+    : null;
+  const planSourcePath = sourcePath;
   const scanned = sourceFile
     ? await scanSingleFile({ ...context, filePath: sourceFile })
-    : await scanTree({ ...context, rootPath: sourcePath });
+    : scoped || await scanTree({ ...context, rootPath: sourcePath });
   const aliases = loadTitleAliases(env.MEDIA_TITLE_ALIASES_FILE);
   // 规划只负责识别与命名；目标冲突由归档预检统一检查，执行前还会再次检查。
   const plan = buildMediaPlan({
-    sourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
+    sourcePath: planSourcePath, items: scanned.items, moviesPath, tvShowsPath, aliases,
     sourceScanComplete: !scanned.truncated
   });
   const result = {
@@ -75,7 +83,7 @@ async function main() {
     tool: "media-plan",
     mode: "read-only-dry-run",
     mutated: false,
-    source: { path: sourceFile || sourcePath, scope: sourceFile ? "single-file" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
+    source: { path: sourceFile || scoped?.resourcePath || sourcePath, scope: sourceFile ? "single-file" : resourceName ? "resource-directory" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
     targets: { movies: moviesPath, tvShows: tvShowsPath },
     summary: summarizePlan(plan),
     plan,
@@ -86,6 +94,15 @@ async function main() {
     },
     nextAction: "review_plan"
   };
+  if (args.outputFile) {
+    const outputPath = path.resolve(args.outputFile);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), "utf8");
+    console.log(args.format === "text"
+      ? `计划已保存：${outputPath}\n扫描 ${scanned.items.length} 项；归档候选 ${result.summary.autoArchiveCandidates} 项；待复核 ${result.summary.reviewRequired} 项。`
+      : JSON.stringify({ ok: true, tool: "media-plan", source: result.source, summary: result.summary, planFile: outputPath, nextAction: "review_plan" }));
+    return;
+  }
   const output = args.format === "text" ? formatPlan(result) : args.compact ? compactPlanResult(result) : JSON.stringify(result, null, 2);
   console.log(output);
 }
@@ -96,6 +113,8 @@ function parseArgs(argv) {
   const parsed = {
     sourcePath: "",
     sourceFile: "",
+    resourceName: "",
+    outputFile: "",
     compact: false,
     moviesPath: "",
     tvShowsPath: "",
@@ -109,6 +128,8 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === "--source-dir" || arg === "--source") parsed.sourcePath = argv[++i] || "";
     else if (arg === "--file" || arg === "--source-file") parsed.sourceFile = argv[++i] || "";
+    else if (arg === "--resource") parsed.resourceName = argv[++i] || "";
+    else if (arg === "--output-file") parsed.outputFile = argv[++i] || "";
     else if (arg === "--compact") parsed.compact = true;
     else if (arg === "--movies-dir") parsed.moviesPath = argv[++i] || "";
     else if (arg === "--tvshows-dir") parsed.tvShowsPath = argv[++i] || "";
@@ -123,6 +144,10 @@ function parseArgs(argv) {
     else throw new Error(`Unexpected positional argument: ${arg}`);
   }
   if (parsed.sourceFile && parsed.sourcePath) throw new Error("--file 与 --source-dir 不能同时使用。");
+  if (parsed.resourceName && parsed.sourceFile) throw new Error("--resource 与 --file 不能同时使用。");
+  if (parsed.resourceName && (parsed.resourceName === "." || parsed.resourceName === ".." || /[\\/]/.test(parsed.resourceName))) {
+    throw new Error("--resource 必须是单级目录名。");
+  }
   if (!["json", "text"].includes(parsed.format)) throw new Error("--format 只支持 json 或 text。");
   return parsed;
 }
@@ -140,6 +165,20 @@ async function scanSingleFile({ baseUrl, token, fetchImpl, timeoutMs, filePath }
   return {
     items: [{ ...row, path: filePath, parentPath }],
     truncated: false
+  };
+}
+
+/** 只扫描暂存目录下指定的一级资源目录，避免遍历同批次的其他下载内容。 */
+async function scanResourceDirectory({ baseUrl, token, fetchImpl, timeoutMs, rootPath, resourceName }) {
+  const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: rootPath });
+  const entry = rows.find((row) => row.name.toLocaleLowerCase("zh-CN") === resourceName.toLocaleLowerCase("zh-CN"));
+  if (!entry || !entry.isDir) throw new Error(`指定资源目录不存在或不是目录：${joinOpenListPath(rootPath, resourceName)}`);
+  const resourcePath = joinOpenListPath(rootPath, entry.name);
+  const scanned = await scanTree({ baseUrl, token, fetchImpl, timeoutMs, rootPath: resourcePath });
+  return {
+    ...scanned,
+    items: [{ name: entry.name, path: resourcePath, parentPath: rootPath, isDir: true }, ...scanned.items],
+    resourcePath
   };
 }
 
@@ -575,6 +614,7 @@ export {
   buildMediaPlan,
   compactPlanResult,
   scanSingleFile,
+  scanResourceDirectory,
   classifyMedia,
   detectSeason,
   normalizeSeriesName,
