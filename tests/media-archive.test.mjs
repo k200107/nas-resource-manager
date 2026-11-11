@@ -26,7 +26,7 @@ test("archive defaults to read-only and preflights source and target", async () 
 
 test("archive blocks an active copy task and all sidecars in the same resource group", async () => {
   const calls = [];
-  const group = "/Downloads/Example";
+  const group = "/Downloads/Example (2024)";
   const groupedPlan = [
     { ...plan[0], resourceGroupId: group },
     {
@@ -54,6 +54,25 @@ test("archive blocks an active copy task and all sidecars in the same resource g
   assert.equal(result.blockedByActiveTasks[0].taskId, "copy-active-1");
   assert.equal(calls.filter((call) => call.endpoint === "/api/task/copy/undone").length, 1);
   assert.equal(calls.some((call) => call.endpoint.startsWith("/api/fs/")), false);
+});
+
+test("archive does not block unrelated resources copied to the same staging root", async () => {
+  const calls = [];
+  const result = await runMediaArchive({
+    plan, ...roots, yes: false,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {}, {
+      activeTasks: [{
+        id: "copy-other",
+        name: "copy [/bdy](/影视库/Other Movie (2024)) to [/本地存储](/Downloads)",
+        progress: 42
+      }]
+    })
+  });
+
+  assert.equal(result.blockedByActiveTasks.length, 0);
+  assert.equal(result.nextAction, "review_and_confirm_with_yes");
+  assert.equal(calls.filter((call) => call.endpoint === "/api/task/copy/undone").length, 1);
 });
 
 test("archive fails closed when the active copy task list cannot be read", async () => {
