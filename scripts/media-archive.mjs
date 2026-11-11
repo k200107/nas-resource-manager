@@ -352,8 +352,11 @@ async function listActiveCopyTasks({ baseUrl, token, fetchImpl, timeoutMs }) {
 
 function activeCopyTaskMatchesItem(task, item) {
   const taskName = String(task?.name || "");
+  const resourceGroup = normalizePath(item.resourceGroupId);
+  const stagingRoot = resourceGroup ? parent(resourceGroup) : "";
   return taskName.includes(String(item.source || "")) ||
-    Boolean(item.resourceGroupId && taskName.includes(String(item.resourceGroupId)));
+    Boolean(resourceGroup && taskName.includes(resourceGroup)) ||
+    Boolean(stagingRoot && taskName.includes("](" + stagingRoot + ")"));
 }
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
