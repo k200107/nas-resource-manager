@@ -41,7 +41,7 @@ test("archive blocks an active copy task and all sidecars in the same resource g
     fetchImpl: fakeOpenList(calls, {}, {
       activeTasks: [{
         id: "copy-active-1",
-        name: "copy [/bdy](/Downloads/Example.2160p.mkv) to [/本地存储](/Downloads/Example)",
+        name: "copy [/bdy](/影视库/Example (2024)) to [/本地存储](/Downloads)",
         progress: 12.5
       }]
     })
