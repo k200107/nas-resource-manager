@@ -559,6 +559,7 @@ function sleep(ms) {
 
 export {
   parseArgs,
+  pollCopyCompletion,
   runOpenListCopy,
   toCompactCopyResult
 };
