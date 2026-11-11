@@ -29,7 +29,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 | OpenList copy preview | `npm run --silent openlist-copy -- "$SRC" "$DST" "$NAME" --format json` |
 | Provider save after confirmation | Same provider command with `--yes`, retaining naming arguments and compact JSON |
 | OpenList copy after confirmation | Same copy command with `--yes` |
-| Inspect copy task | `npm run --silent openlist-tasks -- get copy --id "$TASK_ID" --format json` |
+| Inspect copy task | `npm run --silent openlist-tasks -- get copy --id "$TASK_ID"` |
 | Plan one file | `npm run --silent media-plan -- --file "$FILE" --format json --compact` |
 | Plan a directory | `npm run --silent media-plan -- --source-dir "$DIR" --format json --compact` |
 | Archive preflight | `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact` |
@@ -52,7 +52,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 
 ### OpenList copy
 1. Preview exact source, item name, destination, and conflicts. Execute only after confirmation.
-2. Check the exact task ID once: undone = ACTIVE; done with no error = SUCCEEDED; explicit error = FAILED; absent from both lists = UNKNOWN.
+2. Task commands emit compact JSON by default: only ID/name/status/progress and a short sanitized error are returned. Check the exact ID: undone = ACTIVE (one request, return immediately); only if absent query done; done without error = SUCCEEDED; explicit error = FAILED; absent from both = UNKNOWN.
 3. Do not repeatedly poll, refresh destination, enumerate files, compare sizes, or hash by default. For ACTIVE/UNKNOWN, retain the task ID and query that same task when progress is requested. Never resubmit blindly.
 
 ### Media organization
@@ -69,7 +69,7 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 
 - Read this workflow once per task. Do not repeatedly reread SKILL, SUBAGENT, or provider instructions.
 - Routine CLI usage comes from this document, not `scripts/`. Inspect source only for an explicit debugging request or a reproducible failure the docs cannot explain.
-- Use compact JSON for search/provider saves and compact media-plan/archive output. Do not print or forward full JSON when compact output contains the needed fields.
+- OpenList task commands are compact by default; never emit raw task objects, command payloads, signed URLs, or unrelated metadata. Other tools use their documented compact options.
 - Capture command output directly. Avoid temporary-file-plus-`head` round trips; save full logs only when output must be retained for debugging, and inspect only relevant excerpts.
 - Keep reports to decision/status essentials: resource, provider, source/destination, task ID, status, next action. Do not narrate internal reasoning, repeat command output, or summarize every successful step.
 - Durable notes contain only resource, original link, destination, task ID/status, and unresolved next action—not command transcripts or routine details.
