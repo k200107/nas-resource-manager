@@ -41,7 +41,7 @@ async function main() {
   if (args.format === "text") {
     console.log(formatCopyResult(result));
   } else {
-    console.log(JSON.stringify(result));
+    console.log(JSON.stringify(args.compact ? compactCopyResult(result) : result));
   }
 
   if (!result.ok) process.exit(1);
@@ -436,6 +436,34 @@ function buildOpenListContext(env, args, fetchImpl) {
     fetchImpl,
     timeoutMs: args.timeoutMs || DEFAULT_TIMEOUT_MS
   };
+}
+
+
+/** Agent-facing output: retain only decision fields; omit duplicated API payloads and directory counts. */
+function compactCopyResult(result) {
+  if (result.state === "mounts_listed") return result;
+  const compact = {
+    ok: result.ok,
+    tool: result.tool,
+    mode: result.mode,
+    dryRun: result.dryRun,
+    nextAction: result.nextAction
+  };
+  if (result.copyPlan) {
+    compact.source = result.copyPlan.srcDir;
+    compact.destination = result.copyPlan.dstDir;
+    compact.items = result.copyPlan.names;
+    compact.expectedPaths = result.copyPlan.expectedPaths;
+  }
+  if (result.sourcePathCorrection) compact.sourcePathCorrection = result.sourcePathCorrection;
+  if (result.destination?.existingTargetNames?.length) compact.conflicts = result.destination.existingTargetNames;
+  if (result.status) compact.status = result.status;
+  const taskId = result.copyTask?.id || result.verification?.taskId;
+  if (taskId) compact.taskId = taskId;
+  if (result.verification?.error) compact.error = sanitizeTaskError(result.verification.error);
+  if (result.copyRequest?.message && !result.ok) compact.error = sanitizeTaskError(result.copyRequest.message);
+  if (result.source?.missingNames?.length) compact.missing = result.source.missingNames;
+  return compact;
 }
 
 /** 格式化 OpenList 复制结果，展示源、目标、任务 ID 和执行状态。 */
