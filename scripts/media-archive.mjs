@@ -138,9 +138,9 @@ async function runMediaArchive({
     return { missing: missingAt < 0 ? [] : parts.slice(missingAt).map((_, index) => "/" + parts.slice(0, missingAt + index + 1).join("/")), rows };
   }
 
-  // Recheck all sources and all targets before any mutation.
+  // Recheck only sources not protected by an active copy task.
   const preflight = [];
-  for (const item of preflightValidated) {
+  for (const item of safeCandidates) {
     const sourceRows = await list(item.sourceDir);
     const sourceEntry = sourceRows.find((entry) => sameName(entry.name, item.sourceName));
     if (!sourceEntry || sourceEntry.isDir) {
