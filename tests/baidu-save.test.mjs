@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import {
   applyEnvDefaults,
   buildBaiduSubagentPreview,
+  buildBaiduCompactSave,
+  applyBaiduRenamePlan,
+  resumeBaiduRename,
   buildBaiduTransferRequest,
   extractBaiduShareContextFromHtml,
   normalizeBaiduShareItems,
@@ -297,4 +300,194 @@ test("buildBaiduSubagentPreview creates structured confirmation payload", () => 
   assert.equal(payload.confirmation.source, "https://pan.baidu.com/s/1abcDEF?pwd=8888");
   assert.equal(payload.confirmation.target.pathOrUrl, "/NAS资源下载");
   assert.equal(payload.confirmation.selectedItems[0].name, "暗影蜘蛛");
+});
+
+
+test("applyBaiduRenamePlan resolves extensions and reports the actual source path", async () => {
+  const results = await applyBaiduRenamePlan({
+    apiBase: "https://pan.baidu.com",
+    cookie: "cookie",
+    bdstoken: "token",
+    targetRows: [{ fsId: 12, name: "movie.mkv", path: "/影视库/movie.mkv" }],
+    renamePlan: [{ sourcePath: "/影视库/movie.mkv", originalName: "movie.mkv", suggestedName: "电影.mkv" }],
+    renamePathImpl: async ({ sourcePath, newName }) => {
+      assert.equal(sourcePath, "/影视库/movie.mkv");
+      assert.equal(newName, "电影.mkv");
+      return { errno: 0 };
+    },
+    listDirImpl: async () => [{ name: "电影.mkv" }],
+    sleepImpl: async () => {}
+  });
+  assert.equal(results[0].ok, true);
+  assert.equal(results[0].sourcePath, "/影视库/movie.mkv");
+});
+
+test("Baidu compact save distinguishes saved-but-rename-failed from transfer failure", () => {
+  const payload = buildBaiduCompactSave({
+    args: { shareUrl: "https://pan.baidu.com/s/1abc", savePath: "/影视库" },
+    result: { savePath: "/影视库" },
+    saveResult: {
+      ok: false,
+      state: "SAVED_RENAME_FAILED",
+      transferResponse: { errno: 0 },
+      selectedItems: [{ fsId: 1 }],
+      renameResults: [{
+        ok: false, originalName: "可能的爱 (2026)", suggestedName: "可能的爱",
+        sourcePath: "/影视库/可能的爱 (2026)", recoverable: true, error: "timeout"
+      }]
+    }
+  });
+  assert.equal(payload.ok, false);
+  assert.equal(payload.status, "SAVED_RENAME_FAILED");
+  assert.equal(payload.nextAction, "resume_rename_without_resaving");
+  assert.equal(payload.rename.failures[0].sourcePath, "/影视库/可能的爱 (2026)");
+  assert.equal(payload.rename.failures[0].renameTo, "可能的爱");
+});
+
+test("resumeBaiduRename dry-run verifies the exact source and never writes", async () => {
+  let renameCalls = 0;
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    dryRun: true,
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => [{ name: "可能的爱 (2026)" }],
+    renamePathImpl: async () => { renameCalls += 1; }
+  });
+  assert.equal(result.state, "READY_TO_RENAME");
+  assert.equal(result.targetPath, "/影视库/可能的爱");
+  assert.equal(renameCalls, 0);
+});
+
+test("resumeBaiduRename completes and verifies an already-saved rename without transferring", async () => {
+  let listCalls = 0;
+  let renameCalls = 0;
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => {
+      listCalls += 1;
+      return listCalls === 1 ? [{ name: "可能的爱 (2026)" }] : [{ name: "可能的爱" }];
+    },
+    renamePathImpl: async () => { renameCalls += 1; return { errno: 0, taskid: "task-1" }; },
+    sleepImpl: async () => {}
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.state, "COMPLETED");
+  assert.equal(result.taskId, "task-1");
+  assert.equal(renameCalls, 1);
+  assert.equal(listCalls, 2);
+});
+
+test("resumeBaiduRename is idempotent when the target name already exists", async () => {
+  let renameCalls = 0;
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => [{ name: "可能的爱", fsId: 123 }],
+    expectedFsId: "123",
+    renamePathImpl: async () => { renameCalls += 1; }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.state, "ALREADY_COMPLETED");
+  assert.equal(renameCalls, 0);
+});
+
+test("resumeBaiduRename refuses to overwrite an existing target", async () => {
+  let renameCalls = 0;
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => [{ name: "可能的爱 (2026)" }, { name: "可能的爱" }],
+    renamePathImpl: async () => { renameCalls += 1; }
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.state, "TARGET_CONFLICT");
+  assert.equal(renameCalls, 0);
+});
+
+test("resumeBaiduRename reports a recoverable failure without hiding the source path", async () => {
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => [{ name: "可能的爱 (2026)" }],
+    renamePathImpl: async () => { throw new Error("network timeout"); }
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.state, "SAVED_RENAME_FAILED");
+  assert.equal(result.recoverable, true);
+  assert.equal(result.sourcePath, "/影视库/可能的爱 (2026)");
+});
+
+test("resumeBaiduRename rejects path traversal and nested rename targets", async () => {
+  await assert.rejects(
+    resumeBaiduRename({ sourcePath: "/影视库/../其他/片名", newName: "新名", getTokenImpl: async () => "token" }),
+    /absolute Baidu path/
+  );
+  await assert.rejects(
+    resumeBaiduRename({ sourcePath: "/影视库/片名", newName: "../覆盖", getTokenImpl: async () => "token" }),
+    /single non-empty path segment/
+  );
+});
+
+
+test("applyBaiduRenamePlan does not report success until the new name is visible", async () => {
+  const results = await applyBaiduRenamePlan({
+    apiBase: "https://pan.baidu.com",
+    cookie: "cookie",
+    bdstoken: "token",
+    targetRows: [{ fsId: 12, name: "movie.mkv", path: "/影视库/movie.mkv" }],
+    renamePlan: [{ sourcePath: "/影视库/movie.mkv", originalName: "movie.mkv", suggestedName: "电影.mkv" }],
+    renamePathImpl: async () => ({ errno: 0, taskid: "rename-task" }),
+    listDirImpl: async () => [{ name: "movie.mkv" }],
+    sleepImpl: async () => {}
+  });
+  assert.equal(results[0].ok, false);
+  assert.equal(results[0].recoverable, true);
+  assert.match(results[0].error, /尚未.*确认完成/);
+});
+
+test("Baidu compact save keeps submitted transfers separate from rename recovery", () => {
+  const payload = buildBaiduCompactSave({
+    args: { savePath: "/影视库" },
+    result: { savePath: "/影视库" },
+    saveResult: {
+      ok: true,
+      state: "TRANSFER_SUBMITTED_RENAME_PENDING",
+      transferResponse: { errno: 0, taskid: "transfer-task" },
+      selectedItems: [{ fsId: 1 }],
+      renameResults: [{
+        ok: false, originalName: "电影.mkv", suggestedName: "片名.mkv",
+        sourcePath: "/影视库/电影.mkv", recoverable: true, error: "not visible yet"
+      }]
+    }
+  });
+  assert.equal(payload.status, "TRANSFER_SUBMITTED_RENAME_PENDING");
+  assert.equal(payload.nextAction, "check_transfer_task_before_rename");
+  assert.equal(payload.taskId, "transfer-task");
+});
+
+
+test("resumeBaiduRename does not assume an unrelated existing target is its completed rename", async () => {
+  let renameCalls = 0;
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => [{ name: "可能的爱", fsId: 999 }],
+    renamePathImpl: async () => { renameCalls += 1; }
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.state, "TARGET_EXISTS_UNVERIFIED");
+  assert.equal(renameCalls, 0);
 });
