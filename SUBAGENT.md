@@ -49,21 +49,22 @@ After confirmation, rerun the same command with `--yes`:
 
     npm run openlist-copy -- --source-item-path "$SOURCE_ITEM_PATH" --dst-dir "$DST_DIR" --yes --format json --compact
 
-For a later status check, use one command: npm run openlist-tasks -- get copy --id "$TASK_ID" --format json. The helper checks the exact task ID in both task lists:
-- undone: ACTIVE
-- done with no error: SUCCEEDED
+For a later status check, use one command: `npm run --silent openlist-tasks -- get copy --id "$TASK_ID" --format json --compact`. The helper checks the exact task ID:
+- found in undone: ACTIVE (the helper stops after this one request)
+- found in done with no error: SUCCEEDED
 - explicit task error: FAILED
 - missing from both lists: UNKNOWN
+- A directory-parent task reporting `added all copy tasks of objs` only means child tasks were created; it does not mean file copies finished. Keep its task ID and inspect the child/active tasks before reporting completion.
 
 Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or hash media files by default. If active/unknown, preserve the task ID and query that same task when the user asks for progress. Never resubmit blindly.
 
 ## Media organization
 
 Only when requested:
-1. Named file: `npm run --silent media-plan -- --file "$FILE" --format json --compact`. Use `--source-dir` only for a requested directory/batch.
-2. Preserve that plan. Preflight with `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact`.
+1. Named file: `npm run --silent media-plan -- --file "$FILE" --format json --compact`. Use `--source-dir` only for a requested directory/batch. For one selected resource inside a batch directory, run once with `--resource "$RESOURCE_NAME" --output-file "$PLAN_FILE"`; the full filtered plan is saved and only a summary is printed.
+2. Preserve that plan. Preflight with `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact`. Archive preflight checks active OpenList copy tasks once and blocks the matching resource and its sidecars; do not run a separate task-list query first.
 3. Show the exact source/target and conflicts. After confirmation, annotate only confirmed review items and execute the same plan with `--yes --compact`.
-4. Do not rescan, regenerate the plan, reread scripts, or repeat post-success verification. The executor performs a fresh pre-mutation check.
+4. Do not truncate JSON and rerun the scan, manually rebuild a plan, reread scripts, or repeat post-success verification. Write oversized plans to a file in the original scan and reuse it. The executor performs a fresh pre-mutation check.
 
 Preserve multi-season folder structures. Never overwrite a same-name target.
 
