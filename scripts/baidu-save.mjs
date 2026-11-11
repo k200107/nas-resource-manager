@@ -49,7 +49,7 @@ async function main() {
     const resumeCookie = resolveCookie(args);
     if (!resumeCookie) throw new Error(`缺少百度网盘 Cookie。请设置 ${args.cookieEnv} 环境变量。`);
     const recovery = await resumeBaiduRename({
-      sourcePath: args.sourcePath, newName: args.renameTo, apiBase: args.apiBase,
+      sourcePath: args.sourcePath, newName: args.renameTo, expectedFsId: args.expectedFsId, apiBase: args.apiBase,
       appId: args.appId, timeoutMs: args.timeoutMs, cookie: resumeCookie, dryRun: args.dryRun
     });
     const payload = buildBaiduCompactRenameRecovery(recovery);
@@ -146,7 +146,8 @@ function parseArgs(argv) {
     compact: false,
     resumeRename: false,
     sourcePath: "",
-    renameTo: ""
+    renameTo: "",
+    expectedFsId: ""
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -157,6 +158,8 @@ function parseArgs(argv) {
       parsed.sourcePath = argv[++index] || "";
     } else if (arg === "--rename-to") {
       parsed.renameTo = argv[++index] || "";
+    } else if (arg === "--expected-id") {
+      parsed.expectedFsId = argv[++index] || "";
     } else if (arg === "--share-url") {
       parsed.shareUrl = argv[++index] || "";
     } else if (arg === "--save-path" || arg === "--to-path" || arg === "--dest-path") {
@@ -436,7 +439,7 @@ async function saveSelectedItems(args) {
  * 首先检查源/目标状态，支持重复执行且不会覆盖同名目标。
  */
 async function resumeBaiduRename({
-  sourcePath, newName, apiBase = DEFAULT_API_BASE, appId = DEFAULT_APP_ID,
+  sourcePath, newName, expectedFsId = "", apiBase = DEFAULT_API_BASE, appId = DEFAULT_APP_ID,
   timeoutMs = DEFAULT_TIMEOUT_MS, cookie, dryRun = false, fetchImpl,
   getTokenImpl = getBaiduBdstoken, listDirImpl = listBaiduDir,
   renamePathImpl = renameBaiduPath, sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -456,10 +459,18 @@ async function resumeBaiduRename({
   if (!bdstoken) throw new Error("无法获取百度网盘 bdstoken。");
   const list = () => listDirImpl({ apiBase, appId, timeoutMs, cookie, bdstoken, dir: parentPath, fetchImpl });
   let rows = await list();
-  const hasSource = rows.some((row) => row.name === sourceName);
-  const hasTarget = rows.some((row) => row.name === targetName);
-  if (sourceName === targetName || (!hasSource && hasTarget)) {
+  const sourceRow = rows.find((row) => row.name === sourceName);
+  const targetRow = rows.find((row) => row.name === targetName);
+  const hasSource = Boolean(sourceRow);
+  const hasTarget = Boolean(targetRow);
+  if (sourceName === targetName && hasSource) {
     return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName };
+  }
+  if (!hasSource && hasTarget) {
+    if (expectedFsId && String(targetRow.fsId) === String(expectedFsId)) {
+      return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName };
+    }
+    return { ok: false, state: "TARGET_EXISTS_UNVERIFIED", sourcePath: source, targetPath, newName: targetName, recoverable: false };
   }
   if (!hasSource) {
     return { ok: false, state: "SOURCE_NOT_FOUND", sourcePath: source, targetPath, newName: targetName, recoverable: false };
@@ -511,7 +522,7 @@ function buildBaiduCompactRenameRecovery(result) {
   return {
     ok: Boolean(result.ok), provider: "baidu", mode: "rename_recovery",
     state: result.state, sourcePath: result.sourcePath, targetPath: result.targetPath,
-    renameTo: result.newName, taskId: result.taskId || "",
+    renameTo: result.newName, expectedFsId: result.expectedFsId || "", taskId: result.taskId || "",
     recoverable: Boolean(result.recoverable), error: result.error || ""
   };
 }
@@ -930,7 +941,7 @@ function buildBaiduCompactSave({ args = {}, result, saveResult }) {
       failed: failures.length,
       failures: failures.map((item) => ({
         name: item.originalName, sourcePath: item.sourcePath || item.expectedSourcePath || "",
-        renameTo: item.suggestedName || "", recoverable: Boolean(item.recoverable),
+        renameTo: item.suggestedName || "", expectedFsId: item.targetFsId || "", recoverable: Boolean(item.recoverable),
         error: item.error || "rename failed"
       }))
     }
@@ -1054,6 +1065,7 @@ function serializeRenameResults(results) {
     suggestedName: item.suggestedName,
     reason: item.reason,
     sourcePath: item.sourcePath || item.expectedSourcePath || "",
+    expectedFsId: item.targetFsId || "",
     recoverable: Boolean(item.recoverable),
     error: item.error || ""
   }));
