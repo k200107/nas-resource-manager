@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   parseArgs,
+  pollCopyCompletion,
   runOpenListCopy,
   toCompactCopyResult
 } from "../scripts/openlist-copy.mjs";
@@ -252,6 +253,31 @@ test("toCompactCopyResult removes duplicated preview payload while preserving co
     items: ["奥本海默 (2023)"],
     targetPaths: ["/本地存储/Downloads/奥本海默 (2023)"]
   });
+});
+
+test("pollCopyCompletion returns an active task after one API request", async () => {
+  const calls = [];
+  const result = await pollCopyCompletion({
+    baseUrl: "http://openlist.test",
+    token: "token",
+    taskId: "active-1",
+    timeoutMs: 100,
+    fetchImpl: async (url) => {
+      const endpoint = new URL(url).pathname;
+      calls.push(endpoint);
+      if (endpoint === "/api/task/copy/undone") {
+        return jsonResponse({
+          code: 200, message: "success",
+          data: [{ id: "active-1", name: "copy Example", status: "uploading", progress: 42 }]
+        });
+      }
+      throw new Error("done bucket should not be queried for an active task");
+    }
+  });
+
+  assert.equal(result.status, "ACTIVE");
+  assert.equal(result.taskId, "active-1");
+  assert.deepEqual(calls, ["/api/task/copy/undone"]);
 });
 
 function jsonResponse(body, options = {}) {
