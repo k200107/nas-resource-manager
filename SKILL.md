@@ -68,6 +68,7 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 
 - For Agent search and all provider save previews/results, use --format json --compact. Compact search output keeps only totals needed for result interpretation, provider availability, and each candidate's title/provider/link/code; diagnostic counters, duplicate source metadata, and placeholder timestamps are omitted. Compact provider output omits duplicated confirmation payloads and raw task metadata while retaining source, target, selected items, rename plan, task ID, and status.
 - For OpenList copy, use --format json --compact. The compact result keeps the exact source item, destination, conflicts, target paths, and task status/ID without repeating the same paths in source, copyPlan, and confirmation objects.
+- If the host Agent maintains a daily memory log, record only the resource title, provider, final cloud/NAS path, terminal status/task ID, and unresolved next action. Do not store candidate dumps, retry traces, raw JSON, or the confirmation transcript.
 - Default to 10 candidates. Expand only on request.
 - Do not call --check-links unless the user asks for link verification or the result set is unusually uncertain.
 - Run full check-ready only on first setup or after an authentication/path failure. During normal use, let the selected provider/OpenList call report a concrete error; then run only the relevant focused check.
