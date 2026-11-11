@@ -354,20 +354,25 @@ function activeCopyTaskMatchesItem(task, item) {
   const taskName = String(task?.name || "");
   const resourceGroup = normalizePath(item.resourceGroupId);
   const resourceFolderName = resourceGroup ? basename(resourceGroup) : "";
-  const escapedFolderName = resourceFolderName.replace(/[.*+?^${}()|[\]\\]/g, "\\function activeCopyTaskMatchesItem(task, item) {
-  const taskName = String(task?.name || "");
-  const resourceGroup = normalizePath(item.resourceGroupId);
-  const stagingRoot = resourceGroup ? parent(resourceGroup) : "";
   return taskName.includes(String(item.source || "")) ||
     Boolean(resourceGroup && taskName.includes(resourceGroup)) ||
-    Boolean(stagingRoot && taskName.includes("](" + stagingRoot + ")"));
-}");
-  const parentTaskMatches = escapedFolderName
-    ? new RegExp("(?:^|[/\\\\])" + escapedFolderName + "(?=$|[/\\\\)\\]])", "i").test(taskName)
-    : false;
-  return taskName.includes(String(item.source || "")) ||
-    Boolean(resourceGroup && taskName.includes(resourceGroup)) ||
-    parentTaskMatches;
+    containsPathSegment(taskName, resourceFolderName);
+}
+
+function containsPathSegment(value, segment) {
+  if (!segment) return false;
+  const text = String(value || "").toLocaleLowerCase("zh-CN");
+  const needle = String(segment).toLocaleLowerCase("zh-CN");
+  let index = text.indexOf(needle);
+  while (index >= 0) {
+    const before = index > 0 ? text[index - 1] : "";
+    const after = text[index + needle.length] || "";
+    const leftBoundary = before === "/" || before === "\\\\";
+    const rightBoundary = after === "" || after === "/" || after === "\\\\" || after === ")" || after === "]";
+    if (leftBoundary && rightBoundary) return true;
+    index = text.indexOf(needle, index + 1);
+  }
+  return false;
 }
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
