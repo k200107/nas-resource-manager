@@ -30,9 +30,9 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 | Aliyun preview | npm run aliyun-save -- "$URL" "$DEST" --context-name "$CANONICAL_TITLE" --resource-type movie --dry-run --format json --compact |
 | Quark preview | npm run quark-save -- "$URL" "$DEST" --dry-run --format json --compact |
 | Baidu preview | npm run baidu-save -- "$URL" "$DEST" --dry-run --format json --compact |
-| OpenList copy preview | npm run openlist-copy -- "$SRC" "$DST" "$NAME" --format json |
+| OpenList copy preview | npm run openlist-copy -- --source-item-path "$SOURCE_ITEM_PATH" --dst-dir "$DST" --format json --compact |
 | Provider save after confirmation | Same provider command with --yes --format json --compact (retain --context-name and --resource-type) |
-| OpenList copy after confirmation | Same command with --yes --format json |
+| OpenList copy after confirmation | Same command with --yes --format json --compact |
 | Inspect copy tasks | npm run openlist-tasks -- get copy --id "$TASK_ID" --format json |
 | Plan one downloaded file | npm run --silent media-plan -- --file "$FILE" --format json --compact |
 | Plan a staging directory | npm run --silent media-plan -- --source-dir "$DIR" --format json --compact |
@@ -52,7 +52,7 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
    - Explicit API error = FAILED.
    - Missing/ambiguous task evidence = UNKNOWN.
    Do not re-list every saved file after clear terminal success. Do not treat generic HTTP 200/202 or accepted as terminal success when the provider uses asynchronous tasks.
-6. Copy to NAS: preview source, exact item name, destination, and conflicts. After confirmation, run fs/copy through openlist-copy.
+6. Copy to NAS: derive one exact OpenList item path from the provider mount path + saved cloud-drive folder + selected item name. Pass it once with --source-item-path; the script derives its parent directory and basename. Do not pass the item name again or append it twice. Preview with --compact to show source, destination, selected item, and conflicts. After confirmation, rerun the same command with --yes.
 7. Copy status: use the exact returned task ID. One task snapshot is enough: task in undone = ACTIVE; task in done with no error = SUCCEEDED; explicit error = FAILED; task missing from both = UNKNOWN. Do not repeatedly poll, refresh the destination, enumerate every copied file, compare sizes, or calculate hashes by default.
 8. Organize: only when requested.
    - If the user names one file, use `media-plan --file "$FILE" --format json --compact`; do not scan the whole Downloads directory. Use `--source-dir` only when the user asks to organize/check a directory or multiple resources.
@@ -66,7 +66,8 @@ Use this skill for media search, cloud-drive share saving, OpenList task inspect
 
 ## Token-efficient rules
 
-- For Agent search and all provider save previews/results, use --format json --compact. Compact provider output omits duplicated confirmation payloads and raw task metadata while retaining source, target, selected items, rename plan, task ID, and status. This returns one flat row per result without duplicate nested candidate/download-link structures.
+- For Agent search and all provider save previews/results, use --format json --compact. Compact search output keeps only totals needed for result interpretation, provider availability, and each candidate's title/provider/link/code; diagnostic counters, duplicate source metadata, and placeholder timestamps are omitted. Compact provider output omits duplicated confirmation payloads and raw task metadata while retaining source, target, selected items, rename plan, task ID, and status.
+- For OpenList copy, use --format json --compact. The compact result keeps the exact source item, destination, conflicts, target paths, and task status/ID without repeating the same paths in source, copyPlan, and confirmation objects.
 - Default to 10 candidates. Expand only on request.
 - Do not call --check-links unless the user asks for link verification or the result set is unusually uncertain.
 - Run full check-ready only on first setup or after an authentication/path failure. During normal use, let the selected provider/OpenList call report a concrete error; then run only the relevant focused check.
