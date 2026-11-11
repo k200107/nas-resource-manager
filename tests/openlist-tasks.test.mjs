@@ -47,6 +47,9 @@ test("runOpenListTasks gets one task status with a single command", async () => 
   assert.equal(result.status, "SUCCEEDED");
   assert.equal(result.taskId, "copy-77");
   assert.equal(endpoints.length, 2);
+  assert.deepEqual(endpoints.map((url) => url.split("/").at(-1)), ["undone", "done"]);
+  assert.equal("creator" in result.task, false);
+  assert.equal("startTime" in result.task, false);
 });
 
 test("runOpenListTasks lists tasks with injected fetch", async () => {
@@ -90,6 +93,32 @@ test("lookupOpenListTaskById trusts the done bucket even if status text remains 
   });
   assert.equal(result.status, "SUCCEEDED");
   assert.equal(result.bucket, "done");
+});
+
+test("lookup returns active task after one request with compact fields", async () => {
+  const endpoints = [];
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test", token: "token", id: "active-1",
+    fetchImpl: async (url) => {
+      endpoints.push(String(url));
+      return jsonResponse({ code: 200, message: "success", data: [{ id: "active-1", name: "copy A", progress: 12, creator: "ignored", start_time: "ignored" }] });
+    }
+  });
+  assert.equal(result.status, "ACTIVE");
+  assert.equal(endpoints.length, 1);
+  assert.deepEqual(Object.keys(result.task).sort(), ["error", "id", "name", "progress", "state", "status"]);
+});
+
+test("task errors redact URLs and truncate long details", async () => {
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test", token: "token", id: "bad-1",
+    fetchImpl: async (url) => String(url).endsWith("/undone")
+      ? jsonResponse({ code: 200, message: "success", data: [] })
+      : jsonResponse({ code: 200, message: "success", data: [{ id: "bad-1", error: "https://baidu.example/file?sign=SECRET&token=SECRET2 " + "x".repeat(400) }] })
+  });
+  assert.equal(result.status, "FAILED");
+  assert.equal(result.task.error.includes("SECRET"), false);
+  assert.equal(result.task.error.length <= 240, true);
 });
 
 test("runOpenListTasks previews cancel without yes", async () => {
