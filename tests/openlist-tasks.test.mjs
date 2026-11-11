@@ -27,27 +27,23 @@ test("filterTasks can select Baidu copy tasks", () => {
   assert.deepEqual(filterTasks(tasks, { provider: "quark" }).map((task) => task.id), ["b"]);
 });
 
-test("runOpenListTasks gets one task status with a single command", async () => {
-  const endpoints = [];
+test("runOpenListTasks gets one task through the info endpoint and requires clear success", async () => {
+  const calls = [];
   const result = await runOpenListTasks({
     env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
     args: { action: "get", group: "copy", taskId: "copy-77" },
-    fetchImpl: async (url) => {
-      const endpoint = String(url);
-      endpoints.push(endpoint);
-      if (endpoint.endsWith("/api/task/copy/undone")) {
-        return jsonResponse({ code: 200, message: "success", data: [] });
-      }
-      if (endpoint.endsWith("/api/task/copy/done")) {
-        return jsonResponse({ code: 200, message: "success", data: [{ id: "copy-77", state: 2, status: "uploading", progress: 0.13, error: "" }] });
-      }
-      throw new Error("Unexpected request: " + endpoint);
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), method: options.method });
+      return jsonResponse({ code: 200, message: "success", data: [{
+        id: "copy-77", state: "succeeded", status: "", progress: 100, error: ""
+      }] });
     }
   });
   assert.equal(result.status, "SUCCEEDED");
   assert.equal(result.taskId, "copy-77");
-  assert.equal(endpoints.length, 2);
-  assert.deepEqual(endpoints.map((url) => url.split("/").at(-1)), ["undone", "done"]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "http://openlist.test/api/task/copy/info?tid=copy-77");
+  assert.equal(calls[0].method, "POST");
   assert.equal("creator" in result.task, false);
   assert.equal("startTime" in result.task, false);
 });
@@ -71,37 +67,42 @@ test("runOpenListTasks lists tasks with injected fetch", async () => {
   assert.equal(result.tasks[0].id, "task-1");
 });
 
-test("lookupOpenListTaskById trusts the done bucket even if status text remains uploading", async () => {
+test("lookupOpenListTaskById does not treat done-like incomplete metadata as success", async () => {
   const result = await lookupOpenListTaskById({
-    baseUrl: "http://openlist.test",
-    token: "token",
-    id: "copy-77",
-    fetchImpl: async (url) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/api/task/copy/undone")) {
-        return jsonResponse({ code: 200, message: "success", data: [] });
-      }
-      if (endpoint.endsWith("/api/task/copy/done")) {
-        return jsonResponse({
-          code: 200,
-          message: "success",
-          data: [{ id: "copy-77", state: 2, status: "uploading", progress: 0.13, error: "" }]
-        });
-      }
-      throw new Error("Unexpected request: " + endpoint);
+    baseUrl: "http://openlist.test", token: "token", id: "copy-77",
+    fetchImpl: async (url, options) => {
+      assert.equal(String(url), "http://openlist.test/api/task/copy/info?tid=copy-77");
+      assert.equal(options.method, "POST");
+      return jsonResponse({ code: 200, message: "success", data: [{
+        id: "copy-77", state: 2, status: "uploading", progress: 0.13, error: ""
+      }] });
     }
   });
-  assert.equal(result.status, "SUCCEEDED");
-  assert.equal(result.bucket, "done");
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.reason, "unrecognized_task_state");
 });
 
-test("lookup returns active task after one request with compact fields", async () => {
+test("lookup rejects succeeded state with progress below 100", async () => {
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test", token: "token", id: "partial-1",
+    fetchImpl: async () => jsonResponse({ code: 200, message: "success", data: [{
+      id: "partial-1", state: "succeeded", status: "", progress: 13, error: ""
+    }] })
+  });
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.reason, "success_state_incomplete_or_conflicting");
+});
+
+test("lookup returns active task from its info response with compact fields", async () => {
   const endpoints = [];
   const result = await lookupOpenListTaskById({
     baseUrl: "http://openlist.test", token: "token", id: "active-1",
     fetchImpl: async (url) => {
       endpoints.push(String(url));
-      return jsonResponse({ code: 200, message: "success", data: [{ id: "active-1", name: "copy A", progress: 12, creator: "ignored", start_time: "ignored" }] });
+      return jsonResponse({ code: 200, message: "success", data: [{
+        id: "active-1", name: "copy A", state: "running", status: "copying",
+        progress: 12, creator: "ignored", start_time: "ignored"
+      }] });
     }
   });
   assert.equal(result.status, "ACTIVE");
@@ -112,9 +113,10 @@ test("lookup returns active task after one request with compact fields", async (
 test("task errors redact URLs and truncate long details", async () => {
   const result = await lookupOpenListTaskById({
     baseUrl: "http://openlist.test", token: "token", id: "bad-1",
-    fetchImpl: async (url) => String(url).endsWith("/undone")
-      ? jsonResponse({ code: 200, message: "success", data: [] })
-      : jsonResponse({ code: 200, message: "success", data: [{ id: "bad-1", error: "https://baidu.example/file?sign=SECRET&token=SECRET2 " + "x".repeat(400) }] })
+    fetchImpl: async () => jsonResponse({ code: 200, message: "success", data: [{
+      id: "bad-1", state: "errored",
+      error: "https://baidu.example/file?sign=SECRET&token=SECRET2 " + "x".repeat(400)
+    }] })
   });
   assert.equal(result.status, "FAILED");
   assert.equal(result.task.error.includes("SECRET"), false);
