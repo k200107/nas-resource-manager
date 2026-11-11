@@ -168,7 +168,10 @@ function printUsage() {
 /** 将formatSearchResult相关结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 /** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function formatSearchResult(searchResult, format = "markdown", compact = false) {
-  if (format === "json") return JSON.stringify(compact ? toCompactAgentResult(searchResult) : searchResult, null, 2);
+  if (format === "json") {
+    const result = compact ? toCompactAgentResult(searchResult) : searchResult;
+    return compact ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+  }
   if (format === "markdown") return renderMarkdownTable(searchResult);
   throw new Error(`Unsupported format: ${format}`);
 }
@@ -179,19 +182,13 @@ function toCompactAgentResult(result) {
     query: result.selectedQuery || result.inputTitle || "",
     total: result.availableTotal || 0,
     returnedCount: result.returnedCount || 0,
-    providerCounts: result.providerCounts || {},
-    // 暴露去重后各网盘的真实可用量：调用方据此判断是否值得换 provider 或扩大 --max-candidates。
-    candidateTotal: result.candidateTotal || 0,
     providerAvailable: result.providerAvailable || {},
-    dedupeRemoved: result.dedupeRemoved || 0,
     results: (result.downloadLinks || []).map((link, index) => ({
       rank: index + 1,
       title: link.note || link.label || result.inputTitle || "未命名资源",
       provider: link.provider || link.diskType || "",
       url: link.url || "",
-      password: link.extractionCode || "",
-      source: link.source || "",
-      updatedAt: link.datetime || ""
+      password: link.extractionCode || ""
     }))
   };
 }
