@@ -56,6 +56,29 @@ test("archive blocks an active copy task and all sidecars in the same resource g
   assert.equal(calls.some((call) => call.endpoint.startsWith("/api/fs/")), false);
 });
 
+test("archive fails closed when the active copy task list cannot be read", async () => {
+  const calls = [];
+  await assert.rejects(
+    runMediaArchive({
+      plan, ...roots, yes: true,
+      baseUrl: "http://openlist.test", token: "token",
+      fetchImpl: async (url) => {
+        const endpoint = new URL(url).pathname;
+        calls.push(endpoint);
+        if (endpoint === "/api/task/copy/undone") {
+          return {
+            ok: true, status: 200,
+            async text() { return JSON.stringify({ code: 500, message: "task list unavailable" }); }
+          };
+        }
+        throw new Error("filesystem must not be queried after task-check failure");
+      }
+    }),
+    /无法确认 OpenList 活动复制任务/
+  );
+  assert.deepEqual(calls, ["/api/task/copy/undone"]);
+});
+
 test("archive refuses existing target and never calls a mutation endpoint", async () => {
   const calls = [];
   const result = await runMediaArchive({
