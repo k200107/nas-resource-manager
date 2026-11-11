@@ -124,7 +124,7 @@ export function buildSidecarPlans({ sidecarFiles, videoPlans, resourceType, reso
       const targetName = info.role === "metadata" ? "movie.nfo"
         : isKnownArtwork ? path.basename(file.name) : movieStem + suffixFromSidecar(file.name, resourceName);
       if (!resourceFolder) {
-        reason = "多个视频目标目录不一致，无法安全确定共享配套文件目录；需要审核。";
+        reason = "无法从视频计划确定唯一目标目录，不能安全放置共享配套文件；需要审核。";
       } else {
         target = path.posix.join(resourceFolder, targetName);
         associatedWith = resourceFolder;
