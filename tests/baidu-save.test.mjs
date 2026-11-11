@@ -389,7 +389,8 @@ test("resumeBaiduRename is idempotent when the target name already exists", asyn
     newName: "可能的爱",
     cookie: "cookie",
     getTokenImpl: async () => "token",
-    listDirImpl: async () => [{ name: "可能的爱" }],
+    listDirImpl: async () => [{ name: "可能的爱", fsId: 123 }],
+    expectedFsId: "123",
     renamePathImpl: async () => { renameCalls += 1; }
   });
   assert.equal(result.ok, true);
@@ -473,4 +474,20 @@ test("Baidu compact save keeps submitted transfers separate from rename recovery
   assert.equal(payload.status, "TRANSFER_SUBMITTED_RENAME_PENDING");
   assert.equal(payload.nextAction, "check_transfer_task_before_rename");
   assert.equal(payload.taskId, "transfer-task");
+});
+
+
+test("resumeBaiduRename does not assume an unrelated existing target is its completed rename", async () => {
+  let renameCalls = 0;
+  const result = await resumeBaiduRename({
+    sourcePath: "/影视库/可能的爱 (2026)",
+    newName: "可能的爱",
+    cookie: "cookie",
+    getTokenImpl: async () => "token",
+    listDirImpl: async () => [{ name: "可能的爱", fsId: 999 }],
+    renamePathImpl: async () => { renameCalls += 1; }
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.state, "TARGET_EXISTS_UNVERIFIED");
+  assert.equal(renameCalls, 0);
 });
