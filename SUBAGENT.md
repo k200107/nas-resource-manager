@@ -4,7 +4,7 @@ Use this runbook for delegated media search, cloud-drive saves, OpenList copy/ta
 
 ## Essential rules
 
-- Prefer JSON output; for search use --format json --compact.
+- Prefer JSON output; for search and OpenList copy use --format json --compact. Compact search returns candidate title/provider/link/code plus provider availability; compact copy returns source item, destination, conflicts, and task status/ID.
 - Search defaults to 10 candidates. Expand only when the user asks.
 - Run check-ready only on first setup or after an auth/path failure. Otherwise use the selected provider operation and run a focused check only if it fails.
 - Do not read files under scripts/ for routine parameter discovery or to explain normal command behavior. If a documented command fails, report its error first; inspect implementation only for an explicit code-debugging request or a reproducible undocumented failure.
@@ -41,13 +41,13 @@ Do not perform a second full file listing after clear terminal success. For asyn
 
 ## OpenList copy
 
-Preview:
+Preview (pass the full item path once; the script derives its parent directory and item name):
 
-    npm run openlist-copy -- "$SRC_DIR" "$DST_DIR" "$NAME" --format json
+    npm run openlist-copy -- --source-item-path "$SOURCE_ITEM_PATH" --dst-dir "$DST_DIR" --format json --compact
 
-After confirmation:
+After confirmation, rerun the same command with `--yes`:
 
-    npm run openlist-copy -- "$SRC_DIR" "$DST_DIR" "$NAME" --yes --format json
+    npm run openlist-copy -- --source-item-path "$SOURCE_ITEM_PATH" --dst-dir "$DST_DIR" --yes --format json --compact
 
 For a later status check, use one command: npm run openlist-tasks -- get copy --id "$TASK_ID" --format json. The helper checks the exact task ID in both task lists:
 - undone: ACTIVE
