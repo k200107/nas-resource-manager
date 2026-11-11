@@ -31,7 +31,8 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 | OpenList copy after confirmation | Same copy command with `--yes` |
 | Inspect copy task | `npm run --silent openlist-tasks -- get copy --id "$TASK_ID"` |
 | Plan one file | `npm run --silent media-plan -- --file "$FILE" --format json --compact` |
-| Plan a directory | `npm run --silent media-plan -- --source-dir "$DIR" --format json --compact` |
+| Plan one resource folder | `npm run --silent media-plan -- --source-dir "$DIR" --resource "$RESOURCE_DIR" --output-file "$PLAN_FILE"` |
+| Plan a directory batch | `npm run --silent media-plan -- --source-dir "$DIR" --format json --compact` |
 | Archive preflight | `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact` |
 | Execute reviewed archive | Same archive command with `--yes --compact` after confirmation |
 
@@ -56,14 +57,15 @@ This is the canonical workflow for media search, cloud-drive saves, OpenList cop
 3. Do not repeatedly poll, refresh destination, enumerate files, compare sizes, or hash by default. For ACTIVE/UNKNOWN, retain the task ID and query that same task when progress is requested. Never resubmit blindly.
 
 ### Media organization
-1. Organize only when requested. One named file uses `--file`; `--source-dir` is only for a requested directory/batch.
-2. Planning is read-only: identify media, names, and targets only. It does not scan Movies/TVShows for conflicts or create directories. Archive preflight checks source existence and exact target collisions.
-3. Generate and preserve one plan. Do not rebuild it, broaden its scope, or read executor source to rediscover its contract.
-4. Run archive preflight against that plan and show exact source/target and conflicts before confirmation.
-5. A `review_required` item may have a proposed title/type/year/target, but retain original confidence and status. Preflight it; it remains non-executable until confirmed.
-6. After confirmation of the exact source/target, annotate only that item with `userConfirmed: true` and matching `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed title>", "year": <year or null>, "target": "<exact target>" }`. Never raise confidence or change `review_required`. Every field must match exactly; conflicts remain ineligible.
-7. Execute the same plan with `--yes`. The executor repeats preflight immediately before mutation, creates missing target directories only during confirmed execution, then moves/renames, verifies the target, and records the idempotency ledger.
-8. Do not regenerate plans, rescan destinations, or repeat hash/size checks after verified success. Preserve multi-season structure; never overwrite same-name targets.
+1. Organize only when requested. One named file uses `--file`; one named resource folder uses `--source-dir "$DIR" --resource "$RESOURCE_DIR"`; use unfiltered `--source-dir` only for a requested batch.
+2. For a named resource folder, use `--output-file` to save the complete plan locally; stdout returns only source and summary. Never parse and rewrite the plan in a shell snippet or hand-edit its summary. The script calculates counts from the exact plan.
+3. Planning is read-only: identify media, names, and targets only. It does not scan Movies/TVShows for conflicts or create directories. Archive preflight checks source existence and exact target collisions.
+4. Generate and preserve one plan. Do not rebuild it, broaden its scope, or read executor source to rediscover its contract.
+5. Run archive preflight against that plan and show exact source/target and conflicts before confirmation.
+6. A `review_required` item may have a proposed title/type/year/target, but retain original confidence and status. Preflight it; it remains non-executable until confirmed.
+7. After confirmation of the exact source/target, annotate only that item with `userConfirmed: true` and matching `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed title>", "year": <year or null>, "target": "<exact target>" }`. Never raise confidence or change `review_required`. Every field must match exactly; conflicts remain ineligible.
+8. Execute the same plan with `--yes`. The executor repeats preflight immediately before mutation, creates missing target directories only during confirmed execution, then moves/renames, verifies the target, and records the idempotency ledger.
+9. Do not regenerate plans, rescan destinations, or repeat hash/size checks after verified success. Preserve multi-season structure; never overwrite same-name targets.
 
 ## Token and output discipline
 
