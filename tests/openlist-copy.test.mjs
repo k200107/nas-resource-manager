@@ -63,7 +63,7 @@ test("runOpenListCopy previews source and destination before mutation", async ()
   assert.deepEqual(result.copyPlan.expectedPaths, ["/影视资源备份/影视/绿皮书"]);
 });
 
-test("runOpenListCopy uses one task snapshot and treats a clean done bucket as success", async () => {
+test("runOpenListCopy verifies copy through the task info endpoint", async () => {
   const calls = [];
   const result = await runOpenListCopy({
     env: {
@@ -112,14 +112,11 @@ test("runOpenListCopy uses one task snapshot and treats a clean done bucket as s
           }
         });
       }
-      if (text.endsWith("/api/task/copy/undone")) {
-        return jsonResponse({ code: 200, message: "success", data: [] });
-      }
-      if (text.endsWith("/api/task/copy/done")) {
+      if (text.endsWith("/api/task/copy/info?tid=copy-1")) {
+        assert.equal(options.method, "POST");
         return jsonResponse({
-          code: 200,
-          message: "success",
-          data: [{ id: "copy-1", name: "copy 绿皮书", progress: 100, error: "" }]
+          code: 200, message: "success",
+          data: [{ id: "copy-1", name: "copy 绿皮书", state: "succeeded", status: "", progress: 100, error: "" }]
         });
       }
       throw new Error(`Unexpected request: ${text}`);
@@ -132,8 +129,41 @@ test("runOpenListCopy uses one task snapshot and treats a clean done bucket as s
   assert.equal(result.copyTask.id, "copy-1");
   assert.equal(result.verification.status, "SUCCEEDED");
   assert.equal(calls.filter((url) => url.endsWith("/api/fs/list")).length, 2);
-  assert.equal(calls.filter((url) => url.endsWith("/api/task/copy/undone")).length, 1);
-  assert.equal(calls.filter((url) => url.endsWith("/api/task/copy/done")).length, 1);
+  assert.equal(calls.filter((url) => url.includes("/api/task/copy/info?tid=copy-1")).length, 1);
+  assert.equal(calls.some((url) => url.endsWith("/api/task/copy/undone") || url.endsWith("/api/task/copy/done")), false);
+});
+
+test("runOpenListCopy does not report completion when task info is inconsistent", async () => {
+  const result = await runOpenListCopy({
+    env: {
+      OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token",
+      OPENLIST_DEFAULT_COPY_DST_PATH: "/影视资源备份/影视"
+    },
+    args: { srcDir: "/pan/quark/备份资源", names: ["绿皮书"], yes: true },
+    fetchImpl: async (url, options) => {
+      const text = String(url);
+      if (text.endsWith("/api/fs/list")) {
+        const body = JSON.parse(options.body);
+        return jsonResponse({
+          code: 200, message: "success",
+          data: { content: body.path === "/pan/quark/备份资源" ? [{ name: "绿皮书", is_dir: true }] : [] }
+        });
+      }
+      if (text.endsWith("/api/fs/copy")) {
+        return jsonResponse({ code: 200, message: "success", data: { task: { id: "copy-partial", name: "copy 绿皮书" } } });
+      }
+      if (text.endsWith("/api/task/copy/info?tid=copy-partial")) {
+        return jsonResponse({ code: 200, message: "success", data: [{
+          id: "copy-partial", state: 2, status: "uploading", progress: 0.13, error: ""
+        }] });
+      }
+      throw new Error("Unexpected request: " + text);
+    }
+  });
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.ok, true);
+  assert.equal(result.nextAction, "check_copy_progress");
+  assert.notEqual(result.nextAction, "copy_complete");
 });
 
 test("runOpenListCopy asks for confirmation when target already exists", async () => {
