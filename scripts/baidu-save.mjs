@@ -41,22 +41,6 @@ const USER_AGENT =
 /** 命令行主入口：解析参数、加载配置、调用核心流程并输出结果。 */
 async function main() {
   const args = applyEnvDefaults(parseArgs(cliArgs()));
-  args.directoryMode = resolveDirectoryMode(args);
-  if (!args.shareUrl || !args.savePath) {
-    printUsage();
-    process.exit(2);
-  }
-
-  if (!isCloudDrivePath(parseBaiduSavePath(args.savePath))) {
-    throw new Error(`百度保存目录必须是网盘内路径或百度目录 URL，例如 /我的资源/影视：${args.savePath}`);
-  }
-
-  const cookie = resolveCookie(args);
-  if (!cookie && !args.dryRun) {
-    throw new Error(`缺少百度网盘 Cookie。请设置 ${args.cookieEnv} 环境变量，或使用 --cookie-env 指向你的 Cookie 环境变量。`);
-  }
-
-  const result = await prepareBaiduSave({ ...args, cookie });
   const jsonOutput = args.format === "json";
 
   if (args.resumeRename) {
@@ -74,6 +58,23 @@ async function main() {
     if (!payload.ok && payload.state !== "READY_TO_RENAME") process.exitCode = 1;
     return;
   }
+
+  args.directoryMode = resolveDirectoryMode(args);
+  if (!args.shareUrl || !args.savePath) {
+    printUsage();
+    process.exit(2);
+  }
+
+  if (!isCloudDrivePath(parseBaiduSavePath(args.savePath))) {
+    throw new Error(`百度保存目录必须是网盘内路径或百度目录 URL，例如 /我的资源/影视：${args.savePath}`);
+  }
+
+  const cookie = resolveCookie(args);
+  if (!cookie && !args.dryRun) {
+    throw new Error(`缺少百度网盘 Cookie。请设置 ${args.cookieEnv} 环境变量，或使用 --cookie-env 指向你的 Cookie 环境变量。`);
+  }
+
+  const result = await prepareBaiduSave({ ...args, cookie });
 
   if (args.dryRun) {
     if (jsonOutput) {
@@ -438,7 +439,7 @@ async function resumeBaiduRename({
 }) {
   const source = String(sourcePath || "").trim();
   const targetName = String(newName || "").trim();
-  if (!source.startsWith("/") || source.endsWith("/") || source.includes("\\\\") || source.split("/").includes("..")) {
+  if (!source.startsWith("/") || source.endsWith("/") || source.includes("\\") || source.split("/").includes("..")) {
     throw new Error("sourcePath must be an absolute Baidu path without traversal segments.");
   }
   if (!targetName || targetName === "." || targetName === ".." || /[\\/]/.test(targetName)) {
