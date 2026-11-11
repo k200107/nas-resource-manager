@@ -41,7 +41,7 @@ async function main() {
   if (args.format === "text") {
     console.log(formatCopyResult(result));
   } else {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
   }
 
   if (!result.ok) process.exit(1);
@@ -243,22 +243,15 @@ async function pollCopyCompletion({ baseUrl, token, fetchImpl, timeoutMs, taskId
     return { ok: true, status: "UNKNOWN", state: "task_id_missing", reason: "OpenList 未返回可追踪的 task ID。" };
   }
 
-  const [undone, done] = await Promise.all([
-    listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" }),
-    listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" })
-  ]);
+  const undone = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" });
+  if (undone.error) return { ok: true, status: "UNKNOWN", state: "undone_lookup_failed", taskId, reason: sanitizeTaskError(undone.error) };
   const active = undone.tasks.find((task) => task.id === taskId);
-  const completed = done.tasks.find((task) => task.id === taskId);
+  if (active) return { ok: true, status: "ACTIVE", state: "copying", taskId, task: active };
 
-  if (active && completed) {
-    return { ok: true, status: "UNKNOWN", state: "task_in_both_lists", taskId };
-  }
-  if (active) {
-    return { ok: true, status: "ACTIVE", state: "copying", taskId, task: active };
-  }
-  if (!completed) {
-    return { ok: true, status: "UNKNOWN", state: "task_not_found", taskId };
-  }
+  const done = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" });
+  if (done.error) return { ok: true, status: "UNKNOWN", state: "done_lookup_failed", taskId, reason: sanitizeTaskError(done.error) };
+  const completed = done.tasks.find((task) => task.id === taskId);
+  if (!completed) return { ok: true, status: "UNKNOWN", state: "task_not_found", taskId };
 
   const errorText = String(completed.error || "").trim();
   const statusText = String(completed.status || "").toLowerCase();
@@ -411,8 +404,15 @@ function normalizeTask(task = {}) {
     state: task.state ?? null,
     status: task.status || "",
     progress: task.progress ?? null,
-    error: task.error || ""
+    error: sanitizeTaskError(task.error || "")
   };
+}
+
+function sanitizeTaskError(value) {
+  return String(value || "")
+    .replace(/https?:\/\/[^\s"'<>]+/gi, "[URL]")
+    .replace(/([?&])[A-Za-z0-9_.~-]+=[^\s&"'<>]*/g, "$1[redacted]")
+    .replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 /** 处理matchesCopyTask相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
