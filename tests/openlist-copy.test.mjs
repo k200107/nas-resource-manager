@@ -130,6 +130,8 @@ test("runOpenListCopy uses one task snapshot and treats a clean done bucket as s
   assert.equal(result.copyTask.id, "copy-1");
   assert.equal(result.verification.status, "SUCCEEDED");
   assert.equal(calls.filter((url) => url.endsWith("/api/fs/list")).length, 2);
+  assert.equal(calls.filter((url) => url.endsWith("/api/task/copy/undone")).length, 1);
+  assert.equal(calls.filter((url) => url.endsWith("/api/task/copy/done")).length, 1);
 });
 
 test("runOpenListCopy asks for confirmation when target already exists", async () => {
