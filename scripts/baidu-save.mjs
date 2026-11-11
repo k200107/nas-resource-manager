@@ -464,22 +464,22 @@ async function resumeBaiduRename({
   const hasSource = Boolean(sourceRow);
   const hasTarget = Boolean(targetRow);
   if (sourceName === targetName && hasSource) {
-    return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName };
+    return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || targetRow?.fsId || "") };
   }
   if (!hasSource && hasTarget) {
     if (expectedFsId && String(targetRow.fsId) === String(expectedFsId)) {
       return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName };
     }
-    return { ok: false, state: "TARGET_EXISTS_UNVERIFIED", sourcePath: source, targetPath, newName: targetName, recoverable: false };
+    return { ok: false, state: "TARGET_EXISTS_UNVERIFIED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || ""), recoverable: false };
   }
   if (!hasSource) {
-    return { ok: false, state: "SOURCE_NOT_FOUND", sourcePath: source, targetPath, newName: targetName, recoverable: false };
+    return { ok: false, state: "SOURCE_NOT_FOUND", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || ""), recoverable: false };
   }
   if (hasTarget) {
-    return { ok: false, state: "TARGET_CONFLICT", sourcePath: source, targetPath, newName: targetName, recoverable: false };
+    return { ok: false, state: "TARGET_CONFLICT", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || ""), recoverable: false };
   }
   if (dryRun) {
-    return { ok: true, state: "READY_TO_RENAME", sourcePath: source, targetPath, newName: targetName, recoverable: true };
+    return { ok: true, state: "READY_TO_RENAME", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || ""), recoverable: true };
   }
 
   let renameResponse;
@@ -491,7 +491,7 @@ async function resumeBaiduRename({
   } catch (error) {
     return {
       ok: false, state: "SAVED_RENAME_FAILED", sourcePath: source, targetPath,
-      newName: targetName, recoverable: true, error: error.message || String(error)
+      newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || ""), recoverable: true, error: error.message || String(error)
     };
   }
 
@@ -502,20 +502,20 @@ async function resumeBaiduRename({
       const sourceRemains = rows.some((row) => row.name === sourceName);
       const targetAppeared = rows.some((row) => row.name === targetName);
       if (!sourceRemains && targetAppeared) {
-        return { ok: true, state: "COMPLETED", sourcePath: source, targetPath, newName: targetName, taskId };
+        return { ok: true, state: "COMPLETED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || ""), taskId };
       }
       if (sourceRemains && targetAppeared) {
-        return { ok: false, state: "TARGET_CONFLICT", sourcePath: source, targetPath, newName: targetName, taskId, recoverable: false };
+        return { ok: false, state: "TARGET_CONFLICT", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || ""), taskId, recoverable: false };
       }
     } catch (error) {
       return {
         ok: false, state: "RENAME_PENDING", sourcePath: source, targetPath,
-        newName: targetName, taskId, recoverable: true, error: error.message || String(error)
+        newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || ""), taskId, recoverable: true, error: error.message || String(error)
       };
     }
     if (attempt < 4) await sleepImpl(500);
   }
-  return { ok: false, state: "RENAME_PENDING", sourcePath: source, targetPath, newName: targetName, taskId, recoverable: true };
+  return { ok: false, state: "RENAME_PENDING", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || ""), taskId, recoverable: true };
 }
 
 function buildBaiduCompactRenameRecovery(result) {
