@@ -435,9 +435,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     const movieTargetDirs = classification.type === "movie"
       ? [...new Set(videoPlans.filter((item) => item.target).map((item) => path.posix.dirname(item.target)))]
       : [];
-    const sidecarResourceFolder = movieTargetDirs.length === 1
-      ? movieTargetDirs[0]
-      : movieTargetDirs.length === 0 ? resourceFolder : "";
+    const sidecarResourceFolder = movieTargetDirs.length === 1 ? movieTargetDirs[0] : "";
     const sidecarPlans = buildSidecarPlans({
       sidecarFiles: normalizedSidecars, videoPlans, resourceType: classification.type,
       resourceName, year, resourceFolder: sidecarResourceFolder, seriesFolder
