@@ -1279,7 +1279,7 @@ async function listBaiduDir({ apiBase, appId, timeoutMs, cookie, bdstoken, dir, 
 
 /** 按确认后的重命名计划调用百度接口修改网盘文件或目录名称。 */
 /** 处理 applyBaiduRenamePlan 相关逻辑；请结合调用位置核对输入、返回值和异常传播。 */
-async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, targetRows = [], renamePlan, renamePathImpl = renameBaiduPath }) {
+async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoken, targetRows = [], renamePlan, renamePathImpl = renameBaiduPath, listDirImpl = listBaiduDir, sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   const results = [];
   const usedIds = new Set();
   for (const item of renamePlan) {
@@ -1297,7 +1297,34 @@ async function applyBaiduRenamePlan({ apiBase, appId, timeoutMs, cookie, bdstoke
     usedIds.add(String(matched.fsId));
     try {
       const response = await renamePathImpl({ apiBase, appId, timeoutMs, cookie, bdstoken, sourcePath: matched.path, newName: item.suggestedName });
-      results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: true, response });
+      let verified = false;
+      let verifyError = "";
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try {
+          const currentRows = await listDirImpl({
+            apiBase, appId, timeoutMs, cookie, bdstoken,
+            dir: path.posix.dirname(matched.path)
+          });
+          const sourceRemains = currentRows.some((row) => row.name === matched.name);
+          const targetAppeared = currentRows.some((row) => row.name === item.suggestedName);
+          if (!sourceRemains && targetAppeared) {
+            verified = true;
+            break;
+          }
+          if (sourceRemains && targetAppeared) {
+            verifyError = "重命名后源名称和目标名称同时存在，检测到冲突。";
+            break;
+          }
+        } catch (error) {
+          verifyError = error.message || String(error);
+        }
+        if (attempt < 9) await sleepImpl(500);
+      }
+      results.push({
+        ...item, targetFsId: matched.fsId, sourcePath: matched.path,
+        ok: verified, recoverable: !verified, response,
+        ...(verified ? {} : { error: verifyError || "重命名请求已提交，但尚未在目录列表中确认完成。" })
+      });
     } catch (error) {
       results.push({ ...item, targetFsId: matched.fsId, sourcePath: matched.path, ok: false, recoverable: true, error: error.message || String(error) });
     }
