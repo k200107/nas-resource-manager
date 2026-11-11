@@ -76,6 +76,7 @@ test("compact plan output keeps execution fields and omits verbose metadata", ()
     source: { path: "/Downloads/Movie.mkv", scope: "single-file", scannedItems: 1, truncated: false },
     targets: { movies: "/Movies", tvShows: "/TVShows" },
     summary: { total: 1, movies: 1 },
+    planFile: "C:/Temp/plan.json",
     plan: [{
       source: "/Downloads/Movie.mkv",
       target: "/Movies/Movie (2024)/Movie (2024).mkv",
@@ -91,6 +92,7 @@ test("compact plan output keeps execution fields and omits verbose metadata", ()
   assert.equal(output.plan[0].status, "auto_archive_candidate");
   assert.equal("verboseDebugPayload" in output.plan[0], false);
   assert.equal(output.source.scannedItems, 1);
+  assert.equal(output.planFile, "C:/Temp/plan.json");
 });
 
 test("classifies explicit episode naming as a series", () => {
@@ -516,4 +518,37 @@ test("holds an artwork sidecar when its target already exists", () => {
   assert.equal(poster.status, "conflict");
   assert.equal(poster.conflict, true);
   assert.match(poster.reason, /禁止覆盖|已存在同名文件/);
+});
+
+
+test("places movie sidecars beside the video when the year exists only in the video filename", () => {
+  const items = [
+    { name: "可能的爱", path: "/Downloads/可能的爱", parentPath: "/Downloads", isDir: true },
+    {
+      name: "Possible Love (2026) - 2160p WEB-DL H265 DDP 5.1 Atmos.mkv",
+      path: "/Downloads/可能的爱/Possible Love (2026) - 2160p WEB-DL H265 DDP 5.1 Atmos.mkv",
+      parentPath: "/Downloads/可能的爱", isDir: false
+    },
+    {
+      name: "Possible Love (2026) - 2160p WEB-DL H265 DDP 5.1 Atmos.nfo",
+      path: "/Downloads/可能的爱/Possible Love (2026) - 2160p WEB-DL H265 DDP 5.1 Atmos.nfo",
+      parentPath: "/Downloads/可能的爱", isDir: false
+    },
+    { name: "poster.jpg", path: "/Downloads/可能的爱/poster.jpg", parentPath: "/Downloads/可能的爱", isDir: false },
+    { name: "backdrop.jpg", path: "/Downloads/可能的爱/backdrop.jpg", parentPath: "/Downloads/可能的爱", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items,
+    moviesPath: "/Movies", tvShowsPath: "/TVShows"
+  });
+  const video = plan.find((item) => item.assetRole === "video");
+  assert.equal(video.target, "/Movies/可能的爱 (2026)/可能的爱 (2026) - 2160p.mkv");
+  const sidecars = plan.filter((item) => item.assetRole === "metadata" || item.assetRole === "artwork");
+  assert.equal(sidecars.length, 3);
+  assert.deepEqual(sidecars.map((item) => item.target).sort(), [
+    "/Movies/可能的爱 (2026)/backdrop.jpg",
+    "/Movies/可能的爱 (2026)/movie.nfo",
+    "/Movies/可能的爱 (2026)/poster.jpg"
+  ].sort());
+  assert.ok(sidecars.every((item) => item.status === "auto_archive_candidate"));
 });

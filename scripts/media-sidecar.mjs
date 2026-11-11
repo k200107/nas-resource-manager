@@ -119,12 +119,17 @@ export function buildSidecarPlans({ sidecarFiles, videoPlans, resourceType, reso
       associatedWith = seriesRoot;
       reason = "按剧集目录级配套文件关联。";
     } else if (resourceType === "movie" && info.scope === "resource") {
-      const movieStem = resourceName + (year ? " (" + year + ")" : "");
+      const videoYear = videoPlans.find((video) => video.year)?.year || year || null;
+      const movieStem = resourceName + (videoYear ? " (" + videoYear + ")" : "");
       const targetName = info.role === "metadata" ? "movie.nfo"
         : isKnownArtwork ? path.basename(file.name) : movieStem + suffixFromSidecar(file.name, resourceName);
-      target = path.posix.join(resourceFolder, targetName);
-      associatedWith = resourceFolder;
-      reason = "按电影目录级配套文件关联；多个清晰度版本共用，不重复复制。";
+      if (!resourceFolder) {
+        reason = "无法从视频计划确定唯一目标目录，不能安全放置共享配套文件；需要审核。";
+      } else {
+        target = path.posix.join(resourceFolder, targetName);
+        associatedWith = resourceFolder;
+        reason = "按关联视频的实际目标目录放置电影级配套文件；多个清晰度版本共用，不重复复制。";
+      }
     } else if (resourceType === "movie" && sidecarResolution) {
       const candidates = videoPlans.filter((video) => video.resolution === sidecarResolution);
       if (candidates.length === 1) {
@@ -148,7 +153,9 @@ export function buildSidecarPlans({ sidecarFiles, videoPlans, resourceType, reso
       resourceType,
       confidence: target ? "high" : "low",
       status,
-      year: year || null,
+      year: resourceType === "movie"
+        ? (videoPlans.find((video) => video.year)?.year || year || null)
+        : year || null,
       season: info.episode?.season ?? null,
       episode: info.episode?.episode ?? null,
       resolution: sidecarResolution,
