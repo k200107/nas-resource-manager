@@ -262,6 +262,20 @@ function compactTaskResult(result = {}) {
       ...(result.reason ? { reason: result.reason } : {})
     };
   }
+  if (result.action === "cancel") {
+    return {
+      ok: result.ok,
+      action: result.action,
+      group: result.group,
+      state: result.state,
+      matchedCount: result.matchedCount,
+      matchedIds: result.matchedIds || [],
+      cancelledIds: result.cancelledIds || [],
+      ...(result.dryRun !== undefined ? { dryRun: result.dryRun } : {}),
+      ...(result.cancelErrors && Object.keys(result.cancelErrors).length ? { cancelErrors: result.cancelErrors } : {}),
+      nextAction: result.nextAction
+    };
+  }
   return {
     ok: result.ok,
     action: result.action,
