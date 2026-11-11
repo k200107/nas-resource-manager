@@ -92,6 +92,19 @@ test("lookupOpenListTaskById returns an active task without querying done", asyn
   assert.equal(endpoints.length, 1);
 });
 
+test("compactTaskResult preserves cancellation outcome and confirmation state", () => {
+  const result = compactTaskResult({
+    ok: true, action: "cancel", group: "copy", state: "undone",
+    matchedCount: 1, matchedIds: ["task-1"], cancelledIds: [],
+    dryRun: true, nextAction: "confirm_task_cancel"
+  });
+  assert.deepEqual(result, {
+    ok: true, action: "cancel", group: "copy", state: "undone",
+    matchedCount: 1, matchedIds: ["task-1"], cancelledIds: [],
+    dryRun: true, nextAction: "confirm_task_cancel"
+  });
+});
+
 test("compactTaskResult removes task metadata not needed by the agent", () => {
   assert.equal(parseArgs(["list", "copy", "undone", "--compact"]).compact, true);
   const result = compactTaskResult({
