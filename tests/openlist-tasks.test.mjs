@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  compactTaskResult,
   filterTasks,
   lookupOpenListTaskById,
   parseArgs,
@@ -66,6 +67,47 @@ test("runOpenListTasks lists tasks with injected fetch", async () => {
   assert.equal(result.ok, true);
   assert.equal(result.nextAction, "report_tasks");
   assert.equal(result.tasks[0].id, "task-1");
+});
+
+test("lookupOpenListTaskById returns an active task without querying done", async () => {
+  const endpoints = [];
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test",
+    token: "token",
+    id: "copy-active",
+    fetchImpl: async (url) => {
+      const endpoint = String(url);
+      endpoints.push(endpoint);
+      if (endpoint.endsWith("/api/task/copy/undone")) {
+        return jsonResponse({
+          code: 200, message: "success",
+          data: [{ id: "copy-active", name: "copy A", status: "uploading", progress: 12 }]
+        });
+      }
+      throw new Error("done bucket should not be queried");
+    }
+  });
+  assert.equal(result.status, "ACTIVE");
+  assert.equal(result.task.id, "copy-active");
+  assert.equal(endpoints.length, 1);
+});
+
+test("compactTaskResult removes task metadata not needed by the agent", () => {
+  assert.equal(parseArgs(["list", "copy", "undone", "--compact"]).compact, true);
+  const result = compactTaskResult({
+    ok: true, action: "list", group: "copy", state: "undone",
+    totalCount: 3, matchedCount: 1, nextAction: "report_tasks",
+    tasks: [{
+      id: "copy-active", name: "copy A", creator: "admin",
+      creatorRole: 2, state: 1, status: "uploading",
+      progress: 12, totalBytes: 2048, error: ""
+    }]
+  });
+  assert.deepEqual(result.tasks, [{
+    id: "copy-active", name: "copy A", status: "uploading",
+    progress: 12, totalBytes: 2048
+  }]);
+  assert.equal("filter" in result, false);
 });
 
 test("lookupOpenListTaskById trusts the done bucket even if status text remains uploading", async () => {
