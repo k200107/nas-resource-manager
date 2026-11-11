@@ -367,8 +367,8 @@ function containsPathSegment(value, segment) {
   while (index >= 0) {
     const before = index > 0 ? text[index - 1] : "";
     const after = text[index + needle.length] || "";
-    const leftBoundary = before === "/" || before === "\\\\";
-    const rightBoundary = after === "" || after === "/" || after === "\\\\" || after === ")" || after === "]";
+    const leftBoundary = before === "/" || before === "\\";
+    const rightBoundary = after === "" || after === "/" || after === "\\" || after === ")" || after === "]";
     if (leftBoundary && rightBoundary) return true;
     index = text.indexOf(needle, index + 1);
   }
