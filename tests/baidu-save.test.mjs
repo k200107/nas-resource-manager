@@ -314,7 +314,9 @@ test("applyBaiduRenamePlan resolves extensions and reports the actual source pat
       assert.equal(sourcePath, "/影视库/movie.mkv");
       assert.equal(newName, "电影.mkv");
       return { errno: 0 };
-    }
+    },
+    listDirImpl: async () => [{ name: "电影.mkv" }],
+    sleepImpl: async () => {}
   });
   assert.equal(results[0].ok, true);
   assert.equal(results[0].sourcePath, "/影视库/movie.mkv");
@@ -434,4 +436,41 @@ test("resumeBaiduRename rejects path traversal and nested rename targets", async
     resumeBaiduRename({ sourcePath: "/影视库/片名", newName: "../覆盖", getTokenImpl: async () => "token" }),
     /single non-empty path segment/
   );
+});
+
+
+test("applyBaiduRenamePlan does not report success until the new name is visible", async () => {
+  const results = await applyBaiduRenamePlan({
+    apiBase: "https://pan.baidu.com",
+    cookie: "cookie",
+    bdstoken: "token",
+    targetRows: [{ fsId: 12, name: "movie.mkv", path: "/影视库/movie.mkv" }],
+    renamePlan: [{ sourcePath: "/影视库/movie.mkv", originalName: "movie.mkv", suggestedName: "电影.mkv" }],
+    renamePathImpl: async () => ({ errno: 0, taskid: "rename-task" }),
+    listDirImpl: async () => [{ name: "movie.mkv" }],
+    sleepImpl: async () => {}
+  });
+  assert.equal(results[0].ok, false);
+  assert.equal(results[0].recoverable, true);
+  assert.match(results[0].error, /尚未.*确认完成/);
+});
+
+test("Baidu compact save keeps submitted transfers separate from rename recovery", () => {
+  const payload = buildBaiduCompactSave({
+    args: { savePath: "/影视库" },
+    result: { savePath: "/影视库" },
+    saveResult: {
+      ok: true,
+      state: "TRANSFER_SUBMITTED_RENAME_PENDING",
+      transferResponse: { errno: 0, taskid: "transfer-task" },
+      selectedItems: [{ fsId: 1 }],
+      renameResults: [{
+        ok: false, originalName: "电影.mkv", suggestedName: "片名.mkv",
+        sourcePath: "/影视库/电影.mkv", recoverable: true, error: "not visible yet"
+      }]
+    }
+  });
+  assert.equal(payload.status, "TRANSFER_SUBMITTED_RENAME_PENDING");
+  assert.equal(payload.nextAction, "check_transfer_task_before_rename");
+  assert.equal(payload.taskId, "transfer-task");
 });
