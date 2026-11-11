@@ -353,10 +353,21 @@ async function listActiveCopyTasks({ baseUrl, token, fetchImpl, timeoutMs }) {
 function activeCopyTaskMatchesItem(task, item) {
   const taskName = String(task?.name || "");
   const resourceGroup = normalizePath(item.resourceGroupId);
+  const resourceFolderName = resourceGroup ? basename(resourceGroup) : "";
+  const escapedFolderName = resourceFolderName.replace(/[.*+?^${}()|[\]\\]/g, "\\function activeCopyTaskMatchesItem(task, item) {
+  const taskName = String(task?.name || "");
+  const resourceGroup = normalizePath(item.resourceGroupId);
   const stagingRoot = resourceGroup ? parent(resourceGroup) : "";
   return taskName.includes(String(item.source || "")) ||
     Boolean(resourceGroup && taskName.includes(resourceGroup)) ||
     Boolean(stagingRoot && taskName.includes("](" + stagingRoot + ")"));
+}");
+  const parentTaskMatches = escapedFolderName
+    ? new RegExp("(?:^|[/\\\\])" + escapedFolderName + "(?=$|[/\\\\)\\]])", "i").test(taskName)
+    : false;
+  return taskName.includes(String(item.source || "")) ||
+    Boolean(resourceGroup && taskName.includes(resourceGroup)) ||
+    parentTaskMatches;
 }
 
 function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
