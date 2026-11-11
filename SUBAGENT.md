@@ -13,7 +13,7 @@
 
 ## Output discipline
 
-- Use documented compact JSON modes. Do not paste full JSON/raw logs when a concise extraction is sufficient.
+- OpenList task commands are compact by default and expose only decision fields; never emit raw task objects, command payloads, signed URLs, or verbose JSON. Other tools use documented compact modes.
 - Capture command output directly; avoid temporary-file-plus-`head` round trips. Save full output only for diagnosis.
 - Do not narrate internal reasoning, announce routine steps, or repeat already reported results. Report only choices, required confirmations, meaningful status changes, errors, and next actions.
 - Durable notes retain only resource/link, destination, task ID/status, and unresolved action.
