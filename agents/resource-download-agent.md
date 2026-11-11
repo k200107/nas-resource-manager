@@ -53,14 +53,14 @@ OpenList 复制状态按 task ID 判断：
 - 明确错误：FAILED。
 - task ID 缺失或任务在两个列表均找不到：UNKNOWN。
 
-默认不做文件 Hash、逐文件大小比对、重复目录刷新或多轮稳定性检查。任务处于 ACTIVE/UNKNOWN 时保留 task ID，用户询问时使用 npm run openlist-tasks -- get copy --id "$TASK_ID" --format json 查询原任务；不得重新提交。
+默认不做文件 Hash、逐文件大小比对、重复目录刷新或多轮稳定性检查。任务处于 ACTIVE/UNKNOWN 时保留 task ID，用户询问时使用 `npm run --silent openlist-tasks -- get copy --id "$TASK_ID" --format json --compact` 查询原任务；活动任务命中 undone 后立即返回，不再额外请求 done；不得重新提交。若父目录任务提示 `added all copy tasks of objs`，这只表示子任务已展开，不代表文件复制完成。
 
 ## 媒体整理
 
 仅在用户提出整理需求时执行：
-1. 单文件使用 `npm run --silent media-plan -- --file "$FILE" --format json --compact`；只有用户要求整理目录/批量资源才使用 `--source-dir`。
-2. 保留唯一计划文件，用 `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact` 预检。
+1. 单文件使用 `npm run --silent media-plan -- --file "$FILE" --format json --compact`；只有用户要求整理目录/批量资源才使用 `--source-dir`。目录内只整理某一资源时，一次调用 `--resource "$RESOURCE_NAME" --output-file "$PLAN_FILE"`，完整筛选计划写入文件，终端只返回摘要。
+2. 保留唯一计划文件，用 `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact` 预检。执行器会统一查询一次 OpenList 活动复制任务，并阻止正在复制的资源及其配套文件；不需要预先单独查询活动任务。
 3. 展示精确源/目标路径及冲突；用户确认后，仅为已确认的 review_required 条目写入匹配确认记录，再对同一计划执行 `--yes --compact`。
-4. 不重新扫描、不重建计划、不读取脚本源码、不重复做成功后的文件核验；执行器会在写入前重新检查源和目标。
+4. 不要用 head/字符数截断 JSON 后重新扫描；大计划在首次扫描时写入计划文件。不要重新扫描、不重建计划、不读取脚本源码、不重复做成功后的文件核验；执行器会在写入前重新检查源和目标。
 
 多季剧集保留 Season NN 层级，不覆盖同名目标。
