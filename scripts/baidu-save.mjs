@@ -464,11 +464,11 @@ async function resumeBaiduRename({
   const hasSource = Boolean(sourceRow);
   const hasTarget = Boolean(targetRow);
   if (sourceName === targetName && hasSource) {
-    return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || targetRow?.fsId || "") };
+    return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || sourceRow?.fsId || "") };
   }
   if (!hasSource && hasTarget) {
     if (expectedFsId && String(targetRow.fsId) === String(expectedFsId)) {
-      return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName };
+      return { ok: true, state: "ALREADY_COMPLETED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || targetRow.fsId || "") };
     }
     return { ok: false, state: "TARGET_EXISTS_UNVERIFIED", sourcePath: source, targetPath, newName: targetName, expectedFsId: String(expectedFsId || ""), recoverable: false };
   }
