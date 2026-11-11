@@ -18,6 +18,7 @@
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } from "./openlist-client.mjs";
+import { lookupOpenListTaskById } from "./openlist-tasks.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -269,25 +270,22 @@ async function pollCopyCompletion({ baseUrl, token, fetchImpl, timeoutMs, taskId
   if (!taskId) {
     return { ok: true, status: "UNKNOWN", state: "task_id_missing", reason: "OpenList 未返回可追踪的 task ID。" };
   }
-
-  const undone = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "undone" });
-  if (undone.error) return { ok: true, status: "UNKNOWN", state: "undone_lookup_failed", taskId, reason: sanitizeTaskError(undone.error) };
-  const active = undone.tasks.find((task) => task.id === taskId);
-  if (active) return { ok: true, status: "ACTIVE", state: "copying", taskId, task: active };
-
-  const done = await listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group: "copy", state: "done" });
-  if (done.error) return { ok: true, status: "UNKNOWN", state: "done_lookup_failed", taskId, reason: sanitizeTaskError(done.error) };
-  const completed = done.tasks.find((task) => task.id === taskId);
-  if (!completed) return { ok: true, status: "UNKNOWN", state: "task_not_found", taskId };
-
-  const errorText = String(completed.error || "").trim();
-  const statusText = String(completed.status || "").toLowerCase();
-  if (errorText || /fail|error|cancel/.test(statusText)) {
-    return { ok: false, status: "FAILED", state: "task_failed", taskId, task: completed, error: errorText || completed.status };
+  try {
+    const result = await lookupOpenListTaskById({
+      baseUrl, token, fetchImpl, timeoutMs, group: "copy", id: taskId
+    });
+    return {
+      ok: result.status !== "FAILED",
+      status: result.status,
+      state: result.task?.state ?? result.reason ?? "task_state_unknown",
+      taskId,
+      ...(result.task ? { task: result.task } : {}),
+      ...(result.reason ? { reason: result.reason } : {}),
+      ...(result.status === "FAILED" ? { error: result.reason || result.task?.error || "copy_failed" } : {})
+    };
+  } catch (error) {
+    return { ok: true, status: "UNKNOWN", state: "task_info_lookup_failed", taskId, reason: sanitizeTaskError(error?.message || error) };
   }
-
-  // OpenList 的 done 列表代表任务已进入终态；部分版本 status 文本仍显示 uploading。
-  return { ok: true, status: "SUCCEEDED", state: "task_done", taskId, task: completed };
 }
 
 /** 调用 OpenList fs/list 读取一个目录；只返回名称、类型、大小和修改时间等规划所需信息。 */
@@ -359,25 +357,6 @@ async function startCopyTask({ baseUrl, token, fetchImpl, timeoutMs, srcDir, dst
     ok: response.ok && isOpenListSuccess(response.json),
     status: response.status,
     json: response.json
-  };
-}
-
-/** 读取TaskGroup列表并转换为模块内部使用的数据结构；列表读取不应被误认为文件写入。 */
-/** 通过对应服务接口读取列表数据，不修改远端内容。 */
-async function listTaskGroup({ baseUrl, token, fetchImpl, timeoutMs, group, state }) {
-  const response = await fetchOpenListJson({
-    baseUrl,
-    token,
-    fetchImpl,
-    timeoutMs,
-    path: `/api/task/${group}/${state}`,
-    method: "GET"
-  });
-  if (!response.ok || !isOpenListSuccess(response.json)) {
-    return { tasks: [], error: response.json?.message || String(response.status || "unknown") };
-  }
-  return {
-    tasks: Array.isArray(response.json?.data) ? response.json.data.map(normalizeTask) : []
   };
 }
 

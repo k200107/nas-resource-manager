@@ -13,11 +13,10 @@ test("moves TRANSFERRING to VERIFYING only when exact OpenList task is confirmed
     env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "secret" },
     args: { id: "media-1" },
     store: { getTask: async () => task, transitionTask: async (_id, state) => { transitions.push(state); return { ...task, state }; } },
-    fetchImpl: async (url) => {
-      const text = String(url);
-      if (text.endsWith("/api/task/copy/undone")) return jsonResponse({ code: 200, data: [] });
-      assert.equal(text, "http://openlist.test/api/task/copy/done");
-      return jsonResponse({ code: 200, data: [{ id: "ol-1", progress: 100, status: "success" }] });
+    fetchImpl: async (url, options) => {
+      assert.equal(String(url), "http://openlist.test/api/task/copy/info?tid=ol-1");
+      assert.equal(options.method, "POST");
+      return jsonResponse({ code: 200, data: [{ id: "ol-1", state: "succeeded", progress: 100, status: "", error: "" }] });
     }
   });
   assert.deepEqual(transitions, ["VERIFYING"]);
@@ -31,9 +30,10 @@ test("keeps active OpenList tasks in TRANSFERRING", async () => {
   const result = await runOpenListReconcile({
     env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "secret" }, args: { id: "media-2" },
     store: { getTask: async () => task, transitionTask: async (_id, state) => { transitions.push(state); return { ...task, state }; } },
-    fetchImpl: async (url) => String(url).endsWith("/undone")
-      ? jsonResponse({ code: 200, data: [{ id: "ol-2", progress: 45 }] })
-      : jsonResponse({ code: 200, data: [] })
+    fetchImpl: async (url) => {
+      assert.equal(String(url), "http://openlist.test/api/task/copy/info?tid=ol-2");
+      return jsonResponse({ code: 200, data: [{ id: "ol-2", state: "running", status: "copying", progress: 45 }] });
+    }
   });
   assert.deepEqual(transitions, []);
   assert.equal(result.mediaTaskState, "TRANSFERRING");
@@ -46,9 +46,10 @@ test("moves failed OpenList task to FAILED and missing task to UNKNOWN", async (
   const failed = await runOpenListReconcile({
     env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "secret" }, args: { id: "media-3" },
     store: { getTask: async () => task, transitionTask: async (_id, state) => { transitions.push(state); return { ...task, state }; } },
-    fetchImpl: async (url) => String(url).endsWith("/undone")
-      ? jsonResponse({ code: 200, data: [] })
-      : jsonResponse({ code: 200, data: [{ id: "ol-3", error: "disk full" }] })
+    fetchImpl: async (url) => {
+      assert.equal(String(url), "http://openlist.test/api/task/copy/info?tid=ol-3");
+      return jsonResponse({ code: 200, data: [{ id: "ol-3", state: "errored", error: "disk full" }] });
+    }
   });
   assert.equal(failed.mediaTaskState, "FAILED");
   assert.deepEqual(transitions, ["FAILED"]);
