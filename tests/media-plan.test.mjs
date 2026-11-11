@@ -152,9 +152,19 @@ test("scanResourceDirectory lists the staging root once and traverses only the s
   assert.equal(result.resourcePath, "/Downloads/好东西 (2024)");
   assert.deepEqual(calls, ["/Downloads", "/Downloads/好东西 (2024)"]);
   assert.deepEqual(result.items.map((item) => item.path), [
+    "/Downloads/好东西 (2024)",
     "/Downloads/好东西 (2024)/Her.Story.mkv",
     "/Downloads/好东西 (2024)/movie.nfo"
   ]);
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads",
+    items: result.items,
+    moviesPath: "/Movies",
+    tvShowsPath: "/TVShows"
+  });
+  assert.equal(plan.length, 2);
+  assert.ok(plan.every((item) => item.status === "auto_archive_candidate"));
+  assert.ok(plan.some((item) => item.assetRole === "metadata" && item.target === "/Movies/好东西 (2024)/movie.nfo"));
 });
 
 test("scanTree only reads OpenList fs/list and traverses nested directories", async () => {
