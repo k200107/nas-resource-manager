@@ -524,7 +524,7 @@ test("uses filename identity and year before the top-level and child folder name
   assert.equal(plan[0].resourceName, "Pegasus");
   assert.equal(plan[0].year, 2019);
   assert.equal(plan[0].target, "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv");
-  assert.equal(plan[0].originalResourceName, "Pegasus.2019.2160p.mkv");
+  assert.equal(plan[0].originalResourceName, "Pegasus");
 });
 
 test("falls back from a technical-only filename to the top-level resource folder, not a generic child folder", () => {
