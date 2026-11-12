@@ -119,12 +119,8 @@ async function runMediaArchive({
   // Recheck all sources and all targets before any mutation.
   const preflight = [];
   for (const item of preflightValidated) {
-    const sourceRows = await list(item.sourceDir);
-    const sourceEntry = sourceRows.find((entry) => sameName(entry.name, item.sourceName));
-    if (!sourceEntry || sourceEntry.isDir) {
-      preflight.push({ source: item.source, target: item.target, ok: false, reason: "源文件不存在或不是普通文件。" });
-      continue;
-    }
+    // Do not issue a separate source-existence read. The OpenList move API is authoritative:
+    // it succeeds for a valid source and returns an error for a missing/invalid one.
     const targetInfo = await inspectDirectory(item.targetDir);
     const targetNameExists = targetInfo.missing.length === 0 &&
       targetInfo.rows.some((entry) => sameName(entry.name, item.targetName));
@@ -194,10 +190,6 @@ async function runMediaArchive({
         for (const dir of check.missingDirectories) await api.mkdir(dir);
 
         // Last-moment recheck prevents stale preflight data from overwriting a file created meanwhile.
-        const freshSourceRows = await api.list(item.sourceDir);
-        if (!freshSourceRows.some((entry) => sameName(entry.name, item.sourceName) && !entry.isDir)) {
-          throw new Error("执行前源文件已不存在或类型发生变化，已停止。");
-        }
         const freshTargetRows = await api.list(item.targetDir);
         if (item.sourceDir !== item.targetDir || item.sourceName !== item.targetName) {
           if (freshTargetRows.some((entry) => sameName(entry.name, item.targetName))) {
