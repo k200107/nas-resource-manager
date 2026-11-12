@@ -42,7 +42,7 @@ test("archive refuses existing target and never calls a mutation endpoint", asyn
   assert.equal(calls.some((x) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(x.endpoint)), false);
 });
 
-test("confirmed archive creates directory, moves and renames, then verifies", async () => {
+test("confirmed archive trusts successful move and rename API responses without post-operation listing", async () => {
   const calls = [];
   const result = await runMediaArchive({
     plan, ...roots, yes: true, baseUrl: "http://openlist.test", token: "token",
@@ -51,7 +51,7 @@ test("confirmed archive creates directory, moves and renames, then verifies", as
       "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
       "/media": [{ name: "Movies", is_dir: true }],
       "/media/Movies": []
-    }, { verifyTarget: true })
+    })
   });
   assert.equal(result.ok, true);
   assert.equal(result.mutated, true);
@@ -61,6 +61,8 @@ test("confirmed archive creates directory, moves and renames, then verifies", as
     ["/api/fs/rename", { path: "/media/Movies/Example (2024)/Example.2160p.mkv", name: "Example (2024) - 2160p.mkv" }]
   ]);
   assert.equal(result.executed[0].verified, true);
+  assert.equal(result.executed[0].apiConfirmed, true);
+  assert.equal(calls.filter((call) => call.endpoint === "/api/fs/list").length, 6);
 });
 
 test("explicitly confirmed review item is executable without falsifying its original confidence", async () => {
