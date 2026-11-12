@@ -12,7 +12,8 @@ import {
   scanSingleFile,
   scanResourceDirectory,
   scanTargetConflicts,
-  resolveMediaTitle
+  resolveMediaTitle,
+  summarizePlan
 } from "../scripts/media-plan.mjs";
 import { extractEpisode, extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
 
@@ -475,6 +476,46 @@ test("associates movie subtitles, artwork and NFO with the movie and matching re
   assert.equal(bySource.get("/Downloads/Example (2024)/movie.nfo").target,
     "/Movies/Example (2024)/movie.nfo");
   assert.ok(plan.filter((item) => item.assetRole !== "video").every((item) => item.status === "auto_archive_candidate"));
+});
+
+test("keeps direct videos and child resource folders under a year-bearing folder", () => {
+  const items = [
+    { name: "飞驰人生3 (2026)", path: "/Downloads/飞驰人生3 (2026)", parentPath: "/Downloads", isDir: true },
+    { name: "F3.2026.4K.60FPS.HEVC.mp4", path: "/Downloads/飞驰人生3 (2026)/F3.2026.4K.60FPS.HEVC.mp4", parentPath: "/Downloads/飞驰人生3 (2026)", isDir: false },
+    { name: "Pegasus 3.2026.1080p.WEB-DL.mp4", path: "/Downloads/飞驰人生3 (2026)/Pegasus 3.2026.1080p.WEB-DL.mp4", parentPath: "/Downloads/飞驰人生3 (2026)", isDir: false },
+    { name: "1080p.mp4", path: "/Downloads/飞驰人生3 (2026)/1080p.mp4", parentPath: "/Downloads/飞驰人生3 (2026)", isDir: false },
+    { name: "前作", path: "/Downloads/飞驰人生3 (2026)/前作", parentPath: "/Downloads/飞驰人生3 (2026)", isDir: true },
+    { name: "Pegasus.2019.2160p.mkv", path: "/Downloads/飞驰人生3 (2026)/前作/Pegasus.2019.2160p.mkv", parentPath: "/Downloads/飞驰人生3 (2026)/前作", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows"
+  });
+  const videos = plan.filter((item) => item.assetRole === "video");
+  assert.equal(videos.length, 4);
+  assert.deepEqual(new Set(videos.map((item) => item.source)), new Set([
+    "/Downloads/飞驰人生3 (2026)/F3.2026.4K.60FPS.HEVC.mp4",
+    "/Downloads/飞驰人生3 (2026)/Pegasus 3.2026.1080p.WEB-DL.mp4",
+    "/Downloads/飞驰人生3 (2026)/1080p.mp4",
+    "/Downloads/飞驰人生3 (2026)/前作/Pegasus.2019.2160p.mkv"
+  ]));
+  assert.ok(videos.slice(0, 3).every((item) => item.target.startsWith("/Movies/飞驰人生3 (2026)/")));
+  assert.ok(videos.some((item) => item.target === "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv"));
+});
+
+test("reports scanned file, directory, and planned-video coverage separately", () => {
+  const items = [
+    { name: "Film (2024)", path: "/Downloads/Film (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Film.1080p.mkv", path: "/Downloads/Film (2024)/Film.1080p.mkv", parentPath: "/Downloads/Film (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows"
+  });
+  const summary = summarizePlan(plan, items);
+  assert.equal(summary.scannedFiles, 1);
+  assert.equal(summary.scannedDirectories, 1);
+  assert.equal(summary.scannedVideoFiles, 1);
+  assert.equal(summary.plannedVideoFiles, 1);
+  assert.deepEqual(summary.unplannedVideoFiles, []);
 });
 
 test("recognizes a year parent directory without treating the year as the movie title", () => {
