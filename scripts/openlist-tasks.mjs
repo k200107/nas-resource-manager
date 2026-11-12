@@ -198,7 +198,11 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
 /** 根据任务状态、网盘类型等条件筛选任务列表。 */
 /** 根据用户指定条件筛选 OpenList 任务，避免把其他来源的任务混入结果。 */
 function filterTasks(tasks, filters = {}) {
-  let result = tasks.map(normalizeTask).filter((task) => task.id);
+  let result = tasks.map((rawTask) => {
+    const task = normalizeTask(rawTask);
+    const classification = classifyTask(task);
+    return { ...task, taskStatus: classification.status, ...(classification.reason ? { taskReason: classification.reason } : {}) };
+  }).filter((task) => task.id);
   if (filters.ids && filters.ids.length > 0) {
     const ids = new Set(filters.ids);
     result = result.filter((task) => ids.has(task.id));
@@ -259,24 +263,8 @@ async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.f
   if (!found) return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "task_not_found", task: null };
 
   const task = normalizeTask(found);
-  const state = String(task.state ?? "").trim().toLowerCase();
-  const statusText = String(task.status || "").trim().toLowerCase();
-  const errorText = String(task.error || "").trim();
-  if (errorText || ["errored", "error", "failed", "canceled", "cancelled"].includes(state)
-      || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) {
-    return { id: taskId, group: normalizedGroup, status: "FAILED", reason: errorText || task.state || task.status, task };
-  }
-  if (["pending", "running", "canceling"].includes(state)) {
-    return { id: taskId, group: normalizedGroup, status: "ACTIVE", reason: state, task };
-  }
-  if (state === "succeeded") {
-    const progress = Number(task.progress);
-    if (Number.isFinite(progress) && progress >= 100 && !/(uploading|copying|downloading|pending|running)/.test(statusText)) {
-      return { id: taskId, group: normalizedGroup, status: "SUCCEEDED", task };
-    }
-    return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "success_state_incomplete_or_conflicting", task };
-  }
-  return { id: taskId, group: normalizedGroup, status: "UNKNOWN", reason: "unrecognized_task_state", task };
+  const classification = classifyTask(task);
+  return { id: taskId, group: normalizedGroup, ...classification, task };
 }
 
 /** 向 OpenList 请求取消匹配的后台任务；这是会改变远端任务状态的操作。 */
@@ -314,8 +302,43 @@ function normalizeTask(task = {}) {
     state: task.state ?? null,
     status: task.status || "",
     progress: task.progress ?? null,
+    endTime: task.endTime ?? task.end_time ?? "",
+    totalBytes: task.totalBytes ?? task.total_bytes ?? null,
     error: sanitizeTaskError(task.error || "")
   };
+}
+
+/** Classify task state from explicit errors, active states, or conservative terminal metadata. */
+function classifyTask(task) {
+  const state = String(task.state ?? "").trim().toLowerCase();
+  const statusText = String(task.status || "").trim().toLowerCase();
+  const errorText = String(task.error || "").trim();
+  if (errorText || ["errored", "error", "failed", "canceled", "cancelled"].includes(state)
+      || /(^|[^a-z])(fail|failed|error|cancel|cancelled)([^a-z]|$)/.test(statusText)) {
+    return { status: "FAILED", reason: errorText || task.state || task.status };
+  }
+  if (["pending", "running", "canceling", "1"].includes(state)) {
+    return { status: "ACTIVE", reason: state };
+  }
+  const progress = Number(task.progress);
+  if (state === "succeeded") {
+    if (Number.isFinite(progress) && progress >= 100 && !/(uploading|copying|downloading|pending|running)/.test(statusText)) {
+      return { status: "SUCCEEDED", reason: "" };
+    }
+    return { status: "UNKNOWN", reason: "success_state_incomplete_or_conflicting" };
+  }
+  if (state === "2") {
+    if (/src object is dir, added all copy tasks of objs/.test(statusText)) {
+      return { status: "UNKNOWN", reason: "directory_task_dispatch" };
+    }
+    const hasEndTime = Boolean(String(task.endTime || "").trim());
+    const totalBytes = Number(task.totalBytes);
+    if (Number.isFinite(progress) && progress >= 100 && hasEndTime && Number.isFinite(totalBytes) && totalBytes > 0) {
+      return { status: "SUCCEEDED", reason: "legacy_numeric_terminal_metadata" };
+    }
+    return { status: "UNKNOWN", reason: "legacy_numeric_terminal_incomplete" };
+  }
+  return { status: "UNKNOWN", reason: "unrecognized_task_state" };
 }
 
 function sanitizeTaskError(value) {
