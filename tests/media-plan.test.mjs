@@ -633,7 +633,7 @@ test("places movie sidecars beside the video when the year exists only in the vi
     moviesPath: "/Movies", tvShowsPath: "/TVShows"
   });
   const video = plan.find((item) => item.assetRole === "video");
-  assert.equal(video.target, "/Movies/可能的爱 (2026)/可能的爱 (2026) - 2160p.mkv");
+  assert.equal(video.target, "/Movies/可能的爱 (2026)/可能的爱 (2026) - 2160p WEB-DL HEVC.mkv");
   const sidecars = plan.filter((item) => item.assetRole === "metadata" || item.assetRole === "artwork");
   assert.equal(sidecars.length, 3);
   assert.deepEqual(sidecars.map((item) => item.target).sort(), [
@@ -672,4 +672,17 @@ test("plans the Pegasus 3 sample with distinct Emby version names and flags true
     "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv"
   ]);
   assert.ok(video.every((item) => item.status === "auto_archive_candidate"));
+});
+
+
+test("marks all files sharing one Emby target as conflicts", () => {
+  const items = [
+    { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
+    { name: "Example.1080p.WEB-DL.mkv", path: "/Downloads/Example (2024)/Example.1080p.WEB-DL.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
+    { name: "Example.1080p.WEB-DL.mp4", path: "/Downloads/Example (2024)/Example.1080p.WEB-DL.mp4", parentPath: "/Downloads/Example (2024)", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.equal(plan.length, 2);
+  assert.ok(plan.every((item) => item.status === "conflict" && item.conflict === true));
+  assert.equal(plan[0].target, plan[1].target);
 });
