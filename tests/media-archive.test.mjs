@@ -44,6 +44,33 @@ test("archive refuses existing target and never calls a mutation endpoint", asyn
   assert.equal(calls.some((x) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(x.endpoint)), false);
 });
 
+test("conflict preflight reports existing target type, size, and modified time", async () => {
+  const calls = [];
+  const result = await runMediaArchive({
+    plan, ...roots, baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": [{ name: "Example (2024)", is_dir: true }],
+      "/media/Movies/Example (2024)": [{
+        name: "Example (2024) - 2160p.mkv", is_dir: false,
+        size: 2345678901, modified: "2026-11-01T12:00:00Z"
+      }]
+    })
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.preflight[0].existingTarget, {
+    name: "Example (2024) - 2160p.mkv",
+    type: "file",
+    size: 2345678901,
+    modified: "2026-11-01T12:00:00Z"
+  });
+  const compact = compactArchiveResult(result);
+  assert.equal(compact.preflight[0].existingTarget.size, 2345678901);
+  assert.equal(calls.some((x) => ["/api/fs/mkdir", "/api/fs/move", "/api/fs/rename"].includes(x.endpoint)), false);
+});
+
 test("confirmed archive trusts successful move and rename API responses without post-operation listing", async () => {
   const calls = [];
   const result = await runMediaArchive({
