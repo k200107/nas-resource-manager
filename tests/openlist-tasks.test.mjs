@@ -79,7 +79,34 @@ test("lookupOpenListTaskById does not treat done-like incomplete metadata as suc
     }
   });
   assert.equal(result.status, "UNKNOWN");
-  assert.equal(result.reason, "unrecognized_task_state");
+  assert.equal(result.reason, "legacy_numeric_terminal_incomplete");
+});
+
+test("lookup accepts completed legacy numeric file task despite stale uploading status", async () => {
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test", token: "token", id: "completed-legacy",
+    fetchImpl: async () => jsonResponse({ code: 200, message: "success", data: [{
+      id: "completed-legacy", state: 2, status: "uploading", progress: 100.0000019,
+      endTime: "2026-11-11T17:29:23.438619675+08:00", totalBytes: 2346792545, error: ""
+    }] })
+  });
+  assert.equal(result.status, "SUCCEEDED");
+  assert.equal(result.reason, "legacy_numeric_terminal_metadata");
+  assert.equal(result.task.endTime, "2026-11-11T17:29:23.438619675+08:00");
+  assert.equal(result.task.totalBytes, 2346792545);
+});
+
+test("lookup does not treat directory task dispatch as a completed file copy", async () => {
+  const result = await lookupOpenListTaskById({
+    baseUrl: "http://openlist.test", token: "token", id: "directory-parent",
+    fetchImpl: async () => jsonResponse({ code: 200, message: "success", data: [{
+      id: "directory-parent", state: 2,
+      status: "src object is dir, added all copy tasks of objs", progress: 0,
+      endTime: "2026-11-11T15:09:24.625393583+08:00", totalBytes: 0, error: ""
+    }] })
+  });
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.reason, "directory_task_dispatch");
 });
 
 test("lookup rejects succeeded state with progress below 100", async () => {
@@ -107,7 +134,7 @@ test("lookup returns active task from its info response with compact fields", as
   });
   assert.equal(result.status, "ACTIVE");
   assert.equal(endpoints.length, 1);
-  assert.deepEqual(Object.keys(result.task).sort(), ["error", "id", "name", "progress", "state", "status"]);
+  assert.deepEqual(Object.keys(result.task).sort(), ["endTime", "error", "id", "name", "progress", "state", "status", "totalBytes"]);
 });
 
 test("task errors redact URLs and truncate long details", async () => {
