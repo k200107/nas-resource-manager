@@ -513,6 +513,32 @@ test("keeps direct videos and child resource folders under a year-bearing folder
   assert.ok(videos.some((item) => item.target === "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv"));
 });
 
+test("uses filename identity and year before the top-level and child folder names", () => {
+  const items = [
+    { name: "飞驰人生3 (2026)", path: "/Downloads/飞驰人生3 (2026)", parentPath: "/Downloads", isDir: true },
+    { name: "前作", path: "/Downloads/飞驰人生3 (2026)/前作", parentPath: "/Downloads/飞驰人生3 (2026)", isDir: true },
+    { name: "Pegasus.2019.2160p.mkv", path: "/Downloads/飞驰人生3 (2026)/前作/Pegasus.2019.2160p.mkv", parentPath: "/Downloads/飞驰人生3 (2026)/前作", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].resourceName, "Pegasus");
+  assert.equal(plan[0].year, 2019);
+  assert.equal(plan[0].target, "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv");
+  assert.equal(plan[0].originalResourceName, "Pegasus.2019.2160p.mkv");
+});
+
+test("falls back from a technical-only filename to the top-level resource folder, not a generic child folder", () => {
+  const items = [
+    { name: "飞驰人生3 (2026)", path: "/Downloads/飞驰人生3 (2026)", parentPath: "/Downloads", isDir: true },
+    { name: "前作", path: "/Downloads/飞驰人生3 (2026)/前作", parentPath: "/Downloads/飞驰人生3 (2026)", isDir: true },
+    { name: "1080p.mp4", path: "/Downloads/飞驰人生3 (2026)/前作/1080p.mp4", parentPath: "/Downloads/飞驰人生3 (2026)/前作", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  assert.equal(plan[0].resourceName, "飞驰人生3");
+  assert.equal(plan[0].year, 2026);
+  assert.equal(plan[0].target, "/Movies/飞驰人生3 (2026)/飞驰人生3 (2026) - 1080p.mp4");
+});
+
 test("derives movie titles from filenames inside year-only folders", () => {
   const items = [
     { name: "2024", path: "/Downloads/2024", parentPath: "/Downloads", isDir: true },
