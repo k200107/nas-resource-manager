@@ -24,6 +24,7 @@ test("parseArgs supports all groups, all states, compact output and help", () =>
   assert.equal(args.state, "all");
   assert.equal(args.compact, true);
   assert.equal(parseArgs(["--help"]).help, true);
+  assert.equal(parseArgs(["list", "copy", "all", "--exclude-archived"]).excludeArchived, true);
 });
 
 test("runOpenListTasks lists all groups and states once and returns classified compact summary", async () => {
@@ -293,3 +294,30 @@ function jsonResponse(body, options = {}) {
     }
   };
 }
+
+
+test("exclude-archived hides task IDs linked to successful archive ledger records", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nas-openlist-archived-filter-"));
+  const storePath = path.join(root, "state.json");
+  try {
+    await recordArchiveOperation({
+      source: "/Downloads/Film.mkv", target: "/Movies/Film/Film.mkv",
+      openListTaskId: "archived-copy", verified: true
+    }, { storePath });
+    const result = await runOpenListTasks({
+      env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token", MEDIA_TASK_STORE_PATH: storePath },
+      args: { action: "list", group: "copy", state: "all", compact: true, excludeArchived: true },
+      fetchImpl: async (url) => {
+        const state = new URL(String(url)).pathname.endsWith("/done") ? "done" : "undone";
+        return jsonResponse({ code: 200, message: "success", data: state === "done"
+          ? [{ id: "archived-copy", name: "copy Film", state: 2, status: "done", progress: 100, endTime: "2026-11-12", totalBytes: 100 }]
+          : [{ id: "active-copy", name: "copy Other", state: 1, status: "copying", progress: 20 }] });
+      }
+    });
+    assert.equal(result.archivedSkipped, 1);
+    assert.deepEqual(result.tasks.map((task) => task.id), ["active-copy"]);
+    assert.deepEqual(result.counts, { SUCCEEDED: 0, ACTIVE: 1, FAILED: 0, UNKNOWN: 0 });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
