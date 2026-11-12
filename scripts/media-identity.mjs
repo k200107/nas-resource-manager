@@ -158,10 +158,10 @@ export function extractMovieVersion(value, resolution = null) {
   ].find(([pattern]) => pattern.test(text));
   if (source) tags.push(source[1]);
   const dynamicRange = [
-    [/(?:dolby[ ._-]?vision|\\bDV\\b)/i, "Dolby Vision"],
-    [/HDR10\\+/i, "HDR10+"],
+    [/(?:dolby[ ._-]?vision|\bDV\b)/i, "Dolby Vision"],
+    [/HDR10\+/i, "HDR10+"],
     [/HDR10/i, "HDR10"],
-    [/\\bHDR\\b/i, "HDR"]
+    [/\bHDR\b/i, "HDR"]
   ].find(([pattern]) => pattern.test(text));
   if (dynamicRange) tags.push(dynamicRange[1]);
   const codec = [
