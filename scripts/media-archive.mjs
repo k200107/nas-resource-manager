@@ -217,7 +217,7 @@ async function runMediaArchive({
         }
         // OpenList move/rename API success is the completion signal; do not list the target again.
         // "verified" below preserves the ledger contract and means API-confirmed operation, not byte-level integrity.
-        if (item.resourceGroupId) {
+        if (item.resourceGroupId || openListTaskId) {
           await recordArchiveOperation({
             source: item.source, target: item.target,
             resourceGroupId: item.resourceGroupId, openListTaskId, verified: true
