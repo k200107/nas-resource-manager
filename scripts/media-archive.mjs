@@ -32,6 +32,7 @@ async function main() {
     moviesPath: normalizePath(args.moviesPath || env.MEDIA_MOVIES_PATH),
     tvShowsPath: normalizePath(args.tvShowsPath || env.MEDIA_TVSHOWS_PATH),
     yes: args.yes,
+    openListTaskId: args.openListTaskId,
     fetchImpl: globalThis.fetch,
     timeoutMs: args.timeoutMs,
     storePath: env.MEDIA_TASK_STORE_PATH,
@@ -41,12 +42,13 @@ async function main() {
 }
 
 function parseArgs(argv) {
-  const args = { planFile: "", envFile: ".env", baseUrl: "", token: "", moviesPath: "", tvShowsPath: "", yes: false, compact: false, timeoutMs: DEFAULT_TIMEOUT_MS };
+  const args = { planFile: "", envFile: ".env", baseUrl: "", token: "", moviesPath: "", tvShowsPath: "", yes: false, compact: false, openListTaskId: "", timeoutMs: DEFAULT_TIMEOUT_MS };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--yes" || arg === "-y") args.yes = true;
     else if (arg === "--compact") args.compact = true;
     else if (arg === "--plan-file") args.planFile = argv[++i] || "";
+    else if (arg === "--openlist-task-id") args.openListTaskId = argv[++i] || "";
     else if (arg === "--env-file") args.envFile = argv[++i] || ".env";
     else if (arg === "--base-url") args.baseUrl = argv[++i] || "";
     else if (arg === "--token") args.token = argv[++i] || "";
@@ -65,7 +67,7 @@ function parseArgs(argv) {
 async function runMediaArchive({
   plan, baseUrl, token, moviesPath, tvShowsPath, yes = false,
   fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS,
-  storePath = undefined, lockDir = undefined
+  storePath = undefined, lockDir = undefined, openListTaskId = ""
 }) {
   if (!Array.isArray(plan)) throw new Error("plan 必须是数组。");
   if (!baseUrl || !token) throw new Error("OPENLIST_BASE_URL 或 OPENLIST_TOKEN 缺失。");
@@ -80,8 +82,15 @@ async function runMediaArchive({
   const preflightValidated = [];
   for (const item of allValidated) {
     const record = await getArchiveOperation(item.source, item.target, { storePath });
-    if (record?.verified === true) alreadyArchived.push({ source: item.source, target: item.target, verified: true, verifiedAt: record.verifiedAt });
-    else preflightValidated.push(item);
+    if (record?.verified === true) {
+      if (openListTaskId) {
+        await recordArchiveOperation({
+          source: item.source, target: item.target, resourceGroupId: item.resourceGroupId,
+          openListTaskId, verified: true
+        }, { storePath });
+      }
+      alreadyArchived.push({ source: item.source, target: item.target, verified: true, verifiedAt: record.verifiedAt });
+    } else preflightValidated.push(item);
   }
   const validated = preflightValidated.filter(isArchiveEligible);
   const awaitingUserConfirmation = preflightValidated.filter((item) => !isArchiveEligible(item)).length;
@@ -211,7 +220,7 @@ async function runMediaArchive({
         if (item.resourceGroupId) {
           await recordArchiveOperation({
             source: item.source, target: item.target,
-            resourceGroupId: item.resourceGroupId, verified: true
+            resourceGroupId: item.resourceGroupId, openListTaskId, verified: true
           }, { storePath });
         }
         executed.push({ source: item.source, target: item.target, ok: true, apiConfirmed: true, verified: true });
@@ -233,6 +242,7 @@ async function runMediaArchive({
     safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
     confirmedReviewCount: validated.filter((item) => item.confirmedReview).length,
     awaitingUserConfirmation,
+    ...(openListTaskId ? { openListTaskId } : {}),
     nextAction: success ? "archive_complete" : "inspect_partial_execution_before_retry"
   };
 }
@@ -254,6 +264,7 @@ function compactArchiveResult(result) {
     alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
     preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "missingDirectories", "reason"])),
     executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "apiConfirmed", "verified", "error"])),
+    ...(result.openListTaskId ? { openListTaskId: result.openListTaskId } : {}),
     nextAction: result.nextAction
   };
   for (const key of ["confirmedReviewCount", "error"]) {
