@@ -131,12 +131,23 @@ async function runMediaArchive({
     // Do not issue a separate source-existence read. The OpenList move API is authoritative:
     // it succeeds for a valid source and returns an error for a missing/invalid one.
     const targetInfo = await inspectDirectory(item.targetDir);
-    const targetNameExists = targetInfo.missing.length === 0 &&
-      targetInfo.rows.some((entry) => sameName(entry.name, item.targetName));
+    const existingTarget = targetInfo.missing.length === 0
+      ? targetInfo.rows.find((entry) => sameName(entry.name, item.targetName))
+      : null;
+    const targetNameExists = Boolean(existingTarget);
     preflight.push({
       source: item.source, target: item.target, ok: !targetNameExists,
-      conflict: targetNameExists, missingDirectories: targetInfo.missing,
-      reason: targetNameExists ? "目标已存在，禁止覆盖。" : ""
+      conflict: targetNameExists,
+      ...(existingTarget ? {
+        existingTarget: {
+          name: existingTarget.name,
+          type: existingTarget.isDir ? "directory" : "file",
+          ...(Number.isFinite(existingTarget.size) ? { size: existingTarget.size } : {}),
+          ...(existingTarget.modified ? { modified: existingTarget.modified } : {})
+        }
+      } : {}),
+      missingDirectories: targetInfo.missing,
+      reason: targetNameExists ? "目标已存在，禁止覆盖；请先向用户展示现有目标信息并确认后续处理。" : ""
     });
   }
 
@@ -262,7 +273,7 @@ function compactArchiveResult(result) {
     skipped: result.skipped,
     awaitingUserConfirmation: result.awaitingUserConfirmation,
     alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
-    preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "missingDirectories", "reason"])),
+    preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "existingTarget", "missingDirectories", "reason"])),
     executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "apiConfirmed", "verified", "error"])),
     ...(result.openListTaskId ? { openListTaskId: result.openListTaskId } : {}),
     nextAction: result.nextAction
@@ -335,7 +346,12 @@ function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
           const name = String(row.name || "");
           if (name && !seen.has(name)) {
             seen.add(name);
-            all.push({ name, isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1) });
+            all.push({
+              name,
+              isDir: Boolean(row.is_dir ?? row.isDir ?? row.type === 1),
+              ...(row.size != null && Number.isFinite(Number(row.size)) ? { size: Number(row.size) } : {}),
+              ...((row.modified || row.updated_at) ? { modified: String(row.modified || row.updated_at) } : {})
+            });
           }
         }
         if (rows.length < 200) return all;
