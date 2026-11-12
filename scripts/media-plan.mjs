@@ -331,9 +331,16 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     if (!entry.isDir || !parentYear) return [entry];
     const children = items.filter((item) => item.parentPath === entry.path && item.isDir);
     const directFiles = items.filter((item) => item.parentPath === entry.path && !item.isDir);
-    if (!children.length) return [entry];
     const parentTitle = sanitizeName(entry.name.replace(/(?:19|20)\d{2}/, "").replace(/[()（）]/g, " ").trim());
     const directVideos = directFiles.filter((item) => VIDEO_EXTENSIONS.has(path.extname(item.name).toLowerCase()));
+    if (!children.length) {
+      if (parentTitle !== "Unsorted") return [entry];
+      return directVideos.map((file) => ({
+        ...file,
+        parentYear,
+        resourceNameOverride: stripExtension(file.name)
+      }));
+    }
     const directEntries = directVideos.map((file) => ({
       ...file,
       parentYear,
