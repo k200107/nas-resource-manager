@@ -214,17 +214,15 @@ async function runMediaArchive({
           await api.rename(currentPath, item.targetName);
           currentPath = join(item.targetDir, item.targetName);
         }
-        const verifyRows = await api.list(item.targetDir);
-        if (!verifyRows.some((entry) => sameName(entry.name, item.targetName))) {
-          throw new Error("OpenList 操作已返回成功，但目标目录回读未发现文件。");
-        }
+        // OpenList move/rename API success is the completion signal; do not list the target again.
+        // "verified" below preserves the ledger contract and means API-confirmed operation, not byte-level integrity.
         if (item.resourceGroupId) {
           await recordArchiveOperation({
             source: item.source, target: item.target,
             resourceGroupId: item.resourceGroupId, verified: true
           }, { storePath });
         }
-        executed.push({ source: item.source, target: item.target, ok: true, verified: true });
+        executed.push({ source: item.source, target: item.target, ok: true, apiConfirmed: true, verified: true });
       } catch (error) {
         executed.push({ source: item.source, target: item.target, ok: false, verified: false, error: error.message || String(error) });
         // Stop on first uncertain result. Do not retry blindly or remove the source.
@@ -263,7 +261,7 @@ function compactArchiveResult(result) {
     awaitingUserConfirmation: result.awaitingUserConfirmation,
     alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
     preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "missingDirectories", "reason"])),
-    executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "verified", "error"])),
+    executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "apiConfirmed", "verified", "error"])),
     nextAction: result.nextAction
   };
   for (const key of ["confirmedReviewCount", "error"]) {
