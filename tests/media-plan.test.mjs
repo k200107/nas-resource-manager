@@ -679,7 +679,7 @@ test("marks all files sharing one Emby target as conflicts", () => {
   const items = [
     { name: "Example (2024)", path: "/Downloads/Example (2024)", parentPath: "/Downloads", isDir: true },
     { name: "Example.1080p.WEB-DL.mkv", path: "/Downloads/Example (2024)/Example.1080p.WEB-DL.mkv", parentPath: "/Downloads/Example (2024)", isDir: false },
-    { name: "Example.1080p.WEB-DL.mp4", path: "/Downloads/Example (2024)/Example.1080p.WEB-DL.mp4", parentPath: "/Downloads/Example (2024)", isDir: false }
+    { name: "Example.1080p.WEB-DL.mkv", path: "/Downloads/Example (2024)/Example.1080p.WEB-DL.mkv", parentPath: "/Downloads/Example (2024)", isDir: false }
   ];
   const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
   assert.equal(plan.length, 2);
