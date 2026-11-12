@@ -74,6 +74,20 @@ async function runMediaArchive({
   if (!moviesPath || !tvShowsPath || moviesPath === "/" || tvShowsPath === "/") throw new Error("必须提供有效的 Movies 和 TVShows 根目录。");
   if (typeof fetchImpl !== "function") throw new Error("当前 Node.js 环境不支持 fetch，请使用 Node.js 20 或更新版本。");
 
+  const declaredConflicts = plan.filter((item) => item?.conflict === true || item?.status === "conflict");
+  if (declaredConflicts.length) {
+    const autoCount = plan.filter((item) => item?.status === "auto_archive_candidate").length;
+    return {
+      ok: false, tool: "media-archive", mode: yes ? "execution-blocked" : "read-only-dry-run",
+      mutated: false, eligible: autoCount, skipped: plan.length - autoCount, alreadyArchived: [],
+      preflight: declaredConflicts.map((item) => ({
+        source: item.source || "", target: item.target || "", ok: false, conflict: true,
+        plannerConflict: true,
+        reason: item.reason || "规划阶段已发现冲突；整批停止，未调用 OpenList 写入接口。"
+      })),
+      executed: [], awaitingUserConfirmation: 0, nextAction: "resolve_plan_conflicts"
+    };
+  }
   const preflightCandidates = plan.filter(isPreflightCandidate);
   const eligible = preflightCandidates.filter(isArchiveEligible);
   const skipped = plan.length - preflightCandidates.length;
