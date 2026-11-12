@@ -53,3 +53,11 @@ Read this file for requests to organize, rename, move, or archive media. Shared 
 - Ask one clear question at a time. Distinguish keeping the existing library item, retaining both versions under distinct names, and replacing/parking the old item. Do not combine an archive confirmation with an unrelated copy/re-download question.
 - The current archive executor never overwrites or deletes. If the user chooses to keep both, agree on distinct target names and regenerate/review the plan. If the user chooses to park the old file as `.incomplete`, treat that rename as a separate mutation requiring explicit confirmation; then replan the new file. Never infer that a same-name file is incomplete from its size alone.
 - The executor blocks the entire batch when any target conflict exists. Do not claim non-conflicting items were archived; resolve conflicts and rerun the reviewed batch.
+
+
+## Media identity precedence
+
+- For a resource nested under a year-bearing first-level folder, identify the media title from the video filename first when it contains a meaningful title; extract the year from that filename before considering parent-folder metadata.
+- If the filename contains only technical tags (for example `1080p.mkv`) and no usable title, fall back to the first-level resource folder name/year.
+- The second-level folder name (for example `前作`, `续集`, `合集`) is only a last-resort label and must not override a meaningful filename or the first-level folder identity.
+- Year precedence: video filename > first-level folder > second-level folder. Do not inherit a newer parent year when the video filename explicitly identifies an older year.
