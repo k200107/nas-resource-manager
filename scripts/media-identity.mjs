@@ -143,6 +143,46 @@ export function extractYear(value) {
   return match ? Number(match[1]) : null;
 }
 
+export function extractMovieVersion(value, resolution = null) {
+  const text = String(value || "");
+  const tags = [];
+  if (resolution) tags.push(resolution);
+  const source = [
+    [/(?:blu[ ._-]?ray|bdrip|brrip)/i, "BluRay"],
+    [/(?:web[ ._-]?dl)/i, "WEB-DL"],
+    [/(?:webrip)/i, "WEBRip"],
+    [/(?:hdtv)/i, "HDTV"],
+    [/(?:remux)/i, "Remux"],
+    [/(?:hdrip)/i, "HDRip"],
+    [/(?:dvdrip)/i, "DVDRip"]
+  ].find(([pattern]) => pattern.test(text));
+  if (source) tags.push(source[1]);
+  const dynamicRange = [
+    [/(?:dolby[ ._-]?vision|\bDV\b)/i, "Dolby Vision"],
+    [/HDR10\+/i, "HDR10+"],
+    [/HDR10/i, "HDR10"],
+    [/\bHDR\b/i, "HDR"]
+  ].find(([pattern]) => pattern.test(text));
+  if (dynamicRange) tags.push(dynamicRange[1]);
+  const codec = [
+    [/(?:HEVC|H\.?265|x265)/i, "HEVC"],
+    [/(?:AV1)/i, "AV1"],
+    [/(?:AVC|H\.?264|x264)/i, "H.264"]
+  ].find(([pattern]) => pattern.test(text));
+  if (codec) tags.push(codec[1]);
+
+  if (tags.length) return [...new Set(tags)].join(" ");
+  const edition = [
+    [/(?:extended[ ._-]+edition|extended)/i, "extended edition"],
+    [/(?:director[’']?s?[ ._-]+cut)/i, "director's cut"],
+    [/(?:theatrical[ ._-]+cut)/i, "theatrical cut"],
+    [/(?:unrated)/i, "unrated"],
+    [/(?:remastered)/i, "remastered"],
+    [/(?:imax)/i, "IMAX"]
+  ].find(([pattern]) => pattern.test(text));
+  return edition?.[1] || null;
+}
+
 export function buildMovieFileName(title, year, resolution, extension) {
   const stem = year ? `${title} (${year})` : title;
   return `${stem}${resolution ? ` - ${resolution}` : ""}${extension}`;
