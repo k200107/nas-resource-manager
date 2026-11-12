@@ -502,6 +502,18 @@ test("keeps direct videos and child resource folders under a year-bearing folder
   assert.ok(videos.some((item) => item.target === "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv"));
 });
 
+test("derives movie titles from filenames inside year-only folders", () => {
+  const items = [
+    { name: "2024", path: "/Downloads/2024", parentPath: "/Downloads", isDir: true },
+    { name: "Example.2160p.mkv", path: "/Downloads/2024/Example.2160p.mkv", parentPath: "/Downloads/2024", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows"
+  });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].target, "/Movies/Example (2024)/Example (2024) - 2160p.mkv");
+});
+
 test("reports scanned file, directory, and planned-video coverage separately", () => {
   const items = [
     { name: "Film (2024)", path: "/Downloads/Film (2024)", parentPath: "/Downloads", isDir: true },
