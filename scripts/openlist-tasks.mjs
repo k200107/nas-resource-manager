@@ -150,6 +150,14 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
         return { taskId, status: "UNKNOWN", nextAction: "retry_lookup_later", reason: sanitizeTaskError(error.message) };
       }
     }));
+    if (results.length === 1) {
+      const result = results[0];
+      return {
+        ok: result.status !== "FAILED", tool: "openlist-tasks", action: "get", group,
+        taskId: result.taskId, status: result.status, nextAction: result.nextAction,
+        task: result.task || null, reason: result.reason || ""
+      };
+    }
     const counts = countTaskStatuses(results);
     return { ok: results.every((item) => item.status !== "FAILED"), tool: "openlist-tasks", action: "get", group, totalCount: results.length, counts, results };
   }
