@@ -35,7 +35,7 @@ test("parseArgs supports a single source file and compact JSON", () => {
   assert.throws(() => parseArgs(["--file", "/Downloads/Movie.mkv", "--source-dir", "/Downloads"]), /不能同时使用/);
 });
 
-test("scanSingleFile reads only the containing directory and returns only the requested file", async () => {
+test("scanSingleFile plans the supplied path without an existence lookup", async () => {
   const calls = [];
   const result = await scanSingleFile({
     baseUrl: "http://openlist.test",
@@ -62,8 +62,9 @@ test("scanSingleFile reads only the containing directory and returns only the re
       };
     }
   });
-  assert.deepEqual(calls.map((call) => call.body.path), ["/Downloads"]);
+  assert.equal(calls.length, 0);
   assert.deepEqual(result.items.map((item) => item.path), ["/Downloads/Selected.mkv"]);
+  assert.equal(result.items[0].isDir, false);
   assert.equal(result.truncated, false);
 });
 

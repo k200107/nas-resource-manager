@@ -159,14 +159,13 @@ function parseArgs(argv) {
 /** 读取 .env 并合并进程环境变量；进程环境变量优先，不覆盖运行环境注入的配置。 */
 
 /** 只读取指定文件所在目录，并仅将该文件纳入规划，不递归扫描其他资源。 */
-async function scanSingleFile({ baseUrl, token, fetchImpl, timeoutMs, filePath }) {
+async function scanSingleFile({ filePath }) {
   const parentPath = parentOpenListPath(filePath);
   const fileName = basenameOpenListPath(filePath);
-  const rows = await listDirectory({ baseUrl, token, fetchImpl, timeoutMs, dirPath: parentPath });
-  const row = rows.find((entry) => entry.name.toLocaleLowerCase("zh-CN") === fileName.toLocaleLowerCase("zh-CN"));
-  if (!row || row.isDir) throw new Error(`指定源文件不存在或不是普通文件：${filePath}`);
+  // The caller supplied the exact file path; derive planning metadata locally and let the move API
+  // report a missing/invalid source instead of issuing a separate existence-check request.
   return {
-    items: [{ ...row, path: filePath, parentPath }],
+    items: [{ name: fileName, path: filePath, parentPath, isDir: false, size: 0, modified: "" }],
     truncated: false
   };
 }
