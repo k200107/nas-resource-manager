@@ -35,6 +35,10 @@ const TASK_STATES = new Set(["undone", "done"]);
 /** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(cliArgs());
+  if (args.help) {
+    console.log(formatTaskHelp());
+    return;
+  }
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const result = await runOpenListTasks({
     env,
@@ -66,16 +70,22 @@ function parseArgs(argv) {
     envFile: DEFAULT_ENV_FILE,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     yes: false,
+    compact: false,
+    help: false,
     format: "json"
   };
   const positionals = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--group") {
-      parsed.group = normalizeGroup(argv[++index] || DEFAULT_GROUP);
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+    } else if (arg === "--compact") {
+      parsed.compact = true;
+    } else if (arg === "--group") {
+      parsed.group = normalizeQueryGroup(argv[++index] || DEFAULT_GROUP);
     } else if (arg === "--state") {
-      parsed.state = normalizeState(argv[++index] || DEFAULT_STATE);
+      parsed.state = normalizeQueryState(argv[++index] || DEFAULT_STATE);
     } else if (arg === "--id") {
       parsed.taskId = argv[++index] || "";
     } else if (arg === "--ids") {
@@ -108,37 +118,55 @@ function parseArgs(argv) {
   }
 
   if (positionals[0]) parsed.action = normalizeAction(positionals[0]);
-  if (positionals[1]) parsed.group = normalizeGroup(positionals[1]);
-  if (positionals[2]) parsed.state = normalizeState(positionals[2]);
+  if (positionals[1]) parsed.group = normalizeQueryGroup(positionals[1]);
+  if (positionals[2]) parsed.state = normalizeQueryState(positionals[2]);
   return parsed;
 }
 
 /** 处理runOpenListTasks相关逻辑。请结合调用位置检查输入来源、返回值及异常传播方式。 */
 /** 按动作、任务组、状态和网盘来源组织 OpenList 任务查询或取消流程。 */
 async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fetch }) {
-  const group = normalizeGroup(args.group || DEFAULT_GROUP);
-  const state = normalizeState(args.state || DEFAULT_STATE);
+  const group = args.group === "all" ? "all" : normalizeGroup(args.group || DEFAULT_GROUP);
+  const state = args.state === "all" ? "all" : normalizeState(args.state || DEFAULT_STATE);
   const action = normalizeAction(args.action || "list");
   const context = buildOpenListContext(env, args, fetchImpl);
   if (action === "get") {
-    const taskId = String(args.taskId || args.ids?.[0] || "").trim();
-    if (!taskId) throw new Error("查询单个任务时必须提供 --id TASK_ID。");
-    const result = await lookupOpenListTaskById({ ...context, group, id: taskId });
-    return {
-      ok: result.status !== "FAILED",
-      tool: "openlist-tasks",
-      action: "get",
-      group,
-      taskId,
-      status: result.status,
-      nextAction: result.status === "ACTIVE" ? "wait_for_task"
-        : result.status === "SUCCEEDED" ? "report_complete"
-          : result.status === "FAILED" ? "report_failure" : "inspect_unknown",
-      task: result.task || null,
-      reason: result.reason || ""
-    };
+    if (group === "all") throw new Error("get 不支持 --group all，请指定任务组。");
+    const taskIds = [...new Set([args.taskId, ...(args.ids || [])].map((id) => String(id || "").trim()).filter(Boolean))];
+    if (taskIds.length === 0) throw new Error("查询任务时必须提供 --id TASK_ID 或 --ids ID1,ID2。");
+    const results = await Promise.all(taskIds.map(async (taskId) => {
+      try {
+        const result = await lookupOpenListTaskById({ ...context, group, id: taskId });
+        return {
+          taskId,
+          status: result.status,
+          nextAction: result.status === "ACTIVE" ? "wait_for_task"
+            : result.status === "SUCCEEDED" ? "report_complete"
+              : result.status === "FAILED" ? "report_failure" : "inspect_unknown",
+          task: result.task || null,
+          reason: result.reason || ""
+        };
+      } catch (error) {
+        return { taskId, status: "UNKNOWN", nextAction: "retry_lookup_later", reason: sanitizeTaskError(error.message) };
+      }
+    }));
+    if (results.length === 1) {
+      const result = results[0];
+      return {
+        ok: result.status !== "FAILED", tool: "openlist-tasks", action: "get", group,
+        taskId: result.taskId, status: result.status, nextAction: result.nextAction,
+        task: result.task || null, reason: result.reason || ""
+      };
+    }
+    const counts = countTaskStatuses(results);
+    return { ok: results.every((item) => item.status !== "FAILED"), tool: "openlist-tasks", action: "get", group, totalCount: results.length, counts, results };
   }
-  const listed = await listTasks({ ...context, group, state });
+  if (action === "cancel" && (group === "all" || state === "all")) {
+    throw new Error("为避免批量误取消，cancel 不支持 group=all 或 state=all。");
+  }
+  const groups = group === "all" ? [...TASK_GROUPS] : [group];
+  const states = state === "all" ? [...TASK_STATES] : [state];
+  const listed = await listTaskCollections({ ...context, groups, states });
   const filteredTasks = filterTasks(listed.tasks, args);
   const baseResult = {
     ok: true,
@@ -148,6 +176,10 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
     group,
     state,
     nextAction: "report_tasks",
+    queryErrors: listed.errors,
+    counts: countTaskStatuses(filteredTasks),
+    groupsQueried: groups,
+    statesQueried: states,
     filter: {
       ids: args.ids || [],
       match: args.match || "",
@@ -156,10 +188,10 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
     },
     totalCount: listed.tasks.length,
     matchedCount: filteredTasks.length,
-    tasks: filteredTasks
+    tasks: args.compact ? filteredTasks.map(compactTask) : filteredTasks
   };
 
-  if (action === "list") return baseResult;
+  if (action === "list") return { ...baseResult, ok: listed.errors.length === 0 };
 
   if (action === "cancel") {
     if (filteredTasks.length === 0) {
@@ -201,7 +233,13 @@ function filterTasks(tasks, filters = {}) {
   let result = tasks.map((rawTask) => {
     const task = normalizeTask(rawTask);
     const classification = classifyTask(task);
-    return { ...task, taskStatus: classification.status, ...(classification.reason ? { taskReason: classification.reason } : {}) };
+    return {
+      ...task,
+      ...(rawTask.group ? { group: rawTask.group } : {}),
+      ...(rawTask.listState ? { listState: rawTask.listState } : {}),
+      taskStatus: classification.status,
+      ...(classification.reason ? { taskReason: classification.reason } : {})
+    };
   }).filter((task) => task.id);
   if (filters.ids && filters.ids.length > 0) {
     const ids = new Set(filters.ids);
@@ -240,6 +278,85 @@ async function listTasks({ baseUrl, token, fetchImpl, timeoutMs, group, state })
   return {
     tasks: Array.isArray(response.json?.data) ? response.json.data.map(normalizeTask) : []
   };
+}
+
+
+/** Query each requested group/state once; retain successful results when an individual endpoint fails. */
+async function listTaskCollections(context) {
+  const combinations = context.groups.flatMap((group) => context.states.map((state) => ({ group, state })));
+  const results = await Promise.all(combinations.map(async ({ group, state }) => {
+    try {
+      const listed = await listTasks({ ...context, group, state });
+      return { group, state, tasks: listed.tasks, error: "" };
+    } catch (error) {
+      return { group, state, tasks: [], error: sanitizeTaskError(error.message) };
+    }
+  }));
+  const seen = new Set();
+  const tasks = [];
+  for (const result of results) {
+    for (const task of result.tasks) {
+      const key = `${result.group}:${task.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tasks.push({ ...task, group: result.group, listState: result.state });
+    }
+  }
+  return {
+    tasks,
+    errors: results.filter((item) => item.error).map(({ group, state, error }) => ({ group, state, error }))
+  };
+}
+
+
+function compactTask(task) {
+  return {
+    id: task.id,
+    group: task.group || "copy",
+    listState: task.listState || "",
+    name: task.name,
+    taskStatus: task.taskStatus || "UNKNOWN",
+    progress: task.progress,
+    ...(task.taskReason ? { taskReason: task.taskReason } : {}),
+    ...(task.error ? { error: task.error } : {})
+  };
+}
+
+function countTaskStatuses(tasks) {
+  return tasks.reduce((counts, task) => {
+    const status = task.taskStatus || task.status || "UNKNOWN";
+    const normalized = ["SUCCEEDED", "ACTIVE", "FAILED", "UNKNOWN"].includes(status) ? status : "UNKNOWN";
+    counts[normalized] += 1;
+    return counts;
+  }, { SUCCEEDED: 0, ACTIVE: 0, FAILED: 0, UNKNOWN: 0 });
+}
+
+function normalizeQueryGroup(value) {
+  const group = String(value || DEFAULT_GROUP).trim();
+  return group === "all" ? group : normalizeGroup(group);
+}
+
+function normalizeQueryState(value) {
+  const state = String(value || DEFAULT_STATE).trim();
+  return state === "all" ? state : normalizeState(state);
+}
+
+function formatTaskHelp() {
+  return [
+    "OpenList task commands:",
+    "  list [GROUP|all] [undone|done|all] [--compact] [filters]",
+    "  get GROUP --id TASK_ID | --ids ID1,ID2 [--compact]",
+    "  cancel GROUP [undone|done] [filters] [--yes]",
+    "",
+    `Groups: ${[...TASK_GROUPS].join(", ")}`,
+    "Filters: --match TEXT --provider NAME --source-prefix PATH --ids ID1,ID2",
+    "Examples:",
+    "  npm run --silent openlist-tasks -- list copy undone --compact",
+    "  npm run --silent openlist-tasks -- list copy all --compact",
+    "  npm run --silent openlist-tasks -- list all all --compact",
+    "  npm run --silent openlist-tasks -- get copy --ids ID1,ID2 --compact",
+    "  npm run --silent openlist-tasks -- --help"
+  ].join("\n");
 }
 
 /** 按精确 OpenList task ID 查询任务，不按文件名或目录名猜测任务身份。 */
@@ -375,9 +492,10 @@ function buildOpenListContext(env, args, fetchImpl) {
 /** 将任务列表或取消结果格式化为便于人工检查的输出。 */
 function formatTaskResult(result) {
   const lines = [`### OpenList ${result.group} ${result.action}`, ""];
+  if (result.counts) lines.push(`SUCCEEDED ${result.counts.SUCCEEDED} | ACTIVE ${result.counts.ACTIVE} | FAILED ${result.counts.FAILED} | UNKNOWN ${result.counts.UNKNOWN}`);
   lines.push(`匹配任务：${result.matchedCount}/${result.totalCount}`);
   for (const task of result.tasks || []) {
-    lines.push(`- ${task.id}: ${task.name} (${task.status || task.state || "-"}) ${task.progress ?? "-"}%`);
+    lines.push(`- [${task.taskStatus || task.status || task.state || "-"}] ${task.id}: ${task.name} ${task.progress ?? "-"}%`);
     if (task.error) lines.push(`  error: ${task.error}`);
   }
   if (result.action === "cancel") {
@@ -432,5 +550,8 @@ export {
   filterTasks,
   lookupOpenListTaskById,
   parseArgs,
-  runOpenListTasks
+  runOpenListTasks,
+  listTaskCollections,
+  countTaskStatuses,
+  formatTaskHelp
 };

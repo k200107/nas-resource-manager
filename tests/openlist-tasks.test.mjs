@@ -17,6 +17,83 @@ test("parseArgs defaults to listing undone copy tasks as JSON", () => {
   assert.equal(args.format, "json");
 });
 
+
+test("parseArgs supports all groups, all states, compact output and help", () => {
+  const args = parseArgs(["list", "all", "all", "--compact"]);
+  assert.equal(args.group, "all");
+  assert.equal(args.state, "all");
+  assert.equal(args.compact, true);
+  assert.equal(parseArgs(["--help"]).help, true);
+});
+
+test("runOpenListTasks lists all groups and states once and returns classified compact summary", async () => {
+  const calls = [];
+  const result = await runOpenListTasks({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: { action: "list", group: "copy", state: "all", compact: true },
+    fetchImpl: async (url) => {
+      const endpoint = new URL(String(url)).pathname;
+      calls.push(endpoint);
+      const state = endpoint.endsWith("/done") ? "done" : "undone";
+      const data = state === "undone"
+        ? [{ id: "active-1", name: "copy A", state: 1, status: "uploading", progress: 25 }]
+        : [{ id: "done-1", name: "copy B", state: 2, status: "uploading", progress: 100,
+            endTime: "2026-11-11T17:00:00+08:00", totalBytes: 100, error: "" }];
+      return jsonResponse({ code: 200, message: "success", data });
+    }
+  });
+  assert.deepEqual(calls.sort(), [
+    "/api/task/copy/done",
+    "/api/task/copy/undone"
+  ]);
+  assert.equal(result.totalCount, 2);
+  assert.deepEqual(result.counts, { SUCCEEDED: 1, ACTIVE: 1, FAILED: 0, UNKNOWN: 0 });
+  assert.equal(result.tasks[0].group, "copy");
+  assert.equal("totalBytes" in result.tasks[0], false);
+});
+
+test("runOpenListTasks preserves successful group results when one all-groups endpoint fails", async () => {
+  const result = await runOpenListTasks({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: { action: "list", group: "all", state: "undone", compact: true },
+    fetchImpl: async (url) => {
+      const endpoint = new URL(String(url)).pathname;
+      if (endpoint.endsWith("/upload/undone")) {
+        return jsonResponse({ code: 500, message: "temporary failure", data: [] }, { ok: false, status: 500 });
+      }
+      return jsonResponse({ code: 200, message: "success", data: [{ id: endpoint, name: "copy item", state: 1, progress: 1 }] });
+    }
+  });
+  assert.equal(result.tasks.length, 5);
+  assert.equal(result.queryErrors.length, 1);
+  assert.equal(result.ok, false);
+});
+
+test("get batch continues after an individual task lookup error", async () => {
+  const result = await runOpenListTasks({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: { action: "get", group: "copy", ids: ["ok-1", "bad-2"] },
+    fetchImpl: async (url) => {
+      const id = new URL(String(url)).searchParams.get("tid");
+      if (id === "bad-2") throw new Error("temporary lookup failure");
+      return jsonResponse({ code: 200, message: "success", data: [{ id, state: "succeeded", progress: 100, status: "", error: "" }] });
+    }
+  });
+  assert.equal(result.results.length, 2);
+  assert.equal(result.results[0].status, "SUCCEEDED");
+  assert.equal(result.results[1].status, "UNKNOWN");
+  assert.equal(result.counts.SUCCEEDED, 1);
+  assert.equal(result.counts.UNKNOWN, 1);
+});
+
+test("cancel rejects all groups or states to prevent broad accidental cancellation", async () => {
+  await assert.rejects(() => runOpenListTasks({
+    env: { OPENLIST_BASE_URL: "http://openlist.test", OPENLIST_TOKEN: "token" },
+    args: { action: "cancel", group: "all", state: "all" },
+    fetchImpl: async () => { throw new Error("must not call API"); }
+  }), /cancel 不支持/);
+});
+
 test("filterTasks can select Baidu copy tasks", () => {
   const tasks = [
     { id: "a", name: "copy [/bdy](/NAS资源下载/A.mp4) to [/影视资源备份](/影视/A)" },
