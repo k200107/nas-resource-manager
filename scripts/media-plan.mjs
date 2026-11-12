@@ -370,7 +370,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     const explicitYear = extractExplicitYear(rawName) || entry.parentYear || null;
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
-      .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
+      .replace(/(?:^|[ ._-])(?:S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3})(?=$|[ ._-])|第[一二三四五六七八九十百\d]+(?:季|集)/ig, " ")
       .replace(/(?:BD(?:Rip|Remux)?\s*\d{3,4}|Blu[ ._-]?ray|WEB[ ._-]?DL|WEBRip|HDRip|DVDRip)/ig, "")
       .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|1280|1920|2048|4k|2k|uhd|fhd)/ig, "")
       .replace(/(?:高清|超清|蓝光|藍光|中英双字|中英字幕|中文字幕|英文字幕|双语字幕|双字|中字|国粤双语|国语|粤语)/g, " ")
