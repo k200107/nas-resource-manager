@@ -83,9 +83,16 @@ async function main() {
     tool: "media-plan",
     mode: "read-only-dry-run",
     mutated: false,
-    source: { path: sourceFile || scoped?.resourcePath || sourcePath, scope: sourceFile ? "single-file" : resourceName ? "resource-directory" : "directory", scannedItems: scanned.items.length, truncated: scanned.truncated },
+    source: {
+      path: sourceFile || scoped?.resourcePath || sourcePath,
+      scope: sourceFile ? "single-file" : resourceName ? "resource-directory" : "directory",
+      scannedItems: scanned.items.length,
+      scannedFiles: scanned.items.filter((item) => !item.isDir).length,
+      scannedDirectories: scanned.items.filter((item) => item.isDir).length,
+      truncated: scanned.truncated
+    },
     targets: { movies: moviesPath, tvShows: tvShowsPath },
-    summary: summarizePlan(plan),
+    summary: summarizePlan(plan, scanned.items),
     plan,
     safety: {
       executed: false,
@@ -318,15 +325,32 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
   const existing = new Set(existingPaths.map((value) => String(value).toLocaleLowerCase("zh-CN")));
   const plan = [];
 
-  // 年份父目录只作为分类线索，不作为片名；把其下每个资源目录提升为独立识别单元。
+  // 年份目录可能同时包含直属视频和资源子目录；两类内容都必须纳入规划。
   const entries = topLevel.flatMap((entry) => {
-    if (!entry.isDir || !extractExplicitYear(entry.name)) return [entry];
+    const parentYear = entry.isDir ? extractExplicitYear(entry.name) : null;
+    if (!entry.isDir || !parentYear) return [entry];
     const children = items.filter((item) => item.parentPath === entry.path && item.isDir);
-    return children.length ? children.map((child) => ({ ...child, parentYear: extractExplicitYear(entry.name) })) : [entry];
+    const directFiles = items.filter((item) => item.parentPath === entry.path && !item.isDir);
+    const parentTitle = sanitizeName(entry.name.replace(/(?:19|20)\d{2}/, "").replace(/[()（）]/g, " ").trim());
+    const directVideos = directFiles.filter((item) => VIDEO_EXTENSIONS.has(path.extname(item.name).toLowerCase()));
+    if (!children.length) {
+      if (parentTitle !== "Unsorted") return [entry];
+      return directVideos.map((file) => ({
+        ...file,
+        parentYear,
+        resourceNameOverride: stripExtension(file.name)
+      }));
+    }
+    const directEntries = directVideos.map((file) => ({
+      ...file,
+      parentYear,
+      resourceNameOverride: parentTitle === "Unsorted" ? stripExtension(file.name) : parentTitle
+    }));
+    return [...directEntries, ...children.map((child) => ({ ...child, parentYear }))];
   });
 
   for (const entry of entries) {
-    const descendants = items.filter((item) => item.path.startsWith(`${entry.path}/`) && !item.isDir);
+    const descendants = items.filter((item) => item.path.startsWith(entry.path + "/") && !item.isDir);
     const files = entry.isDir ? descendants : [entry];
     const videoFiles = files.filter((item) => VIDEO_EXTENSIONS.has(path.extname(item.name).toLowerCase()));
     const sidecarFiles = files.filter((item) => isSidecarFile(item.name));
@@ -339,11 +363,14 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       continue;
     }
 
-    const rawName = sanitizeName(entry.isDir ? entry.name : stripExtension(entry.name));
+    const folderName = entry.isDir ? entry.name : stripExtension(entry.name);
+    const genericFolder = new Set(["前作", "续集", "合集", "电影", "影片", "正片", "其他", "未分类"]);
+    const singleVideoTitle = entry.isDir && videoFiles.length === 1 && genericFolder.has(folderName.trim());
+    const rawName = sanitizeName(entry.resourceNameOverride || (singleVideoTitle ? stripExtension(videoFiles[0].name) : folderName));
     const explicitYear = extractExplicitYear(rawName) || entry.parentYear || null;
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
-      .replace(/S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3}|第[一二三四五六七八九十百\d]+(?:季|集)/ig, "")
+      .replace(/(?:^|[ ._-])(?:S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3})(?=$|[ ._-])|第[一二三四五六七八九十百\d]+(?:季|集)/ig, " ")
       .replace(/(?:BD(?:Rip|Remux)?\s*\d{3,4}|Blu[ ._-]?ray|WEB[ ._-]?DL|WEBRip|HDRip|DVDRip)/ig, "")
       .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|1280|1920|2048|4k|2k|uhd|fhd)/ig, "")
       .replace(/(?:高清|超清|蓝光|藍光|中英双字|中英字幕|中文字幕|英文字幕|双语字幕|双字|中字|国粤双语|国语|粤语)/g, " ")
@@ -528,11 +555,24 @@ function detectSeason(value) {
 
 /** 汇总计划条目数、电影/剧集数量、待复核数量和低置信度数量。 */
 /** 处理 summarizePlan 相关逻辑；请结合调用位置核对输入、返回值及错误处理。 */
-function summarizePlan(plan) {
+function summarizePlan(plan, scannedItems = []) {
+  const scannedFiles = scannedItems.filter((item) => !item.isDir);
+  const scannedVideoPaths = new Set(scannedFiles
+    .filter((item) => VIDEO_EXTENSIONS.has(path.extname(item.name).toLowerCase()))
+    .map((item) => item.path));
+  const plannedVideoPaths = new Set(plan
+    .filter((item) => item.assetRole === "video" && item.source)
+    .map((item) => item.source));
+  const unplannedVideoFiles = [...scannedVideoPaths].filter((source) => !plannedVideoPaths.has(source));
   return {
     total: plan.length,
     movies: plan.filter((item) => item.resourceType === "movie").length,
     series: plan.filter((item) => item.resourceType === "series").length,
+    scannedFiles: scannedFiles.length,
+    scannedDirectories: scannedItems.filter((item) => item.isDir).length,
+    scannedVideoFiles: scannedVideoPaths.size,
+    plannedVideoFiles: [...plannedVideoPaths].filter((source) => scannedVideoPaths.has(source)).length,
+    unplannedVideoFiles,
     autoArchiveCandidates: plan.filter((item) => item.status === "auto_archive_candidate").length,
     reviewRequired: plan.filter((item) => item.status === "review_required").length,
     lowConfidence: plan.filter((item) => item.confidence === "low").length
@@ -566,7 +606,7 @@ function compactPlanResult(result) {
 /** 把只读归档计划转换为便于人工审阅的文本，不会触发计划执行。 */
 /** 将内部结果转换为可读输出，不执行数据变更。 */
 function formatPlan(result) {
-  const lines = ["### 媒体归档预览（只读）", "", `扫描：${result.source.path}（${result.source.scannedItems} 项）`, `电影：${result.targets.movies}`, `剧集：${result.targets.tvShows}`, ""];
+  const lines = ["### 媒体归档预览（只读）", "", `扫描：${result.source.path}（${result.source.scannedFiles} 个文件，${result.source.scannedDirectories} 个目录）`, `视频：${result.summary.plannedVideoFiles}/${result.summary.scannedVideoFiles} 个已纳入规划`, `电影：${result.targets.movies}`, `剧集：${result.targets.tvShows}`, ""];
   for (const item of result.plan) {
     lines.push(`- [${item.status}] ${item.source} → ${item.target || "暂不归档"}（${item.resourceType} / ${item.confidence}）：${item.reason}`);
   }
@@ -632,6 +672,7 @@ export {
   resolveMediaTitle,
   scanTargetConflicts,
   scanTree,
+  summarizePlan,
 };/** 读取可选的本地片名别名表；文件不存在时使用内置示例，格式错误时中止而不是静默忽略。 */
 function loadTitleAliases(filePath) {
   if (!filePath) return DEFAULT_TITLE_ALIASES;
