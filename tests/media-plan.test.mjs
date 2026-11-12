@@ -15,7 +15,7 @@ import {
   resolveMediaTitle,
   summarizePlan
 } from "../scripts/media-plan.mjs";
-import { extractEpisode, extractResolution, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
+import { extractEpisode, extractResolution, extractMovieVersion, buildMovieFileName, buildSeriesFileName } from "../scripts/media-identity.mjs";
 
 test("parseArgs reads OpenList source and media target paths", () => {
   const args = parseArgs(["--source-dir", "/Downloads", "--movies-dir", "/media/Movies", "--tvshows-dir", "/media/TVShows", "--format", "text"]);
@@ -642,4 +642,34 @@ test("places movie sidecars beside the video when the year exists only in the vi
     "/Movies/可能的爱 (2026)/poster.jpg"
   ].sort());
   assert.ok(sidecars.every((item) => item.status === "auto_archive_candidate"));
+});
+
+
+test("uses Emby multi-version names with source and edition tags", () => {
+  assert.equal(extractMovieVersion("F3.2026.4K.60FPS.HEVC.mp4", "2160p"), "2160p HEVC");
+  assert.equal(extractMovieVersion("Pegasus.3.2026.1080p.WEB-DL.mp4", "1080p"), "1080p WEB-DL");
+  assert.equal(extractMovieVersion("300.2006.extended.edition.mp4", null), "extended edition");
+  assert.equal(extractMovieVersion("300.2006.directors.cut.mp4", null), "director's cut");
+  assert.equal(buildMovieFileName("300", 2006, "1080p", ".mkv"), "300 (2006) - 1080p.mkv");
+});
+
+test("plans the Pegasus 3 sample with distinct Emby version names and flags true collisions", () => {
+  const root = "/Downloads/飞驰人生3 (2026)";
+  const items = [
+    { name: "飞驰人生3 (2026)", path: root, parentPath: "/Downloads", isDir: true },
+    { name: "F3.2026.4K.60FPS.HEVC.mp4", path: root + "/F3.2026.4K.60FPS.HEVC.mp4", parentPath: root, isDir: false },
+    { name: "Pegasus 3.2026.1080p.WEB-DL.mp4", path: root + "/Pegasus 3.2026.1080p.WEB-DL.mp4", parentPath: root, isDir: false },
+    { name: "1080p.mp4", path: root + "/1080p.mp4", parentPath: root, isDir: false },
+    { name: "前作", path: root + "/前作", parentPath: root, isDir: true },
+    { name: "Pegasus.2019.2160p.mkv", path: root + "/前作/Pegasus.2019.2160p.mkv", parentPath: root + "/前作", isDir: false }
+  ];
+  const plan = buildMediaPlan({ sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows" });
+  const video = plan.filter((item) => item.assetRole === "video");
+  assert.deepEqual(video.map((item) => item.target), [
+    "/Movies/飞驰人生3 (2026)/飞驰人生3 (2026) - 2160p HEVC.mp4",
+    "/Movies/飞驰人生3 (2026)/飞驰人生3 (2026) - 1080p WEB-DL.mp4",
+    "/Movies/飞驰人生3 (2026)/飞驰人生3 (2026) - 1080p.mp4",
+    "/Movies/Pegasus (2019)/Pegasus (2019) - 2160p.mkv"
+  ]);
+  assert.ok(video.every((item) => item.status === "auto_archive_candidate"));
 });
