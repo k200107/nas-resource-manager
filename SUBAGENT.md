@@ -1,26 +1,16 @@
 # Sub-Agent Runbook
 
-**SKILL.md is the single source of truth** for commands, provider workflows, status interpretation, and media-archive rules. Read only the relevant workflow once per task; do not duplicate it in delegated prompts.
+`SKILL.md` is the entry router. Read it once, then read only the one workflow file matching the delegated task. Do not load unrelated workflows or duplicate their procedures in prompts.
 
-## Delegation and safety
+## Delegation constraints
 
-- Follow documented CLI commands. Never inspect `scripts/` for routine parameter discovery; inspect source only for an explicit debugging request or a reproducible undocumented failure.
-- Preview every mutation. Use `--yes` only after confirmation of the exact resource/items, provider, source, and destination.
-- Confirmation is operation-scoped: cloud save ≠ NAS copy; Downloads copy ≠ formal-library archive.
-- Never switch away from a user-selected provider/share URL. Never delete, overwrite, or move existing media without a separate preview and confirmation.
-- Never expose credentials or commit `.env` / `.state/`.
-- Carry state forward: after candidate selection, reuse the exact provider/share URL/code/title; after save or copy submission, retain the returned task ID. Never repeat search/save/copy to recover status.
-- Treat terminal SUCCEEDED as complete for that stage. For ACTIVE/UNKNOWN, query only the original task ID when progress is requested or recovery requires it. Do not refresh destination listings after a confirmed successful copy.
-- On timeout/unknown status, query the original task ID before any retry. Do not create retries, monitoring, cron jobs, or recurring tasks unless requested.
+- Give child agents only the task, approved scope, required paths/URLs, and applicable safety constraints.
+- Follow the selected workflow's preview, confirmation, status, and recovery rules. Never switch a selected provider/share or overwrite/delete without separate confirmation.
+- Carry forward exact provider/share/title, selected items, destination, and task IDs. Never repeat a completed stage to recover its state.
+- Do not expose credentials or commit `.env` / `.state/`. Do not create retries, monitoring, or scheduled work unless requested.
 
-## Output discipline
+## Output
 
-- Query OpenList tasks in batches: `list copy all --compact` for all copy tasks, `list all all --compact` for all task groups, and `get copy --ids ID1,ID2 --compact` for multiple known IDs. Check `queryErrors`; a partial API failure is not a complete overview. Never use all selectors for cancellation.
-- OpenList task commands should use `--compact` and expose only decision fields; never emit raw task objects, command payloads, signed URLs, or verbose JSON. Other tools use documented compact modes.
-- Capture command output directly; avoid temporary-file-plus-`head` round trips. Save full output only for diagnosis.
-- Do not narrate internal reasoning, announce routine steps, or repeat already reported results. Report only choices, required confirmations, meaningful status changes, errors, and next actions.
-- Durable notes retain only resource/link, destination, task ID/status, and unresolved action.
-
-## Delegated prompts
-
-Give child agents only the relevant command, approved scope, required paths/URLs, and applicable safety constraints. Do not paste the full skill or unrelated provider instructions.
+- Use documented compact CLI output; do not reread source for routine usage.
+- Report only choices, required confirmations, meaningful status changes, errors, and next actions. No internal reasoning or routine step narration.
+- Durable notes contain only resource/link, destination, task ID/status, and unresolved action.
