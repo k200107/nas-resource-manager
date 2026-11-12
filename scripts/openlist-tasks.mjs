@@ -225,7 +225,13 @@ function filterTasks(tasks, filters = {}) {
   let result = tasks.map((rawTask) => {
     const task = normalizeTask(rawTask);
     const classification = classifyTask(task);
-    return { ...task, taskStatus: classification.status, ...(classification.reason ? { taskReason: classification.reason } : {}) };
+    return {
+      ...task,
+      ...(rawTask.group ? { group: rawTask.group } : {}),
+      ...(rawTask.listState ? { listState: rawTask.listState } : {}),
+      taskStatus: classification.status,
+      ...(classification.reason ? { taskReason: classification.reason } : {})
+    };
   }).filter((task) => task.id);
   if (filters.ids && filters.ids.length > 0) {
     const ids = new Set(filters.ids);
