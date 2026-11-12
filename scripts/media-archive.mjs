@@ -78,6 +78,25 @@ async function runMediaArchive({
   const eligible = preflightCandidates.filter(isArchiveEligible);
   const skipped = plan.length - preflightCandidates.length;
   const allValidated = preflightCandidates.map((item) => validatePlanItem(item, { moviesPath, tvShowsPath }));
+  const targetGroups = new Map();
+  for (const item of allValidated) {
+    const key = item.target.normalize("NFKC").toLocaleLowerCase("zh-CN");
+    const group = targetGroups.get(key) || [];
+    group.push(item);
+    targetGroups.set(key, group);
+  }
+  const duplicateTargets = [...targetGroups.values()].filter((group) => group.length > 1);
+  if (duplicateTargets.length) {
+    const preflight = duplicateTargets.flatMap((group) => group.map((item) => ({
+      source: item.source, target: item.target, ok: false, conflict: true, duplicatePlanTarget: true,
+      reason: "归档计划内部存在重复目标路径；整批停止，未调用 OpenList 写入接口。"
+    })));
+    return {
+      ok: false, tool: "media-archive", mode: yes ? "execution-blocked" : "read-only-dry-run",
+      mutated: false, eligible: eligible.length, skipped, alreadyArchived: [], preflight, executed: [],
+      awaitingUserConfirmation: 0, nextAction: "resolve_plan_target_collisions"
+    };
+  }
   const alreadyArchived = [];
   const preflightValidated = [];
   for (const item of allValidated) {
@@ -273,7 +292,7 @@ function compactArchiveResult(result) {
     skipped: result.skipped,
     awaitingUserConfirmation: result.awaitingUserConfirmation,
     alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
-    preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "existingTarget", "missingDirectories", "reason"])),
+    preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "duplicatePlanTarget", "existingTarget", "missingDirectories", "reason"])),
     executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "apiConfirmed", "verified", "error"])),
     ...(result.openListTaskId ? { openListTaskId: result.openListTaskId } : {}),
     nextAction: result.nextAction
