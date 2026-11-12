@@ -313,7 +313,8 @@ function compactTask(task) {
     ...(task.error ? { error: task.error } : {})
   };
 }
-\nfunction countTaskStatuses(tasks) {
+
+function countTaskStatuses(tasks) {
   return tasks.reduce((counts, task) => {
     const status = task.taskStatus || task.status || "UNKNOWN";
     const normalized = ["SUCCEEDED", "ACTIVE", "FAILED", "UNKNOWN"].includes(status) ? status : "UNKNOWN";
@@ -347,9 +348,10 @@ function formatTaskHelp() {
     "  npm run --silent openlist-tasks -- list all all --compact",
     "  npm run --silent openlist-tasks -- get copy --ids ID1,ID2 --compact",
     "  npm run --silent openlist-tasks -- --help"
-  ].join("\\n");
+  ].join("\n");
 }
-\n/** 按精确 OpenList task ID 查询任务，不按文件名或目录名猜测任务身份。 */
+
+/** 按精确 OpenList task ID 查询任务，不按文件名或目录名猜测任务身份。 */
 /** 按精确 OpenList task ID 查询任务，不使用文件名或路径猜测任务身份。 */
 async function lookupOpenListTaskById({ baseUrl, token, fetchImpl = globalThis.fetch, timeoutMs = DEFAULT_TIMEOUT_MS, group = DEFAULT_GROUP, id }) {
   const taskId = String(id || "").trim();
