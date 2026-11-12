@@ -326,3 +326,19 @@ test("archive blocks duplicate targets inside one plan before any OpenList reque
   assert.ok(result.preflight.every((item) => item.duplicatePlanTarget === true));
   assert.equal(calls.length, 0);
 });
+
+
+test("planner-declared conflicts block the whole batch before OpenList calls", async () => {
+  const calls = [];
+  const conflicted = { ...plan[0], status: "conflict", conflict: true, reason: "duplicate target" };
+  const result = await runMediaArchive({
+    plan: [conflicted, { ...plan[0], source: "/Downloads/other.mkv" }],
+    ...roots, yes: true, baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: async (...args) => { calls.push(args); throw new Error("must not call OpenList"); }
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.mutated, false);
+  assert.equal(result.nextAction, "resolve_plan_conflicts");
+  assert.equal(result.preflight[0].plannerConflict, true);
+  assert.equal(calls.length, 0);
+});
