@@ -19,7 +19,7 @@ import fs from "node:fs";
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess } from "./openlist-client.mjs";
-import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES, DEFAULT_TITLE_YEARS } from "./media-identity.mjs";
+import { buildMovieFileName, buildSeriesFileName, extractEpisode, extractResolution, extractMovieVersion, parseChineseNumber, resolveMediaTitle, DEFAULT_TITLE_ALIASES, DEFAULT_TITLE_YEARS } from "./media-identity.mjs";
 import { buildSidecarPlans, isSidecarFile } from "./media-sidecar.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
@@ -424,7 +424,8 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       if (base && classification.type === "movie" && classification.confidence !== "low") {
         const movieFolder = fileYear ? `${resourceName} (${fileYear})` : resourceName;
         targetDir = joinOpenListPath(base, movieFolder);
-        targetName = buildMovieFileName(resourceName, fileYear, resolution.value, extension);
+        const version = extractMovieVersion(file.name, resolution.value);
+        targetName = buildMovieFileName(resourceName, fileYear, version, extension);
       } else if (base && classification.type === "series") {
         const season = episode.season || detectSeason(`${file.relativeName} ${rawName}`);
         if (!season || !episode.episode) {
@@ -493,6 +494,24 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
         confidence: unresolved ? "medium" : "high",
         reason: [...(sidecar.reason ? [sidecar.reason] : []), ...reviewReasons].join("；")
       });
+    }
+  }
+
+  // Detect collisions inside this plan before it reaches the archive executor.
+  const targets = new Map();
+  for (const item of plan) {
+    if (!item.target) continue;
+    const key = item.target.normalize("NFKC").toLocaleLowerCase("zh-CN");
+    const matches = targets.get(key) || [];
+    matches.push(item);
+    targets.set(key, matches);
+  }
+  for (const matches of targets.values()) {
+    if (matches.length < 2) continue;
+    for (const item of matches) {
+      item.conflict = true;
+      item.status = "conflict";
+      item.reason = [item.reason, "当前归档计划中有多个文件指向同一目标路径；禁止自动编号或覆盖，请先区分版本。"].filter(Boolean).join("；");
     }
   }
   return plan;
