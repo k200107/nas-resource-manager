@@ -165,9 +165,9 @@ export function extractMovieVersion(value, resolution = null) {
   ].find(([pattern]) => pattern.test(text));
   if (dynamicRange) tags.push(dynamicRange[1]);
   const codec = [
-    [/(?:HEVC|H\\.?265|x265)/i, "HEVC"],
+    [/(?:HEVC|H\.?265|x265)/i, "HEVC"],
     [/(?:AV1)/i, "AV1"],
-    [/(?:AVC|H\\.?264|x264)/i, "H.264"]
+    [/(?:AVC|H\.?264|x264)/i, "H.264"]
   ].find(([pattern]) => pattern.test(text));
   if (codec) tags.push(codec[1]);
 
