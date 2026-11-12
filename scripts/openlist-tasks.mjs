@@ -18,6 +18,7 @@
 import { loadEnvFile, mergeEnvValues } from "./env-config.mjs";
 import { cliArgs, failCli, isCliEntryPoint } from "./cli-utils.mjs";
 import { requestOpenListJson, isOpenListSuccess as isOpenListResponseSuccess } from "./openlist-client.mjs";
+import { getArchivedOpenListTaskIds } from "./media-task-store.mjs";
 
 const DEFAULT_ENV_FILE = ".env";
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -71,6 +72,7 @@ function parseArgs(argv) {
     timeoutMs: DEFAULT_TIMEOUT_MS,
     yes: false,
     compact: false,
+    excludeArchived: false,
     help: false,
     format: "json"
   };
@@ -82,6 +84,8 @@ function parseArgs(argv) {
       parsed.help = true;
     } else if (arg === "--compact") {
       parsed.compact = true;
+    } else if (arg === "--exclude-archived") {
+      parsed.excludeArchived = true;
     } else if (arg === "--group") {
       parsed.group = normalizeQueryGroup(argv[++index] || DEFAULT_GROUP);
     } else if (arg === "--state") {
@@ -167,7 +171,14 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
   const groups = group === "all" ? [...TASK_GROUPS] : [group];
   const states = state === "all" ? [...TASK_STATES] : [state];
   const listed = await listTaskCollections({ ...context, groups, states });
-  const filteredTasks = filterTasks(listed.tasks, args);
+  const candidates = filterTasks(listed.tasks, args);
+  const archivedIds = args.excludeArchived
+    ? await getArchivedOpenListTaskIds({ storePath: env.MEDIA_TASK_STORE_PATH })
+    : new Set();
+  const filteredTasks = args.excludeArchived
+    ? candidates.filter((task) => !archivedIds.has(task.id))
+    : candidates;
+  const archivedSkipped = candidates.length - filteredTasks.length;
   const baseResult = {
     ok: true,
     tool: "openlist-tasks",
@@ -188,6 +199,7 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
     },
     totalCount: listed.tasks.length,
     matchedCount: filteredTasks.length,
+    ...(args.excludeArchived ? { archivedSkipped } : {}),
     tasks: args.compact ? filteredTasks.map(compactTask) : filteredTasks
   };
 
@@ -344,7 +356,7 @@ function normalizeQueryState(value) {
 function formatTaskHelp() {
   return [
     "OpenList task commands:",
-    "  list [GROUP|all] [undone|done|all] [--compact] [filters]",
+    "  list [GROUP|all] [undone|done|all] [--compact] [--exclude-archived] [filters]",
     "  get GROUP --id TASK_ID | --ids ID1,ID2 [--compact]",
     "  cancel GROUP [undone|done] [filters] [--yes]",
     "",
@@ -353,6 +365,7 @@ function formatTaskHelp() {
     "Examples:",
     "  npm run --silent openlist-tasks -- list copy undone --compact",
     "  npm run --silent openlist-tasks -- list copy all --compact",
+    "  npm run --silent openlist-tasks -- list copy all --compact --exclude-archived",
     "  npm run --silent openlist-tasks -- list all all --compact",
     "  npm run --silent openlist-tasks -- get copy --ids ID1,ID2 --compact",
     "  npm run --silent openlist-tasks -- --help"
