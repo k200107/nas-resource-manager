@@ -235,6 +235,17 @@ test("recognizes a noisy Chinese Shawshank filename as a reviewable movie candid
   assert.equal(plan[0].titleMatch.matchType, "alias");
 });
 
+test("does not strip the final e from ordinary English titles before resolution tags", () => {
+  const items = [
+    { name: "2024", path: "/Downloads/2024", parentPath: "/Downloads", isDir: true },
+    { name: "Example.2160p.mkv", path: "/Downloads/2024/Example.2160p.mkv", parentPath: "/Downloads/2024", isDir: false }
+  ];
+  const plan = buildMediaPlan({
+    sourcePath: "/Downloads", items, moviesPath: "/Movies", tvShowsPath: "/TVShows"
+  });
+  assert.equal(plan[0].resourceName, "Example");
+});
+
 test("does not mistake resolution suffixes or title letters for episode numbers", () => {
   assert.equal(extractResolution("Example.1080p.mkv").value, "1080p");
   assert.equal(extractEpisode("Example.1080p.mkv").episode, null);
