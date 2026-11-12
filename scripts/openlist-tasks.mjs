@@ -35,17 +35,16 @@ const TASK_STATES = new Set(["undone", "done"]);
 /** CLI 入口：组装任务字段并交由状态库验证；不在 CLI 层绕过状态机规则。 */
 async function main() {
   const args = parseArgs(cliArgs());
+  if (args.help) {
+    console.log(formatTaskHelp());
+    return;
+  }
   const env = mergeEnvValues(loadEnvFile(args.envFile).values, process.env);
   const result = await runOpenListTasks({
     env,
     args,
     fetchImpl: globalThis.fetch
   });
-
-  if (args.help) {
-    console.log(formatTaskHelp());
-    return;
-  }
 
   if (args.format === "text") {
     console.log(formatTaskResult(result));
@@ -119,8 +118,8 @@ function parseArgs(argv) {
   }
 
   if (positionals[0]) parsed.action = normalizeAction(positionals[0]);
-  if (positionals[1]) parsed.group = normalizeGroup(positionals[1]);
-  if (positionals[2]) parsed.state = normalizeState(positionals[2]);
+  if (positionals[1]) parsed.group = normalizeQueryGroup(positionals[1]);
+  if (positionals[2]) parsed.state = normalizeQueryState(positionals[2]);
   return parsed;
 }
 
@@ -181,7 +180,7 @@ async function runOpenListTasks({ env = {}, args = {}, fetchImpl = globalThis.fe
     },
     totalCount: listed.tasks.length,
     matchedCount: filteredTasks.length,
-    tasks: filteredTasks
+    tasks: args.compact ? filteredTasks.map(compactTask) : filteredTasks
   };
 
   if (action === "list") return { ...baseResult, ok: listed.errors.length === 0 };
@@ -295,10 +294,24 @@ async function listTaskCollections(context) {
   };
 }
 
-function countTaskStatuses(tasks) {
+
+function compactTask(task) {
+  return {
+    id: task.id,
+    group: task.group || "copy",
+    listState: task.listState || "",
+    name: task.name,
+    taskStatus: task.taskStatus || "UNKNOWN",
+    progress: task.progress,
+    ...(task.taskReason ? { taskReason: task.taskReason } : {}),
+    ...(task.error ? { error: task.error } : {})
+  };
+}
+\nfunction countTaskStatuses(tasks) {
   return tasks.reduce((counts, task) => {
-    const status = task.status || task.taskStatus || "UNKNOWN";
-    counts[status] = (counts[status] || 0) + 1;
+    const status = task.taskStatus || task.status || "UNKNOWN";
+    const normalized = ["SUCCEEDED", "ACTIVE", "FAILED", "UNKNOWN"].includes(status) ? status : "UNKNOWN";
+    counts[normalized] += 1;
     return counts;
   }, { SUCCEEDED: 0, ACTIVE: 0, FAILED: 0, UNKNOWN: 0 });
 }
