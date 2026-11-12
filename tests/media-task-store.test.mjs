@@ -10,6 +10,8 @@ import {
   canAutoArchive,
   createTask,
   getTask,
+  getArchivedOpenListTaskIds,
+  recordArchiveOperation,
   listTasks,
   transitionTask
 } from "../scripts/media-task-store.mjs";
@@ -178,4 +180,23 @@ test("a destination conflict cannot be automatically archived until explicitly r
     reviewResolution: { confirmed: true, resourceName: "Example", resourceType: "movie", conflictResolved: true }
   }, options);
   assert.equal(resolved.conflict, false);
+});
+
+
+test("archive ledger links OpenList task IDs and merges later associations", async () => {
+  const options = await tempOptions();
+  await recordArchiveOperation({
+    source: "/Downloads/Film.mkv", target: "/Movies/Film/Film.mkv",
+    resourceGroupId: "/Downloads/Film", verified: true
+  }, options);
+  assert.deepEqual([...await getArchivedOpenListTaskIds(options)], []);
+  await recordArchiveOperation({
+    source: "/Downloads/Film.mkv", target: "/Movies/Film/Film.mkv",
+    openListTaskId: "copy-task-1", verified: true
+  }, options);
+  await recordArchiveOperation({
+    source: "/Downloads/Film.mkv", target: "/Movies/Film/Film.mkv",
+    openListTaskId: "copy-task-2", verified: true
+  }, options);
+  assert.deepEqual([...(await getArchivedOpenListTaskIds(options))].sort(), ["copy-task-1", "copy-task-2"]);
 });
