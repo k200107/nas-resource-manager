@@ -12,7 +12,7 @@ const plan = [{
   resourceType: "movie", status: "auto_archive_candidate"
 }];
 
-test("archive defaults to read-only and preflights source and target", async () => {
+test("archive defaults to read-only and preflights target conflicts without source lookup", async () => {
   const calls = [];
   const result = await runMediaArchive({
     plan, ...roots, baseUrl: "http://openlist.test", token: "token",
@@ -20,7 +20,8 @@ test("archive defaults to read-only and preflights source and target", async () 
   });
   assert.equal(result.mode, "read-only-dry-run");
   assert.equal(result.mutated, false);
-  assert.deepEqual(calls.map((x) => x.endpoint), ["/api/fs/list", "/api/fs/list", "/api/fs/list", "/api/fs/list"]);
+  assert.deepEqual(calls.map((x) => x.endpoint), ["/api/fs/list", "/api/fs/list", "/api/fs/list"]);
+  assert.equal(calls.some((x) => x.body?.path === "/Downloads"), false);
   assert.equal(calls.some((x) => !x.endpoint.endsWith("/list")), false);
 });
 
@@ -62,7 +63,8 @@ test("confirmed archive trusts successful move and rename API responses without 
   ]);
   assert.equal(result.executed[0].verified, true);
   assert.equal(result.executed[0].apiConfirmed, true);
-  assert.equal(calls.filter((call) => call.endpoint === "/api/fs/list").length, 6);
+  assert.equal(calls.filter((call) => call.endpoint === "/api/fs/list").length, 4);
+  assert.equal(calls.some((call) => call.body?.path === "/Downloads"), false);
 });
 
 test("explicitly confirmed review item is executable without falsifying its original confidence", async () => {
