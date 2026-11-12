@@ -346,7 +346,7 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
       parentYear,
       resourceNameOverride: parentTitle === "Unsorted" ? stripExtension(file.name) : parentTitle
     }));
-    return [...directEntries, ...children.map((child) => ({ ...child, parentYear }))];
+    return [...directEntries, ...children.map((child) => ({ ...child, parentYear, parentResourceName: parentTitle }))];
   });
 
   for (const entry of entries) {
@@ -364,10 +364,19 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }
 
     const folderName = entry.isDir ? entry.name : stripExtension(entry.name);
-    const genericFolder = new Set(["前作", "续集", "合集", "电影", "影片", "正片", "其他", "未分类"]);
-    const singleVideoTitle = entry.isDir && videoFiles.length === 1 && genericFolder.has(folderName.trim());
-    const rawName = sanitizeName(entry.resourceNameOverride || (singleVideoTitle ? stripExtension(videoFiles[0].name) : folderName));
-    const explicitYear = extractExplicitYear(rawName) || entry.parentYear || null;
+    const filenameTitle = entry.isDir && entry.parentResourceName && videoFiles.length
+      ? extractFilenameTitle(videoFiles[0].name)
+      : "";
+    // 优先使用视频文件自身可识别的片名；文件名只有清晰度等技术信息时，
+    // 回退到一级资源目录，最后才使用当前二级目录名。
+    const rawName = sanitizeName(
+      entry.resourceNameOverride ||
+      filenameTitle ||
+      entry.parentResourceName ||
+      folderName
+    );
+    const explicitYear = extractExplicitYear(videoFiles[0]?.name || "") ||
+      extractExplicitYear(rawName) || entry.parentYear || null;
     const identityInput = rawName
       .replace(/(?:19|20)\d{2}/, "")
       .replace(/(?:^|[ ._-])(?:S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3})(?=$|[ ._-])|第[一二三四五六七八九十百\d]+(?:季|集)/ig, " ")
@@ -487,6 +496,20 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }
   }
   return plan;
+}
+
+/** 从视频文件名提取可用片名；若文件名只含年份、清晰度、编码等技术信息则返回空串。 */
+function extractFilenameTitle(fileName) {
+  return stripExtension(String(fileName || ""))
+    .replace(/(?:19|20)\d{2}/g, " ")
+    .replace(/(?:^|[ ._-])(?:S\d{1,2}(?:E\d{1,3})?|EP?\.?\s*\d{1,3})(?=$|[ ._-])/ig, " ")
+    .replace(/(?:BD(?:Rip|Remux)?\s*\d{3,4}|Blu[ ._-]?ray|WEB[ ._-]?DL|WEBRip|HDRip|DVDRip|HEVC|H\.265|H\.264|AVC|AAC|DTS|HDR10?|10bit|8bit)/ig, " ")
+    .replace(/(?:2160p|2048p|1440p|1080p|720p|480p|1280|1920|2048|4k|2k|uhd|fhd)/ig, " ")
+    .replace(/(?:高清|超清|蓝光|藍光|中英双字|中英字幕|中文字幕|英文字幕|双语字幕|双字|中字|国粤双语|国语|粤语)/g, " ")
+    .replace(/[()[\]{}（）【】]/g, " ")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** 依据资源名称和文件名中的集数/季数标记判断电影或剧集；仅有视频文件本身不足以高置信度认定电影。 */
