@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { compactArchiveResult, runMediaArchive, parseArgs, validatePlanItem } from "../scripts/media-archive.mjs";
+import { getArchivedOpenListTaskIds } from "../scripts/media-task-store.mjs";
 
 const roots = { moviesPath: "/media/Movies", tvShowsPath: "/media/TVShows" };
 const plan = [{
@@ -169,6 +170,7 @@ test("parseArgs supports compact output without changing execution confirmation"
   assert.equal(parseArgs(["--plan-file", "plan.json", "--compact"]).compact, true);
   assert.equal(parseArgs(["--plan-file", "plan.json", "--compact"]).yes, false);
   assert.equal(parseArgs(["--plan-file", "plan.json", "--yes"]).yes, true);
+  assert.equal(parseArgs(["--plan-file", "plan.json", "--openlist-task-id", "copy-1"]).openListTaskId, "copy-1");
 });
 
 test("compact archive output retains decisions and errors but omits verbose safety metadata", () => {
@@ -243,6 +245,36 @@ test("verified archive operations are idempotent on a repeated plan", async () =
     assert.equal(second.mode, "idempotent-noop");
     assert.equal(second.mutated, false);
     assert.equal(second.alreadyArchived.length, 1);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+
+test("already archived plan can backfill its OpenList task ID without remote API calls", async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "nas-resource-manager-archive-link-"));
+  const storePath = path.join(temp, "media-tasks.json");
+  const lockDir = path.join(temp, "locks");
+  const groupedPlan = [{ ...plan[0], resourceGroupId: "/Downloads/Example" }];
+  try {
+    const first = await runMediaArchive({
+      plan: groupedPlan, ...roots, yes: true,
+      baseUrl: "http://openlist.test", token: "token", storePath, lockDir,
+      fetchImpl: fakeOpenList([], {
+        "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+        "/Downloads": [{ name: "Example.2160p.mkv", is_dir: false }],
+        "/media": [{ name: "Movies", is_dir: true }],
+        "/media/Movies": []
+      })
+    });
+    assert.equal(first.ok, true);
+    const linked = await runMediaArchive({
+      plan: groupedPlan, ...roots, baseUrl: "http://openlist.test", token: "token",
+      openListTaskId: "copy-task-archived", storePath, lockDir,
+      fetchImpl: async () => { throw new Error("backfill must not call OpenList"); }
+    });
+    assert.equal(linked.mode, "idempotent-noop");
+    assert.deepEqual([...(await getArchivedOpenListTaskIds({ storePath }))], ["copy-task-archived"]);
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }

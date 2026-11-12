@@ -100,6 +100,20 @@ export async function getArchiveOperation(source, target, options = {}) {
   return db.archiveRecords?.[key] || null;
 }
 
+/** Return OpenList task IDs already linked to a successfully archived source/target pair. */
+export async function getArchivedOpenListTaskIds(options = {}) {
+  const db = await readStore(resolveStorePath(options.storePath));
+  const ids = new Set();
+  for (const record of Object.values(db.archiveRecords || {})) {
+    if (record?.verified !== true) continue;
+    for (const id of record.openListTaskIds || []) {
+      const value = String(id || "").trim();
+      if (value) ids.add(value);
+    }
+  }
+  return ids;
+}
+
 /**
  * 仅在 OpenList 目标回读验证成功后记录归档完成；复用现有媒体任务状态库和文件锁。
  */
@@ -113,11 +127,21 @@ export async function recordArchiveOperation(record, options = {}) {
     db.archiveRecords ||= {};
     const key = archiveOperationKey(record.source, record.target);
     const existing = db.archiveRecords[key];
-    if (existing) return existing;
+    const taskId = String(record.openListTaskId || "").trim();
+    if (existing) {
+      const ids = new Set(existing.openListTaskIds || []);
+      if (taskId && !ids.has(taskId)) {
+        ids.add(taskId);
+        existing.openListTaskIds = [...ids];
+        await writeStore(storePath, db);
+      }
+      return existing;
+    }
     const saved = {
       source: String(record.source),
       target: String(record.target),
       resourceGroupId: String(record.resourceGroupId || ""),
+      ...(taskId ? { openListTaskIds: [taskId] } : {}),
       verified: true,
       verifiedAt: new Date().toISOString()
     };

@@ -16,7 +16,7 @@ Read this file for requests to organize, rename, move, or archive media. Shared 
 | Plan one resource folder | `npm run --silent media-plan -- --source-dir "$OPENLIST_STAGING_PATH" --resource "$RESOURCE_DIR_NAME" --output-file "$PLAN_FILE" --format json --compact` |
 | Plan a directory batch | `npm run --silent media-plan -- --source-dir "$DIR" --format json --compact` |
 | Archive dry-run (optional) | `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --compact` |
-| Execute confirmed archive | `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --yes --compact` (includes fresh preflight) |
+| Execute confirmed archive | `npm run --silent media-archive -- --plan-file "$PLAN_FILE" --yes --compact [--openlist-task-id "$TASK_ID"]` (includes fresh preflight) |
 
 ## Workflow
 
@@ -29,7 +29,8 @@ Read this file for requests to organize, rename, move, or archive media. Shared 
 6. A `review_required` item may have a proposed title/type/year/target, but retain original confidence and status. It remains non-executable until the user explicitly confirms that exact item.
 7. After confirmation of the exact source/target, annotate only that item with `userConfirmed: true` and matching `confirmation: { "scope": "move-and-rename", "source": "<exact source>", "resourceType": "<movie|series>", "resourceName": "<confirmed title>", "year": <year or null>, "target": "<exact target>" }`. Never raise confidence or change `review_required`. Every field must match exactly; conflicts remain ineligible.
 8. Execute the same plan once with `--yes`. This command performs a fresh target-conflict preflight before any mutation, blocks the operation on conflicts, then creates required directories and moves/renames. It does not separately query whether the source exists: the OpenList move API is authoritative and returns an error for a missing/invalid source. Successful OpenList move/rename API responses are the operation completion signal; do not list the target again or perform file-size/hash/content checks. The legacy ledger field `verified: true` means the mutation API returned success, not byte-level integrity verification. Do not run the separate dry-run first when the exact plan has already been reviewed and confirmed.
-9. If every executed item returns `apiConfirmed: true` (and legacy `verified: true`), stop. Do not list the destination again, regenerate plans, rescan destinations, or repeat hash/size checks. Preserve multi-season structure; never overwrite same-name targets.
+9. If the archive was triggered by an OpenList copy task, pass its exact task ID with `--openlist-task-id "$TASK_ID"` to persist the association in the existing archive ledger. For a resource archived before this feature, rerun its saved plan once with `--openlist-task-id "$TASK_ID"` and without `--yes`; the task ID is linked only if the exact source/target pair is already recorded as archived. Then routine task listings can use `--exclude-archived`.
+10. If every executed item returns `apiConfirmed: true` (and legacy `verified: true`), stop. Do not list the destination again, regenerate plans, rescan destinations, or repeat hash/size checks. Preserve multi-season structure; never overwrite same-name targets.
 
 ## Source and completion rules
 
