@@ -10,7 +10,8 @@ const DEFAULT_TITLE_ALIASES = {
 
 // 仅用于已知规范片名的年份补全；别名匹配仍必须经过人工确认。
 const DEFAULT_TITLE_YEARS = {
-  "肖申克的救赎": 1994
+  "肖申克的救赎": 1994,
+  "星际穿越": 2014
 };
 
 const SIMPLIFIED_MAP = {
