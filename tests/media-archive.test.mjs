@@ -233,6 +233,12 @@ function fakeOpenList(calls, listings, { verifyTarget = false } = {}) {
       listings[body.path] = [];
     } else if (endpoint === "/api/fs/move") {
       moved.add(body.names[0]);
+      listings[body.src_dir] = (listings[body.src_dir] || []).filter((row) => row.name !== body.names[0]);
+    } else if (endpoint === "/api/fs/remove") {
+      for (const name of body.names || []) {
+        listings[body.dir] = (listings[body.dir] || []).filter((row) => row.name !== name);
+        delete listings[body.dir + "/" + name];
+      }
     } else if (endpoint === "/api/fs/rename") {
       // Mutation behavior is represented by the verification listing above.
     } else {
@@ -342,3 +348,31 @@ test("planner-declared conflicts block the whole batch before OpenList calls", a
   assert.equal(result.preflight[0].plannerConflict, true);
   assert.equal(calls.length, 0);
 });
+
+test("removes only empty source resource folders after every group item moves successfully", async () => {
+  const calls = [];
+  const grouped = [{
+    ...plan[0],
+    source: "/Downloads/Example/Example.2160p.mkv",
+    resourceGroupId: "/Downloads/Example"
+  }];
+  const result = await runMediaArchive({
+    plan: grouped, ...roots, yes: true,
+    baseUrl: "http://openlist.test", token: "token",
+    fetchImpl: fakeOpenList(calls, {
+      "/": [{ name: "Downloads", is_dir: true }, { name: "media", is_dir: true }],
+      "/Downloads": [{ name: "Example", is_dir: true }],
+      "/Downloads/Example": [{ name: "Example.2160p.mkv", is_dir: false }],
+      "/media": [{ name: "Movies", is_dir: true }],
+      "/media/Movies": []
+    })
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.sourceDirectoryCleanup.removed, ["/Downloads/Example"]);
+  assert.deepEqual(result.sourceDirectoryCleanup.warnings, []);
+  assert.ok(calls.some((call) => call.endpoint === "/api/fs/remove" &&
+    call.body.dir === "/Downloads" && call.body.names[0] === "Example"));
+  assert.equal(calls.some((call) => call.endpoint === "/api/fs/remove" &&
+    call.body.names?.includes("Downloads")), false);
+});
+
