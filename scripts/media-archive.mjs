@@ -235,6 +235,8 @@ async function runMediaArchive({
   }
 
   const executed = [];
+  const cleanedSourceDirectories = [];
+  const cleanupWarnings = [];
   try {
     for (const item of validated) {
       const check = preflight.find((entry) => entry.source === item.source);
@@ -274,6 +276,48 @@ async function runMediaArchive({
         break;
       }
     }
+
+    // Clean only empty directories belonging to fully completed resource groups.
+    // A resource folder is never removed when any planned item in that group is unresolved.
+    const executionSucceeded = executed.length === validated.length && executed.every((entry) => entry.ok);
+    if (executionSucceeded) {
+      const executedBySource = new Map(executed.map((entry) => [entry.source, entry]));
+      const archivedSources = new Set(alreadyArchived.map((entry) => entry.source));
+      const groupIds = [...new Set(validated.map((item) => item.resourceGroupId).filter(Boolean))];
+      for (const groupId of groupIds) {
+        const groupItems = plan.filter((entry) => entry?.resourceGroupId === groupId);
+        if (!groupItems.length || !groupItems.every((entry) =>
+          entry.source && entry.target && isArchiveEligible(entry) &&
+          (archivedSources.has(entry.source) || executedBySource.get(entry.source)?.ok === true)
+        )) continue;
+
+        const directories = new Set();
+        for (const item of groupItems) {
+          const source = normalizePath(item.source);
+          let dir = parent(source);
+          // Loose files use their own path as resourceGroupId; never treat that file as a directory.
+          if (groupId === source || !source.startsWith(groupId + "/")) continue;
+          while (dir === groupId || dir.startsWith(groupId + "/")) {
+            directories.add(dir);
+            if (dir === groupId) break;
+            const next = parent(dir);
+            if (next === dir || next === "/") break;
+            dir = next;
+          }
+        }
+
+        for (const dir of [...directories].sort((a, b) => b.length - a.length)) {
+          try {
+            const rows = await api.list(dir);
+            if (rows.length !== 0) continue;
+            await api.remove(parent(dir), basename(dir));
+            cleanedSourceDirectories.push(dir);
+          } catch (error) {
+            cleanupWarnings.push({ directory: dir, error: error.message || String(error) });
+          }
+        }
+      }
+    }
   } finally {
     for (const handle of lockHandles.reverse()) await handle.release().catch(() => {});
   }
@@ -283,7 +327,8 @@ async function runMediaArchive({
     ok: success, tool: "media-archive", mode: "openlist-move-and-rename",
     mutated: executed.some((entry) => entry.ok), eligible: eligible.length, skipped, alreadyArchived,
     preflight, executed,
-    safety: { overwrite: false, delete: false, copy: false, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
+    sourceDirectoryCleanup: { removed: cleanedSourceDirectories, warnings: cleanupWarnings },
+    safety: { overwrite: false, delete: false, copy: false, deleteEmptySourceDirectoriesOnly: true, stopOnFirstError: true, idempotencyLedger: true, resourceLocks: true },
     confirmedReviewCount: validated.filter((item) => item.confirmedReview).length,
     awaitingUserConfirmation,
     ...(openListTaskId ? { openListTaskId } : {}),
@@ -308,6 +353,7 @@ function compactArchiveResult(result) {
     alreadyArchived: (result.alreadyArchived || []).map((item) => pick(item, ["source", "target", "verified"])),
     preflight: (result.preflight || []).map((item) => pick(item, ["source", "target", "ok", "conflict", "duplicatePlanTarget", "existingTarget", "missingDirectories", "reason"])),
     executed: (result.executed || []).map((item) => pick(item, ["source", "target", "ok", "apiConfirmed", "verified", "error"])),
+    sourceDirectoryCleanup: result.sourceDirectoryCleanup || { removed: [], warnings: [] },
     ...(result.openListTaskId ? { openListTaskId: result.openListTaskId } : {}),
     nextAction: result.nextAction
   };
@@ -393,6 +439,7 @@ function createApi({ baseUrl, token, fetchImpl, timeoutMs }) {
       return all;
     },
     mkdir: (dir) => request("/api/fs/mkdir", { path: dir }),
+    remove: (dir, name) => request("/api/fs/remove", { dir, names: [name] }),
     move: (srcDir, dstDir, name) => request("/api/fs/move", { src_dir: srcDir, dst_dir: dstDir, names: [name] }),
     rename: (sourcePath, name) => request("/api/fs/rename", { path: sourcePath, name })
   };
