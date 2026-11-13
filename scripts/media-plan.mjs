@@ -395,10 +395,13 @@ function buildMediaPlan({ sourcePath, items = [], moviesPath, tvShowsPath, exist
     }));
     const detectedClassification = classifyMedia({ resourceName: rawName, files: relativeFiles, isDirectory: entry.isDir });
     // 明确季集优先于年份；年份父目录作为明确年份线索，不把年份本身当成片名。
+    const knownTitleYear = DEFAULT_TITLE_YEARS[identity.canonicalTitle] || null;
     const classification = detectedClassification.type === "series"
       ? detectedClassification
-      : explicitYear || entry.parentYear
-        ? { type: "movie", confidence: "high", reason: "资源目录或其年份父目录包含明确年份，按电影候选处理。" }
+      : explicitYear || entry.parentYear || (knownTitleYear && identity.matchType !== "alias" && !identity.candidates?.length)
+        ? { type: "movie", confidence: "high", reason: explicitYear || entry.parentYear
+          ? "资源目录或其年份父目录包含明确年份，按电影候选处理。"
+          : "片名命中内置可信电影身份及上映年份，按电影候选处理。" }
         : identity.matchType === "alias" || identity.candidates?.length > 0
           ? { type: "movie", confidence: "medium", reason: "片名命中已知电影别名；规范片名和年份仅作为候选，需人工确认。" }
           : detectedClassification;

@@ -686,3 +686,25 @@ test("marks all files sharing one Emby target as conflicts", () => {
   assert.ok(plan.every((item) => item.status === "conflict" && item.conflict === true));
   assert.equal(plan[0].target, plan[1].target);
 });
+
+test("recognizes a trusted Chinese movie title with its built-in release year", () => {
+  const plan = buildMediaPlan({
+    sourcePath: "/本地存储/Downloads",
+    items: [{
+      name: "星际穿越.mkv",
+      path: "/本地存储/Downloads/星际穿越.mkv",
+      parentPath: "/本地存储/Downloads",
+      isDir: false
+    }],
+    moviesPath: "/本地存储/Movies",
+    tvShowsPath: "/本地存储/TVShows"
+  });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].resourceName, "星际穿越");
+  assert.equal(plan[0].resourceType, "movie");
+  assert.equal(plan[0].year, 2014);
+  assert.equal(plan[0].confidence, "high");
+  assert.equal(plan[0].status, "auto_archive_candidate");
+  assert.equal(plan[0].target, "/本地存储/Movies/星际穿越 (2014)/星际穿越 (2014).mkv");
+});
+
