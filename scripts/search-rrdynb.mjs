@@ -360,10 +360,7 @@ function applyDeadLinkFilter(searchResult, linkChecks, maxCandidates = DEFAULT_M
     .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
 
   searchResult.candidates = survivors;
-  searchResult.downloadLinks = survivors.map((candidate) => ({
-    rank: candidate.rank,
-    ...candidate.downloadLinks[0]
-  }));
+  searchResult.downloadLinks = survivors.map((candidate) => candidate.downloadLinks[0]);
   searchResult.returnedCount = survivors.length;
   searchResult.total = survivors.length;
   searchResult.providerCounts = countBy(survivors, "diskType");
