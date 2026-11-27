@@ -260,9 +260,9 @@ function buildSearchQueryParams(args) {
 /** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizePanSouSearchResponse(response, options = {}) {
   const data = unwrapData(response);
-  const rankedLinks = data.results && data.results.length > 0 ? flattenResultsLinks(data.results) : [];
+  const flattenedLinks = data.results && data.results.length > 0 ? flattenResultsLinks(data.results) : [];
   const mergedByType = data.merged_by_type || groupResultsByType(data.results || []);
-  const rawLinks = rankedLinks.length > 0 ? rankedLinks : flattenMergedLinks(mergedByType);
+  const rawLinks = flattenedLinks.length > 0 ? flattenedLinks : flattenMergedLinks(mergedByType);
   const cloudTypes = Array.isArray(options.cloudTypes) ? options.cloudTypes : DEFAULT_CLOUD_TYPES;
   const allowedLinks = filterLinksByCloudTypes(rawLinks, cloudTypes);
   // 先按分享链接去重，再决定截断；否则同一条分享的多次出现会占满候选名额。
