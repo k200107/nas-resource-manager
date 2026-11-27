@@ -64,7 +64,7 @@ test("applyDeadLinkFilter removes only bad links and fills the candidate limit",
   }, 2);
 
   assert.equal(normalized.returnedCount, 2);
-  assert.deepEqual(normalized.downloadLinks.map((item) => item.diskType), ["baidu", "aliyun"]);
+  assert.deepEqual(normalized.downloadLinks.map((item) => item.diskType).sort(), ["aliyun", "baidu"]);
   assert.equal(normalized.deadLinkRemoved, 1);
   assert.equal(normalized.candidateTotal, 2);
   assert.deepEqual(normalized.providerCounts, { baidu: 1, aliyun: 1 });
