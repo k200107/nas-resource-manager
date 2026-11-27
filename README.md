@@ -7,6 +7,8 @@ The repository is being extended with a cautious media-ingest workflow. Existing
 ## Features
 
 - Search PanSou and return ranked Aliyun/Quark/Baidu resource links as Markdown or JSON.
+- Automatically check share links through PanSou before applying the candidate limit; remove only links explicitly marked `bad`, allowing later valid candidates to fill the result slots.
+- Keep `locked`, `uncertain`, `unsupported`, unmatched check results, and all links when the check service fails; use `--no-check-links` to disable automatic checking.
 - Deduplicate identical shares and interleave results across providers, so one drive cannot take every candidate slot.
 - Report structured failures on stdout in `--format json` mode instead of failing silently.
 - All CLI commands share the same failure reporter (`failCli` in `scripts/cli-utils.mjs`): JSON mode exposes `{ ok: false, error }` on stdout, other modes keep it on stderr.
@@ -160,10 +162,16 @@ At least one provider must be configured for provider save operations. Aliyun, Q
 
 ## Usage
 
-Search resources:
+Search resources (link checking is enabled by default):
 
 ```bash
 npm run search -- "蜘蛛侠"
+```
+
+Disable automatic link checking when needed:
+
+```bash
+npm run search -- "蜘蛛侠" --no-check-links
 ```
 
 Check service configuration and connectivity after configuring the required credentials:

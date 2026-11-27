@@ -7,7 +7,8 @@ import {
   normalizePanSouSearchResponse,
   parseArgs,
   renderMarkdownTable,
-  formatSearchResult
+  formatSearchResult,
+  applyDeadLinkFilter
 } from "../scripts/search-rrdynb.mjs";
 
 test("parseArgs defaults search to Aliyun, Quark, and Baidu with a 10 candidate cap", () => {
@@ -16,7 +17,71 @@ test("parseArgs defaults search to Aliyun, Quark, and Baidu with a 10 candidate 
   assert.equal(args.title, "蜘蛛侠");
   assert.equal(args.maxCandidates, 10);
   assert.equal(args.compact, false);
+  assert.equal(args.checkLinks, true);
   assert.deepEqual(args.cloudTypes, ["aliyun", "quark", "baidu"]);
+});
+
+
+test("parseArgs can disable automatic link checking", () => {
+  assert.equal(parseArgs(["蜘蛛侠", "--no-check-links"]).checkLinks, false);
+  assert.equal(parseArgs(["蜘蛛侠", "--check-links"]).checkLinks, true);
+});
+
+test("normalizePanSouSearchResponse can defer candidate limit until after link checks", () => {
+  const normalized = normalizePanSouSearchResponse({
+    data: {
+      total: 3,
+      results: [{ title: "蜘蛛侠", links: [
+        { type: "quark", url: "https://pan.quark.cn/s/dead", work_title: "蜘蛛侠失效" },
+        { type: "baidu", url: "https://pan.baidu.com/s/good", work_title: "蜘蛛侠有效" },
+        { type: "aliyun", url: "https://www.alipan.com/s/third", work_title: "蜘蛛侠备用" }
+      ] }]
+    }
+  }, { title: "蜘蛛侠", maxCandidates: 1, deferLimit: true });
+
+  assert.equal(normalized.returnedCount, 3);
+});
+
+test("applyDeadLinkFilter removes only bad links and fills the candidate limit", () => {
+  const normalized = normalizePanSouSearchResponse({
+    data: {
+      total: 3,
+      results: [{ title: "蜘蛛侠", links: [
+        { type: "quark", url: "https://pan.quark.cn/s/dead", work_title: "蜘蛛侠失效" },
+        { type: "baidu", url: "https://pan.baidu.com/s/locked", work_title: "蜘蛛侠需提取码" },
+        { type: "aliyun", url: "https://www.alipan.com/s/good", work_title: "蜘蛛侠有效" }
+      ] }]
+    }
+  }, { title: "蜘蛛侠", maxCandidates: 3, deferLimit: true });
+
+  applyDeadLinkFilter(normalized, {
+    ok: true,
+    results: [
+      { diskType: "quark", url: "https://pan.quark.cn/s/dead", state: "bad" },
+      { diskType: "baidu", url: "https://pan.baidu.com/s/locked", state: "locked" },
+      { diskType: "aliyun", url: "https://www.alipan.com/s/good", state: "ok" }
+    ]
+  }, 2);
+
+  assert.equal(normalized.returnedCount, 2);
+  assert.deepEqual(normalized.downloadLinks.map((item) => item.diskType).sort(), ["aliyun", "baidu"]);
+  assert.equal(normalized.deadLinkRemoved, 1);
+  assert.equal(normalized.candidateTotal, 2);
+  assert.deepEqual(normalized.providerCounts, { baidu: 1, aliyun: 1 });
+});
+
+test("applyDeadLinkFilter fails open when link checking fails or returns no matching state", () => {
+  const normalized = normalizePanSouSearchResponse({
+    data: { results: [{ title: "蜘蛛侠", links: [
+      { type: "quark", url: "https://pan.quark.cn/s/one", work_title: "蜘蛛侠一" },
+      { type: "baidu", url: "https://pan.baidu.com/s/two", work_title: "蜘蛛侠二" }
+    ] }] }
+  }, { title: "蜘蛛侠", deferLimit: true });
+
+  applyDeadLinkFilter(normalized, { ok: false, error: "timeout" }, 1);
+  assert.equal(normalized.returnedCount, 1);
+  assert.equal(normalized.deadLinkRemoved, 0);
+  assert.equal(normalized.downloadLinks[0].url, "https://pan.quark.cn/s/one");
 });
 
 test("parseArgs enables compact Agent JSON output", () => {

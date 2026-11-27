@@ -60,6 +60,7 @@ async function main() {
   const searchResult = await searchPanSou(args);
   if (args.checkLinks) {
     searchResult.linkChecks = await checkSearchResultLinks(args, searchResult.downloadLinks);
+    applyDeadLinkFilter(searchResult, searchResult.linkChecks, args.maxCandidates);
   }
 
   console.log(formatSearchResult(searchResult, args.format, args.compact));
@@ -84,7 +85,7 @@ function parseArgs(argv) {
     filter: null,
     concurrency: null,
     refresh: false,
-    checkLinks: false,
+    checkLinks: true,
     viewToken: "",
     proxyUrl: "",
     format: "markdown",
@@ -124,6 +125,8 @@ function parseArgs(argv) {
       parsed.refresh = true;
     } else if (arg === "--check-links") {
       parsed.checkLinks = true;
+    } else if (arg === "--no-check-links") {
+      parsed.checkLinks = false;
     } else if (arg === "--view-token") {
       parsed.viewToken = argv[++index] || "";
     } else if (arg === "--proxy-url" || arg === "--proxy") {
@@ -161,7 +164,7 @@ function printUsage() {
   console.error("  --cloud-types baidu,quark");
   console.error("  --include 4K,合集 --exclude 预告");
   console.error("  --refresh");
-  console.error("  --check-links [--proxy-url socks5://127.0.0.1:1080]");
+  console.error("  --no-check-links 关闭默认死链检测");
   console.error("  --format markdown|json");
 }
 
@@ -184,6 +187,7 @@ function toCompactAgentResult(result) {
     candidateTotal: result.candidateTotal || 0,
     providerAvailable: result.providerAvailable || {},
     dedupeRemoved: result.dedupeRemoved || 0,
+    deadLinkRemoved: result.deadLinkRemoved || 0,
     results: (result.downloadLinks || []).map((link, index) => ({
       rank: index + 1,
       title: link.note || link.label || result.inputTitle || "未命名资源",
@@ -207,7 +211,8 @@ async function searchPanSou(args) {
     title: args.title,
     selectedQuery: args.title,
     maxCandidates: args.maxCandidates,
-    cloudTypes: args.cloudTypes
+    cloudTypes: args.cloudTypes,
+    deferLimit: args.checkLinks
   });
 
   return {
@@ -255,18 +260,18 @@ function buildSearchQueryParams(args) {
 /** 规范化接口或用户输入数据，统一字段和格式，屏蔽上游差异。 */
 function normalizePanSouSearchResponse(response, options = {}) {
   const data = unwrapData(response);
-  const rankedLinks = data.results && data.results.length > 0 ? flattenResultsLinks(data.results) : [];
+  const flattenedLinks = data.results && data.results.length > 0 ? flattenResultsLinks(data.results) : [];
   const mergedByType = data.merged_by_type || groupResultsByType(data.results || []);
-  const rawLinks = rankedLinks.length > 0 ? rankedLinks : flattenMergedLinks(mergedByType);
+  const rawLinks = flattenedLinks.length > 0 ? flattenedLinks : flattenMergedLinks(mergedByType);
   const cloudTypes = Array.isArray(options.cloudTypes) ? options.cloudTypes : DEFAULT_CLOUD_TYPES;
   const allowedLinks = filterLinksByCloudTypes(rawLinks, cloudTypes);
   // 先按分享链接去重，再决定截断；否则同一条分享的多次出现会占满候选名额。
   const { links: uniqueLinks, removedCount } = dedupeLinks(allowedLinks);
   const limit = Number.isFinite(options.maxCandidates) ? options.maxCandidates : DEFAULT_MAX_CANDIDATES;
   // 截断前按“相关性分层 + 网盘轮转”排序，避免单一网盘独占全部名额。
-  const downloadLinks = rankLinksForSelection(uniqueLinks, options.title)
-    .slice(0, limit)
-    .map((link, index) => normalizeDownloadLink(link, index + 1));
+  const rankedLinks = rankLinksForSelection(uniqueLinks, options.title);
+  const selectedLinks = options.deferLimit ? rankedLinks : rankedLinks.slice(0, limit);
+  const downloadLinks = selectedLinks.map((link, index) => normalizeDownloadLink(link, index + 1));
   const candidates = downloadLinks.map((link) => ({
     rank: link.rank,
     name: link.note || link.label || options.title || "未命名资源",
@@ -333,6 +338,40 @@ function normalizeCheckLinksResponse(response) {
   };
 }
 
+/**
+ * 只过滤检测接口明确标记为 bad 的链接；检测失败、缺失结果及其他状态均保留。
+ * 在全量候选上过滤后再截断，避免失效链接占据展示名额。
+ */
+function applyDeadLinkFilter(searchResult, linkChecks, maxCandidates = DEFAULT_MAX_CANDIDATES) {
+  const deadKeys = new Set(
+    linkChecks?.ok
+      ? (linkChecks.results || [])
+        .filter((item) => item.state === "bad")
+        .map((item) => shareLinkKey({ diskType: item.diskType, url: item.url }))
+      : []
+  );
+  const beforeCount = searchResult.candidates?.length || 0;
+  const filtered = (searchResult.candidates || []).filter((candidate) => !deadKeys.has(shareLinkKey({
+    diskType: candidate.diskType,
+    url: candidate.downloadLinks?.[0]?.url
+  })));
+  const survivors = filtered
+    .slice(0, Number.isFinite(maxCandidates) ? maxCandidates : DEFAULT_MAX_CANDIDATES)
+    .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+
+  searchResult.candidates = survivors;
+  searchResult.downloadLinks = survivors.map((candidate) => candidate.downloadLinks[0]);
+  searchResult.returnedCount = survivors.length;
+  searchResult.total = survivors.length;
+  searchResult.providerCounts = countBy(survivors, "diskType");
+  searchResult.deadLinkRemoved = linkChecks?.ok ? beforeCount - filtered.length : 0;
+  if (linkChecks?.ok) {
+    searchResult.candidateTotal = filtered.length;
+    searchResult.providerAvailable = countBy(filtered, "diskType");
+  }
+  return searchResult;
+}
+
 /** 将规范化结果渲染为 Markdown 表格，供终端或聊天渠道阅读。 */
 /** 把规范化资源结果渲染为 Markdown 表格。 */
 function renderMarkdownTable(searchResult) {
@@ -374,8 +413,10 @@ function renderMarkdownTable(searchResult) {
 /** 将处理结果转换为便于用户阅读的文本或结构化输出，不执行数据变更。 */
 function renderLinkCheckNote(linkChecks) {
   if (linkChecks.ok) {
+    const states = countBy(linkChecks.results || [], "state");
     const checked = linkChecks.results?.length || 0;
-    return `链接检测：已检测 ${checked} 条。`;
+    const removed = linkChecks.results?.filter((item) => item.state === "bad").length || 0;
+    return `链接检测：检测 ${checked} 条，过滤失效 ${removed} 条；有效 ${states.ok || 0}，需提取码 ${states.locked || 0}，不确定 ${states.uncertain || 0}。`;
   }
   return `链接检测：当前不可用（${escapeMarkdownText(linkChecks.error || "检测失败")}）。`;
 }
@@ -757,5 +798,6 @@ export {
   normalizeCheckLinksResponse,
   normalizePanSouSearchResponse,
   parseArgs,
-  renderMarkdownTable
+  renderMarkdownTable,
+  applyDeadLinkFilter
 };
