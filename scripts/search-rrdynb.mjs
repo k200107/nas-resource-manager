@@ -351,11 +351,11 @@ function applyDeadLinkFilter(searchResult, linkChecks, maxCandidates = DEFAULT_M
       : []
   );
   const beforeCount = searchResult.candidates?.length || 0;
-  const survivors = (searchResult.candidates || [])
-    .filter((candidate) => !deadKeys.has(shareLinkKey({
-      diskType: candidate.diskType,
-      url: candidate.downloadLinks?.[0]?.url
-    })))
+  const filtered = (searchResult.candidates || []).filter((candidate) => !deadKeys.has(shareLinkKey({
+    diskType: candidate.diskType,
+    url: candidate.downloadLinks?.[0]?.url
+  })));
+  const survivors = filtered
     .slice(0, Number.isFinite(maxCandidates) ? maxCandidates : DEFAULT_MAX_CANDIDATES)
     .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
 
@@ -367,10 +367,10 @@ function applyDeadLinkFilter(searchResult, linkChecks, maxCandidates = DEFAULT_M
   searchResult.returnedCount = survivors.length;
   searchResult.total = survivors.length;
   searchResult.providerCounts = countBy(survivors, "diskType");
-  searchResult.deadLinkRemoved = beforeCount - (linkChecks?.ok ? survivors.length : Math.min(beforeCount, maxCandidates));
+  searchResult.deadLinkRemoved = linkChecks?.ok ? beforeCount - filtered.length : 0;
   if (linkChecks?.ok) {
-    searchResult.candidateTotal = Math.max(0, (searchResult.candidateTotal || beforeCount) - searchResult.deadLinkRemoved);
-    searchResult.providerAvailable = countBy(survivors, "diskType");
+    searchResult.candidateTotal = filtered.length;
+    searchResult.providerAvailable = countBy(filtered, "diskType");
   }
   return searchResult;
 }
